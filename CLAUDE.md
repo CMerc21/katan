@@ -46,14 +46,15 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 * UI shapes, driver interface, and screens are pinned in `docs/phase3.md`.
 * Done when: a full hotseat game is playable in the browser.
 
-### Phase 4 — Supabase multiplayer
+### Phase 4 — Supabase multiplayer (built; verified against local Postgres, not yet against a Supabase stack)
 
 * Schema + RLS + migrations, `apply-action` Edge Function, Realtime subscription in the client, replace hotseat driver with the network driver behind the same interface.
-* Done when: two browser sessions in different accounts can play a full game.
+* Details and deviations in `docs/phase4.md`. Server logic lives in `packages/server` and is bundled into the Edge Functions by `pnpm build:functions`.
+* Done when: two browser sessions in different accounts can play a full game. (Blocked in the dev container: no Docker, so no `supabase start`; the Playwright online spec is written and skips without a stack.)
 
-### Phase 5 — Lobby and resilience
+### Phase 5 — Lobby, resilience, bots (built; same verification caveat as Phase 4)
 
-* Create game, 6-character join code, ready-up, seat order, reconnect/resume, "waiting on X to discard" states, basic error toasts.
+* Create game, 6-character join code, ready-up, seat order, reconnect/resume, "waiting on X to discard" states, basic error toasts, AI bots (`packages/bots`), hand-a-seat-to-a-bot and host escape hatches. Details in `docs/phase5.md`.
 
 ### Phase 6 — Deploy
 
@@ -67,6 +68,10 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 * Do not add dependencies to `packages/engine` without asking.
 * When a rule is ambiguous, ask rather than guess — then update `docs/rules.md` with the decision.
 * Keep this file current: if you change the stack or phase plan, edit it here.
+
+## Packages
+
+* `packages/engine` — rules (pure). `packages/bots` — AI policies over redacted views (pure). `packages/server` — game and lobby transactions over a `postgres` client, shared by the Edge Functions and the Node tests. `apps/web` — Next.js client. `supabase/` — migrations, config, Edge Functions (thin Deno handlers importing `_shared/katan.bundle.js`).
 
 ## Engine layout (packages/engine/src)
 
@@ -86,8 +91,9 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 ## Web layout (apps/web)
 
-* `app/` — `/` (start a hotseat game) and `/play` (the game). Both are client components.
-* `src/driver/` — `GameDriver` interface (`types.ts`) and `HotseatDriver`. Components never import `applyAction`; they only talk to a driver. Phase 4 adds a network driver behind the same interface.
+* `app/` — `/` (online home + hotseat form), `/hotseat`, `/play` (hotseat game), `/login`, `/join/[code]`, `/lobby/[code]`, `/play/[gameId]` (online game). All client components.
+* `src/driver/` — `GameDriver` interface (`types.ts`), `HotseatDriver` (in-memory, device handoff, optional bot seats) and `SupabaseDriver` (server views over Realtime, actions via Edge Functions). Components never import `applyAction`; they only talk to a driver and its optional capabilities.
+* `src/lib/supabase.ts` — browser client, magic-link helpers, Edge Function envelope.
 * `src/game/store.ts` — in-memory holder for the live driver; a reload loses it and `/play` redirects to `/`.
 * `src/hooks/useGame.ts` — the one hook: `{ view, legal, dispatch, me }`.
 * `src/board/layout.ts` — hex/vertex/edge screen geometry and viewBox (unit tested).
@@ -107,6 +113,11 @@ pnpm --filter web dev
 pnpm --filter web build
 pnpm --filter web test:e2e          # Playwright (starts next dev on :3100)
 pnpm --filter web test:e2e -- fullgame   # slow whole-game run
-supabase start       # local stack
+pnpm --filter @katan/server test   # needs a local Postgres (KATAN_TEST_DB_URL); runs the real migrations
+pnpm build:functions # bundle engine+bots+server for the Edge Functions (before serve/deploy)
+supabase start       # local stack (Docker)
+supabase db reset    # apply migrations locally
+supabase functions serve --env-file .env.local
+pnpm seed:local      # two test users + a game (needs SUPABASE_SERVICE_ROLE_KEY)
 supabase db reset    # apply migrations locally
 ```

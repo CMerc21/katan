@@ -119,6 +119,8 @@ export interface GameState {
 export interface PlayerSetup {
   readonly id: PlayerId;
   readonly name: string;
+  /** Defaults to the seat's colour (red, blue, orange, white). */
+  readonly color?: PlayerColor;
 }
 
 export interface CreateGameOptions {

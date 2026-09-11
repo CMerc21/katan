@@ -1,114 +1,156 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { BoardKind } from "@katan/engine";
-import { Button, Swatch } from "@/components/ui";
-import { startHotseat } from "@/game/store";
-import { PLAYER_COLORS } from "@katan/engine";
+import { HotseatStart } from "@/components/HotseatStart";
+import { Button } from "@/components/ui";
+import { errorText } from "@/game/labels";
+import { useSession } from "@/hooks/useSession";
+import { callFunction, displayNameOf, signOut, supabase } from "@/lib/supabase";
 
-const DEFAULT_NAMES = ["Ada", "Bo", "Cy", "Di"];
-
-function randomSeed(): string {
-  const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
-  let out = "";
-  for (let i = 0; i < 8; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
-  return out;
+interface MyGame {
+  id: string;
+  join_code: string;
+  status: "lobby" | "active" | "ended";
+  created_at: string;
 }
 
-/** Start a hotseat game (docs/phase3.md §3.1). */
-export default function StartPage() {
+/** Home: create or join an online game, see your games, or play hotseat (docs/phase5.md §1–§2). */
+export default function HomePage() {
   const router = useRouter();
-  const [count, setCount] = useState<3 | 4>(4);
-  const [names, setNames] = useState<string[]>(DEFAULT_NAMES);
-  const [board, setBoard] = useState<BoardKind>("beginner");
-  const [seed, setSeed] = useState<string>(() => randomSeed());
+  const { session, loading, configured } = useSession();
+  const [board, setBoard] = useState<"beginner" | "random">("beginner");
+  const [maxPlayers, setMaxPlayers] = useState<3 | 4>(4);
+  const [code, setCode] = useState("");
+  const [games, setGames] = useState<MyGame[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const start = () => {
-    const chosen = names.slice(0, count).map((n) => n.trim());
-    if (chosen.some((n) => n.length === 0)) return setProblem("Every player needs a name.");
-    if (new Set(chosen.map((n) => n.toLowerCase())).size !== chosen.length) return setProblem("Player names must differ.");
-    const players = chosen.map((name, i) => ({ id: `p${i + 1}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, name }));
-    startHotseat({ players, board, seed: board === "random" ? seed.trim() || randomSeed() : "beginner" });
-    router.push("/play");
+  useEffect(() => {
+    if (!configured || !session) return;
+    void supabase()
+      .from("lobby_games")
+      .select("id, join_code, status, created_at")
+      .neq("status", "ended")
+      .order("created_at", { ascending: false })
+      .then(({ data }) => setGames((data ?? []) as MyGame[]));
+  }, [configured, session]);
+
+  const create = async () => {
+    if (!session) return;
+    setBusy(true);
+    setProblem(null);
+    const reply = await callFunction<{ gameId: string; joinCode: string }>("create-lobby", { board, maxPlayers, name: displayNameOf(session) });
+    setBusy(false);
+    if (!reply.ok) return setProblem(errorText(reply.code));
+    router.push(`/lobby/${reply.joinCode}`);
   };
 
   return (
     <main className="mx-auto max-w-lg px-4 py-10">
       <h1 className="text-3xl font-semibold">Katan</h1>
-      <p className="mt-1 text-ink-soft">A hex settlement game for 3 to 4 friends sharing one screen.</p>
+      <p className="mt-1 text-ink-soft">A hex settlement game for 3 to 4 friends.</p>
 
-      <form
-        className="mt-8 space-y-6"
-        onSubmit={(e) => {
-          e.preventDefault();
-          start();
-        }}
-      >
-        <fieldset>
-          <legend className="text-sm font-semibold">Players</legend>
-          <div className="mt-2 flex gap-2" role="radiogroup" aria-label="Player count">
-            {([3, 4] as const).map((n) => (
-              <Button key={n} variant={count === n ? "primary" : "secondary"} role="radio" aria-checked={count === n} onClick={() => setCount(n)} data-testid={`count-${n}`}>
-                {n} players
-              </Button>
-            ))}
+      {configured && (
+        <section className="mt-8 rounded-lg border border-line bg-white/40 p-5" aria-label="Play online">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-lg font-semibold">Play online</h2>
+            {session ? (
+              <span className="text-sm text-ink-soft">
+                {displayNameOf(session)} ·{" "}
+                <button type="button" className="underline" onClick={() => void signOut()}>
+                  sign out
+                </button>
+              </span>
+            ) : (
+              !loading && (
+                <Link className="text-sm underline" href="/login?next=/">
+                  Sign in
+                </Link>
+              )
+            )}
           </div>
-          <ol className="mt-3 space-y-2">
-            {names.slice(0, count).map((name, i) => (
-              <li key={i} className="flex items-center gap-3">
-                <Swatch color={PLAYER_COLORS[i]!} size={18} />
-                <label className="sr-only" htmlFor={`name-${i}`}>
-                  Player {i + 1} name
+
+          {session ? (
+            <>
+              {games.length > 0 && (
+                <div className="mt-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-soft">Your games</h3>
+                  <ul className="mt-1 divide-y divide-line" data-testid="my-games">
+                    {games.map((g) => (
+                      <li key={g.id} className="flex items-center justify-between py-1.5 text-sm">
+                        <span>
+                          <span className="font-mono">{g.join_code}</span> · {g.status === "lobby" ? "in lobby" : "in play"}
+                        </span>
+                        <Link className="underline" href={g.status === "lobby" ? `/lobby/${g.join_code}` : `/play/${g.id}`}>
+                          {g.status === "lobby" ? "Open lobby" : "Rejoin"}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <form
+                className="mt-4 space-y-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void create();
+                }}
+              >
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-soft">Create a game</h3>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant={board === "beginner" ? "primary" : "secondary"} onClick={() => setBoard("beginner")} size="sm">
+                    Beginner board
+                  </Button>
+                  <Button variant={board === "random" ? "primary" : "secondary"} onClick={() => setBoard("random")} size="sm">
+                    Random board
+                  </Button>
+                  <Button variant={maxPlayers === 3 ? "primary" : "secondary"} onClick={() => setMaxPlayers(3)} size="sm">
+                    3 players
+                  </Button>
+                  <Button variant={maxPlayers === 4 ? "primary" : "secondary"} onClick={() => setMaxPlayers(4)} size="sm">
+                    4 players
+                  </Button>
+                </div>
+                <Button type="submit" variant="primary" disabled={busy} data-testid="create-lobby">
+                  Create game
+                </Button>
+              </form>
+
+              <form
+                className="mt-4 flex items-end gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (code.trim()) router.push(`/join/${code.trim().toUpperCase()}`);
+                }}
+              >
+                <label className="block text-sm">
+                  Join with a code
+                  <input className="mt-1 block w-36 rounded-md border border-line bg-white/60 px-3 py-1.5 font-mono uppercase tracking-widest" value={code} maxLength={6} onChange={(e) => setCode(e.target.value)} data-testid="join-code-input" />
                 </label>
-                <input
-                  id={`name-${i}`}
-                  data-testid={`name-${i}`}
-                  className="w-full rounded-md border border-line bg-white/60 px-3 py-1.5"
-                  value={name}
-                  maxLength={20}
-                  onChange={(e) => setNames(names.map((n, j) => (j === i ? e.target.value : n)))}
-                />
-                <span className="w-14 text-xs capitalize text-ink-soft">{PLAYER_COLORS[i]}</span>
-              </li>
-            ))}
-          </ol>
-        </fieldset>
-
-        <fieldset>
-          <legend className="text-sm font-semibold">Board</legend>
-          <div className="mt-2 flex gap-2" role="radiogroup" aria-label="Board">
-            <Button variant={board === "beginner" ? "primary" : "secondary"} role="radio" aria-checked={board === "beginner"} onClick={() => setBoard("beginner")} data-testid="board-beginner">
-              Beginner
-            </Button>
-            <Button variant={board === "random" ? "primary" : "secondary"} role="radio" aria-checked={board === "random"} onClick={() => setBoard("random")} data-testid="board-random">
-              Random
-            </Button>
-          </div>
-          {board === "random" && (
-            <div className="mt-3 flex items-center gap-3">
-              <label htmlFor="seed" className="text-sm">
-                Seed
-              </label>
-              <input id="seed" className="w-40 rounded-md border border-line bg-white/60 px-3 py-1.5 font-mono" value={seed} onChange={(e) => setSeed(e.target.value)} />
-              <Button size="sm" variant="quiet" onClick={() => setSeed(randomSeed())}>
-                New seed
-              </Button>
-            </div>
+                <Button type="submit" disabled={code.trim().length !== 6} reason="Codes are 6 characters" data-testid="join">
+                  Join
+                </Button>
+              </form>
+              {problem && (
+                <p className="mt-3 text-sm text-clay" role="alert">
+                  {problem}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="mt-3 text-sm text-ink-soft">Sign in with your email to create a game or join with a code.</p>
           )}
-        </fieldset>
+        </section>
+      )}
 
-        {problem && (
-          <p className="text-sm text-clay" role="alert">
-            {problem}
-          </p>
-        )}
-
-        <Button type="submit" variant="primary" className="px-6 py-2.5 text-lg" data-testid="start">
-          Start game
-        </Button>
-      </form>
+      <section className="mt-8" aria-label="Hotseat">
+        <h2 className="text-lg font-semibold">Hotseat on this device</h2>
+        <p className="mb-4 text-sm text-ink-soft">Everyone shares this screen. Seats can be bots.</p>
+        <HotseatStart />
+      </section>
     </main>
   );
 }

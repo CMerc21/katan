@@ -1,0 +1,60 @@
+project_id = "katan"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+
+[db]
+port = 54322
+major_version = 15
+
+[realtime]
+enabled = true
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/login", "http://127.0.0.1:3000/login"]
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
+otp_length = 6
+
+[edge_runtime]
+enabled = true
+policy = "per_worker"
+inspector_port = 8083
+
+[functions.apply-action]
+verify_jwt = false
+[functions.create-game]
+verify_jwt = false
+[functions.replay-check]
+verify_jwt = false
+[functions.create-lobby]
+verify_jwt = false
+[functions.join-game]
+verify_jwt = false
+[functions.set-ready]
+verify_jwt = false
+[functions.set-seat]
+verify_jwt = false
+[functions.add-bot]
+verify_jwt = false
+[functions.remove-player]
+verify_jwt = false
+[functions.start-game]
+verify_jwt = false
+[functions.leave-game]
+verify_jwt = false
+[functions.hand-to-bot]
+verify_jwt = false
+[functions.botify-absent]
+verify_jwt = false
+[functions.abandon-game]
+verify_jwt = false
+[functions.heartbeat]
+verify_jwt = false

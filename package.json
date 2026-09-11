@@ -6,12 +6,19 @@
   "scripts": {
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "build:functions": "node scripts/build-functions.mjs",
+    "seed:local": "node scripts/seed-local.mjs"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "eslint": "^10.10.0",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.70.0"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
+    "postgres": "^3.4.9"
+  }
 }

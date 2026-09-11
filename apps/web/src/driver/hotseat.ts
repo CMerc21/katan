@@ -2,55 +2,52 @@
  * HotseatDriver: every player shares one screen (docs/phase3.md §2).
  *
  * Holds the full GameState in memory, applies actions through the engine,
- * and after each action points `me()` at whoever must act next: the current
- * player, or a player who owes a discard or a trade response.
+ * and after each action points `me()` at whoever must act next (the engine's
+ * `nextActor`). The device handoff lives here too: hidden information is
+ * only shown once the acting player has taken the device. Seats may be
+ * bots (docs/phase5.md §6.2), which play immediately after each human action.
  */
 
+import { botStep, createBot, type BotLevel } from "@katan/bots";
 import {
   applyAction,
   createGame,
   isRuleError,
   legalActions,
+  nextActor,
   redact,
-  RuleError,
   type Action,
   type CreateGameOptions,
   type GameState,
   type PlayerId,
 } from "@katan/engine";
-import type { GameDriver, RedactedState, Result } from "./types";
+import type { DriverError, GameDriver, RedactedState, Result } from "./types";
 
-/** Who must act next in `state` (docs/phase3.md §2). */
-export function actingPlayer(state: GameState): PlayerId {
-  const current = state.players[state.currentPlayer]!.id;
-  const phase = state.phase;
-  if (phase.kind === "discard") {
-    const owing = state.players.find((p) => state.pendingDiscards[p.id] !== undefined);
-    return owing ? owing.id : current;
-  }
-  if (phase.kind === "action" && state.pendingTrade) {
-    const trade = state.pendingTrade;
-    const n = state.players.length;
-    for (let step = 1; step < n; step++) {
-      const p = state.players[(state.currentPlayer + step) % n]!;
-      if (p.id !== trade.from && !trade.rejectedBy.includes(p.id)) return p.id;
-    }
-  }
-  return current;
+/** Who must act next (docs/phase3.md §2); the rule lives in the engine. */
+export const actingPlayer = nextActor;
+
+export interface HotseatOptions extends CreateGameOptions {
+  /** Player id → bot level for seats played by the computer. */
+  readonly bots?: Readonly<Record<PlayerId, BotLevel>>;
 }
+
+const BOT_CAP = 200;
 
 export class HotseatDriver implements GameDriver {
   private state: GameState;
   private acting: PlayerId;
+  private acknowledged: PlayerId | null = null;
+  private readonly bots: Map<PlayerId, BotLevel>;
   private readonly listeners = new Set<(view: RedactedState) => void>();
 
-  constructor(initial: GameState) {
-    this.state = initial;
-    this.acting = actingPlayer(initial);
+  constructor(initial: GameState, bots: Readonly<Record<PlayerId, BotLevel>> = {}) {
+    this.bots = new Map(Object.entries(bots));
+    this.state = this.playBots(initial);
+    this.acting = nextActor(this.state);
   }
 
-  static create(options: CreateGameOptions): HotseatDriver {
-    return new HotseatDriver(createGame(options));
+  static create(options: HotseatOptions): HotseatDriver {
+    return new HotseatDriver(createGame(options), options.bots ?? {});
   }
 
   subscribe(cb: (view: RedactedState) => void): () => void {
@@ -63,16 +60,16 @@ export class HotseatDriver implements GameDriver {
     return legalActions(this.state, this.acting);
   }
 
-  async dispatch(action: Action): Promise<Result<void, RuleError>> {
+  async dispatch(action: Action): Promise<Result<void, DriverError>> {
     try {
       this.state = applyAction(this.state, action);
     } catch (err) {
       if (isRuleError(err)) return { ok: false, error: err };
       throw err;
     }
-    this.acting = actingPlayer(this.state);
-    const view = this.view();
-    for (const cb of this.listeners) cb(view);
+    this.state = this.playBots(this.state);
+    this.acting = nextActor(this.state);
+    this.emit();
     return { ok: true, value: undefined };
   }
 
@@ -80,9 +77,37 @@ export class HotseatDriver implements GameDriver {
     return this.acting;
   }
 
+  /** The human who must take the device before hidden information is rendered. */
+  pendingHandoff(): string | null {
+    if (this.state.phase.kind === "ended") return null;
+    return this.acknowledged === this.acting ? null : this.acting;
+  }
+
+  acknowledgeHandoff(): void {
+    this.acknowledged = this.acting;
+    this.emit();
+  }
+
   /** Full state, for tests and debugging only. Components must never call this. */
   snapshot(): GameState {
     return this.state;
+  }
+
+  private playBots(state: GameState): GameState {
+    let steps = 0;
+    while (state.phase.kind !== "ended" && steps < BOT_CAP) {
+      const actor = nextActor(state);
+      const level = this.bots.get(actor);
+      if (!level) break;
+      state = applyAction(state, botStep(state, actor, createBot(level)));
+      steps++;
+    }
+    return state;
+  }
+
+  private emit(): void {
+    const view = this.view();
+    for (const cb of this.listeners) cb(view);
   }
 
   private view(): RedactedState {

@@ -42,13 +42,15 @@ export function createGame(options: CreateGameOptions): GameState {
     if (ids.has(p.id)) throw new RuleError("DUPLICATE_PLAYER", `duplicate player id ${p.id}`);
     ids.add(p.id);
   }
+  const colors = players.map((p, seat) => p.color ?? (PLAYER_COLORS[seat] as PlayerColor));
+  if (new Set(colors).size !== colors.length) throw new RuleError("DUPLICATE_PLAYER", "player colours must differ");
   const boardKind = options.board ?? "random";
   const board = makeBoard(boardKind, seed);
 
   const seated: Player[] = players.map((p, seat) => ({
     id: p.id,
     name: p.name,
-    color: PLAYER_COLORS[seat] as PlayerColor,
+    color: colors[seat] as PlayerColor,
     hand: emptyHand(),
     devCards: [],
     playedKnights: 0,

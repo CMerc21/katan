@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { COSTS, RESOURCES, isHiddenCount, type Action, type DevCard, type Hand, type Resource } from "@katan/engine";
-import type { RedactedState } from "@/driver/types";
+import type { RedactedState, SeatInfo } from "@/driver/types";
 import { COST_TEXT, DEV_CARD_HELP, DEV_CARD_LABEL, bannerText, currentPlayerId } from "@/game/labels";
 import type { TargetMode } from "./Board";
 import { TradeResponse } from "./dialogs";
@@ -20,11 +20,15 @@ export interface BottomBarProps {
   onMode: (mode: TargetMode) => void;
   onTrade: () => void;
   onPickResources: (card: "invention" | "monopoly") => void;
+  /** Online: seat metadata, to say whether the game waits on a bot. */
+  seats?: SeatInfo[];
+  /** The player the game is waiting for (engine `nextActor`). */
+  waitingOn?: string;
 }
 
 /** The acting player's bar: banner, hand, dev cards, actions (docs/phase3.md §3.2, §5, §6). */
 export function BottomBar(props: BottomBarProps) {
-  const { view, me, legal, mode, revealed, error, onDispatch, onMode, onTrade, onPickResources } = props;
+  const { view, me, legal, mode, revealed, error, onDispatch, onMode, onTrade, onPickResources, seats, waitingOn } = props;
   const player = view.players.find((p) => p.id === me)!;
   const hand: Hand | null = isHiddenCount(player.hand) ? null : player.hand;
   const devCards: DevCard[] = isHiddenCount(player.devCards) ? [] : player.devCards;
@@ -37,8 +41,13 @@ export function BottomBar(props: BottomBarProps) {
       <div className="flex min-w-[12rem] flex-col items-start gap-1">
         <PlayerTag name={player.name} color={player.color} />
         <p className="text-sm" aria-live="polite" data-testid="banner">
-          {bannerText(view, me)}
+          {waitingText(view, me, waitingOn, seats) ?? bannerText(view, me)}
         </p>
+        {view.pendingTrade?.from === me && view.pendingTrade.rejectedBy.length > 0 && (
+          <p className="text-xs text-ink-soft" data-testid="declined">
+            Declined: {view.pendingTrade.rejectedBy.map((id) => view.players.find((p) => p.id === id)?.name ?? id).join(", ")}
+          </p>
+        )}
         {error && (
           <p className="text-sm text-clay" role="alert" data-testid="error">
             {error}
@@ -119,6 +128,34 @@ export function BottomBar(props: BottomBarProps) {
       </div>
     </div>
   );
+}
+
+/** docs/phase5.md §3: always say who the game is waiting for, and for what. */
+export function waitingText(view: RedactedState, me: string, waitingOn: string | undefined, seats: SeatInfo[] | undefined): string | null {
+  if (!waitingOn || waitingOn === me || view.phase.kind === "ended") return null;
+  const name = view.players.find((p) => p.id === waitingOn)?.name ?? waitingOn;
+  const bot = seats?.find((s) => s.playerId === waitingOn)?.kind === "bot" ? " (bot)" : "";
+  const who = `${name}${bot}`;
+  switch (view.phase.kind) {
+    case "setup":
+      return `Waiting for ${who} to place a ${view.phase.step}`;
+    case "roll":
+      return `Waiting for ${who} to roll`;
+    case "discard":
+      return `Waiting for ${Object.keys(view.pendingDiscards).map((id) => view.players.find((p) => p.id === id)?.name ?? id).join(", ")} to discard`;
+    case "moveRobber":
+      return `Waiting for ${who} to move the robber`;
+    case "steal":
+      return `Waiting for ${who} to steal`;
+    case "roadBuilding":
+      return `Waiting for ${who} to place free roads`;
+    case "action":
+      if (view.pendingTrade && view.pendingTrade.from === me) return `Waiting for ${who} to respond to your trade`;
+      if (view.pendingTrade) return null; // I am a responder: the offer card is showing
+      return `Waiting for ${who} to build, trade, or end their turn`;
+    default:
+      return null;
+  }
 }
 
 function BuildButton({ label, active, reason, onClick, testId }: { label: string; active: boolean; reason: string | null; onClick: () => void; testId: string }) {

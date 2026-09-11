@@ -3,8 +3,9 @@
  * (docs/phase2.md §4). Everything sent to a client goes through this.
  */
 
+import { legalActions } from "./legal";
 import { cloneJson, handSize, victoryPoints } from "./state";
-import type { DevCard, GameState, Hand, Player, PlayerId } from "./types";
+import type { Action, DevCard, GameState, Hand, Player, PlayerId } from "./types";
 
 export interface HiddenCount {
   readonly count: number;
@@ -63,4 +64,45 @@ export function redact(state: GameState, viewer: PlayerId): RedactedGameState {
     };
   });
   return { ...rest, viewer, players: redactedPlayers, devDeck: { count: devDeck.length } };
+}
+
+/**
+ * Rebuild a GameState-shaped object from a redacted view so the engine's
+ * pure queries (`legalActions`) can run on the client and inside bots.
+ *
+ * Hidden information is filled with placeholders: other players' hands and
+ * development cards are empty, the deck is an array of the right length
+ * (contents unknown), and the seed is blank. `legalActions` for the viewer
+ * never depends on any of those: it reads only the viewer's own hand and
+ * cards, the deck *size*, public pieces, and the phase. Exception: none
+ * found; `phase.targets` for a steal is computed server-side when the
+ * robber moves, so steal legality does not need opponents' hand sizes.
+ */
+export function viewToState(view: RedactedGameState): GameState {
+  const { viewer, players, devDeck, ...rest } = view;
+  void viewer;
+  const fullPlayers: Player[] = players.map((p) => ({
+    id: p.id,
+    name: p.name,
+    color: p.color,
+    hand: isHiddenCount(p.hand) ? { wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 } : cloneJson(p.hand),
+    devCards: isHiddenCount(p.devCards) ? [] : cloneJson(p.devCards),
+    playedKnights: p.playedKnights,
+    devCardPlayedThisTurn: p.devCardPlayedThisTurn,
+    pieces: { ...p.pieces },
+    roads: [...p.roads],
+    settlements: [...p.settlements],
+    cities: [...p.cities],
+  }));
+  return {
+    ...cloneJson(rest),
+    seed: "",
+    players: fullPlayers,
+    devDeck: Array.from({ length: devDeck.count }, () => "knight" as const),
+  };
+}
+
+/** Legal actions for the viewer of a redacted state (client hints and bots). */
+export function legalActionsForView(view: RedactedGameState): Action[] {
+  return legalActions(viewToState(view), view.viewer);
 }

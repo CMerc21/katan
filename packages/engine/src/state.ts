@@ -224,3 +224,29 @@ export function cloneJson<T>(value: T): T {
   }
   return value;
 }
+
+// ---------------------------------------------------------------------------
+// Who must act next
+
+/**
+ * The player whose input the game is waiting for: the current player, or a
+ * player who owes a discard (§7.1), or, in seat order after the offerer,
+ * the next player who has not yet answered an open trade offer (§9.1).
+ */
+export function nextActor(state: GameState): PlayerId {
+  const current = currentPlayerId(state);
+  const phase = state.phase;
+  if (phase.kind === "discard") {
+    const owing = state.players.find((p) => state.pendingDiscards[p.id] !== undefined);
+    return owing ? owing.id : current;
+  }
+  if (phase.kind === "action" && state.pendingTrade) {
+    const trade = state.pendingTrade;
+    const n = state.players.length;
+    for (let step = 1; step < n; step++) {
+      const p = state.players[(state.currentPlayer + step) % n] as Player;
+      if (p.id !== trade.from && !trade.rejectedBy.includes(p.id)) return p.id;
+    }
+  }
+  return current;
+}

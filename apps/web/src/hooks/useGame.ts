@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Action, RuleError } from "@katan/engine";
-import type { GameDriver, RedactedState, Result } from "@/driver/types";
+import type { Action } from "@katan/engine";
+import type { DriverError, GameDriver, RedactedState, Result } from "@/driver/types";
 
 export interface Game {
   readonly view: RedactedState;
   /** Legal actions for `me`. */
   readonly legal: Action[];
-  readonly dispatch: (action: Action) => Promise<Result<void, RuleError>>;
+  readonly dispatch: (action: Action) => Promise<Result<void, DriverError>>;
   /** Player id this screen currently acts as. */
   readonly me: string;
 }

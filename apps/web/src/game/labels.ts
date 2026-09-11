@@ -47,6 +47,31 @@ export const DEV_CARD_HELP: Record<DevCardType, string> = {
   monopoly: "Take every card of one resource from all players",
 };
 
+/** Server transport codes (docs/phase4.md §3) and the client's own NETWORK code. */
+export const TRANSPORT_TEXT: Record<string, string> = {
+  UNAUTHORIZED: "Please sign in again",
+  BAD_REQUEST: "The server rejected that request",
+  GAME_NOT_FOUND: "That game no longer exists",
+  NOT_A_MEMBER: "You are not in this game",
+  GAME_NOT_ACTIVE: "This game is not in play",
+  VERSION_CONFLICT: "The board updated. Try again",
+  NOT_YOUR_SEAT: "That is not your seat",
+  NOT_HOST: "Only the host can do that",
+  INVALID_CODE: "No open game has that code",
+  LOBBY_FULL: "That game is full",
+  ALREADY_JOINED: "You are already in that game",
+  COLOR_TAKEN: "That colour is taken",
+  TOO_FEW_PLAYERS: "A game needs at least 3 seats",
+  NOT_READY: "Everyone must be ready first",
+  NOT_ABSENT: "That player has not been away long enough, or is not being waited on",
+  BOT_CAP: "The bots stopped early; try again",
+  NETWORK: "Couldn't reach the game server. Retrying…",
+};
+
+export function errorText(code: string): string {
+  return (ERROR_TEXT as Record<string, string>)[code] ?? TRANSPORT_TEXT[code] ?? "Something went wrong";
+}
+
 export const ERROR_TEXT: Record<RuleErrorCode, string> = {
   BAD_PLAYER_COUNT: "A game needs 3 or 4 players",
   DUPLICATE_PLAYER: "Player names must differ",
