@@ -182,9 +182,9 @@ test("a 4-player hotseat game plays from setup to a win with no console errors",
         for (const g of options) {
           if (!(await g.isEnabled())) continue;
           await g.click();
-          const label = (await g.textContent()) ?? "";
-          const receive = ["Ore", "Grain", "Wood", "Clay", "Wool"].find((r) => !label.includes(r))!;
-          await dialog.getByRole("button", { name: receive, exact: true }).click();
+          const receive = dialog.getByRole("button", { name: /^(Ore|Grain|Wood|Clay|Wool)$/, disabled: false }).first();
+          if ((await receive.count()) === 0) break;
+          await receive.click();
           if (await page.getByTestId("bank-trade").isEnabled()) {
             await clickId(page, "bank-trade");
             seen.add("MARITIME_TRADE");
