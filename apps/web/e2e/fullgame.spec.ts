@@ -30,6 +30,7 @@ interface UiState {
   cards: string[];
   trade: boolean;
   bankTrade: boolean;
+  hand: Record<string, number>;
 }
 
 /** Everything the greedy policy needs, in one round-trip. */
@@ -63,6 +64,12 @@ function readUi(page: Page): Promise<UiState> {
       cards: ["dev-roadBuilding", "dev-knight", "dev-invention", "dev-monopoly"].filter((id) => enabled(`[data-testid="${id}"]`)),
       trade: enabled('[data-testid="trade"]'),
       bankTrade: Boolean(q('[data-testid="bank-trade"]')),
+      hand: Object.fromEntries(
+        Array.from(document.querySelectorAll<HTMLElement>('[data-testid="hand"] [aria-label]')).map((el) => {
+          const [n, name] = (el.getAttribute("aria-label") ?? "0 ?").split(" ");
+          return [name ?? "?", Number(n)];
+        }),
+      ),
     };
   });
 }
@@ -172,28 +179,35 @@ test("a 4-player hotseat game plays from setup to a win with no console errors",
         seen.add(card);
         continue;
       }
-      if (turns % 5 === 0 && ui.trade) {
+      // Bank: turn a surplus stack into a resource we lack, so hands do not just pile up for the next seven.
+      const stacks = Object.entries(ui.hand).sort((a, b) => b[1] - a[1]);
+      const surplus = stacks[0];
+      const lacking = stacks.filter(([, n]) => n === 0).map(([name]) => name);
+      if (ui.trade && surplus && surplus[1] >= 4 && lacking.length > 0) {
         await clickId(page, "trade");
         await page.getByRole("tab", { name: "Bank" }).click();
         const dialog = page.getByRole("dialog");
-        const give = dialog.getByRole("button", { name: /^[234]:1 / }).filter({ hasNot: page.locator("[disabled]") });
-        const options = await give.all();
+        const give = dialog.getByRole("button", { name: new RegExp(`^[234]:1 ${surplus[0]}$`), disabled: false });
         let traded = false;
-        for (const g of options) {
-          if (!(await g.isEnabled())) continue;
-          await g.click();
-          const receive = dialog.getByRole("button", { name: /^(Ore|Grain|Wood|Clay|Wool)$/, disabled: false }).first();
-          if ((await receive.count()) === 0) break;
-          await receive.click();
-          if (await page.getByTestId("bank-trade").isEnabled()) {
-            await clickId(page, "bank-trade");
-            seen.add("MARITIME_TRADE");
-            traded = true;
+        if ((await give.count()) > 0) {
+          await give.first().click();
+          const receive = dialog.getByRole("button", { name: new RegExp(`^(${lacking.join("|")})$`), disabled: false }).first();
+          if ((await receive.count()) > 0) {
+            await receive.click();
+            if (await page.getByTestId("bank-trade").isEnabled()) {
+              await clickId(page, "bank-trade");
+              seen.add("MARITIME_TRADE");
+              traded = true;
+            }
           }
-          break;
         }
-        if (!traded) await page.keyboard.press("Escape");
-        turns++; // avoid retrying the bank every step of this turn
+        if (!traded) {
+          await page.keyboard.press("Escape");
+          if (ui.endTurn) {
+            await clickId(page, "end-turn");
+            seen.add("END_TURN");
+          }
+        }
         continue;
       }
       if (ui.endTurn) {
