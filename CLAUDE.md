@@ -33,9 +33,10 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 * `createGame`, setup phase (§4), `legalActions`, `applyAction` scaffold with `RuleError`s.
 * Done when: a full setup round for 4 players can be simulated in a test and starting resources are correct.
 
-### Phase 2 — Full rules
+### Phase 2 — Full rules (done)
 
 * Production incl. bank shortage (§6.2), building and all placement rules (§5), rolling 7 / discard / robber (§7), dev cards (§8), trading (§9), Longest Road and Largest Army (§2.7, §10), win check (§11), `redact`.
+* Data shapes and the action catalog are pinned in `docs/phase2.md`.
 * Done when: a scripted full game reaches a win in tests, and a property-based test plays 200 random legal-action games to completion with no invariant violations (piece counts, bank totals, VP math).
 
 ### Phase 3 — Board UI, hotseat
@@ -68,18 +69,27 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 ## Engine layout (packages/engine/src)
 
-* `rng.ts` — seeded RNG (`createRng(seed, stream)`); the only source of randomness.
+* `rng.ts` — seeded RNG (`rng(seed, index)`); the only source of randomness.
 * `geometry.ts` — axial hex coords, canonical vertex/edge IDs, precomputed adjacency (`GEOMETRY`), pixel helpers for SVG.
 * `board.ts` — terrain/resource tables, beginner board, seeded random board, ports.
-* `types.ts` — `GameState`, `Action`, player/bank shapes.
+* `types.ts` — `GameState`, `Phase`, `Action` catalog, player/bank shapes.
 * `errors.ts` — `RuleError` with a stable `code`.
-* `game.ts` — `createGame`, `legalActions`, `applyAction`.
+* `state.ts` — pure helpers: hands, costs, occupancy lookups, ports, victory points, `cloneJson`.
+* `specialCards.ts` — Longest Road and Largest Army.
+* `legal.ts` — placement queries and `legalActions`.
+* `actions.ts` — `applyAction` (the authoritative transition) and `replay`.
+* `game.ts` — `createGame`.
+* `redact.ts` — `redact(state, playerId)`, the only thing a client should ever receive.
+
+`pnpm lint` enforces engine purity (no host/framework imports, no `Date`, no `Math.random`) via `eslint.config.js`.
 
 ## Commands
 
 ```
 pnpm install
 pnpm test            # all workspaces
+pnpm lint            # eslint, including engine purity rules
+pnpm typecheck
 pnpm --filter @katan/engine test -- --watch
 pnpm --filter web dev
 supabase start       # local stack

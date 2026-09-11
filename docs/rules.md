@@ -41,7 +41,7 @@ Each player starts with **15 roads, 5 settlements, 4 cities**. A player who has 
 
 ### §2.5 Development cards
 
-25 cards in a seeded, hidden deck: 14 `knight`, 5 `victoryPoint`, 2 `roadBuilding`, 2 `invention`, 2 `monopoly`. See §8.
+25 cards in a seeded, hidden deck: 14 `knight`, 5 `victoryPoint`, 2 `roadBuilding`, 2 `invention`, 2 `monopoly`. See §8. (`invention` is the "take two resources from the bank" card; the engine never uses the commercial game's card names.)
 
 ### §2.6 Ports
 
@@ -150,7 +150,7 @@ A build is illegal if the player has no piece of that kind left (§2.4).
 
 ### §6.1 Roll
 
-A turn begins with rolling two six-sided dice (seeded, §12). The roll happens once per turn, before any building or trading. A knight may be played before rolling (§8.2).
+A turn begins with rolling two six-sided dice (seeded, §12). The roll happens once per turn, before any building or trading. A knight may be played before rolling (§8.2); after its robber move and steal, play returns to the roll step.
 
 ### §6.2 Production
 
@@ -177,7 +177,7 @@ The rolling player must move the robber to a different hex (any hex, including t
 
 ### §7.3 Steal
 
-If any *other* player has a settlement or city on the new hex, the rolling player chooses one such player and takes one random resource card from their hand (seeded, §12). If the chosen player has no cards, nothing is taken. If no other player has a building there, no steal occurs.
+If any *other* player with at least one resource card has a settlement or city on the new hex, the rolling player chooses one such player and takes one random resource card from their hand (seeded, §12). Players with empty hands are not valid targets. If there is no valid target, the steal step is skipped automatically.
 
 ## §8 Development cards
 
@@ -194,7 +194,7 @@ Cost per §5.1; the top card of the seeded deck goes to the buyer's hand. If the
 ### §8.3 Effects
 
 * `knight` — move the robber and steal exactly as in §7.2–§7.3. Increments the player's played-knight count (§10.2).
-* `roadBuilding` — place up to two roads for free following §5.2. If the player has fewer than two road pieces or fewer than two legal edges, place as many as possible.
+* `roadBuilding` — place up to two roads for free following §5.2. If the player has one road piece left, place one; with no road pieces or no legal edge at all the card cannot be played. If the second road has nowhere legal to go after the first, the effect ends after one.
 * `invention` — take any two resources from the bank (may be the same). Limited by bank stock.
 * `monopoly` — name a resource; every other player gives all of that resource to the player.
 * `victoryPoint` — 1 VP, hidden from other players until §11.
@@ -203,7 +203,12 @@ Cost per §5.1; the top card of the seeded deck goes to the buyer's hand. If the
 
 ### §9.1 Domestic trade
 
-Only on the current player's turn, after the roll. The current player proposes a trade (giving ≥1 resource, receiving ≥1 resource, no resource on both sides) to a specific other player, who accepts or declines. Accepted trades are executed atomically. Other players may not trade among themselves.
+Only on the current player's turn, after the roll. The current player posts an **open offer** (giving ≥1 resource, receiving ≥1 resource, no resource on both sides) that any other player may accept. Only one offer may be open at a time.
+
+* The first player to accept executes the trade atomically; the acceptor must hold the requested cards.
+* A player who declines is removed from that offer; once every other player has declined, the offer clears.
+* The offerer may withdraw the offer at any time; ending the turn withdraws it; and if the offerer spends the offered cards, the offer is withdrawn automatically.
+* Other players may not trade among themselves.
 
 ### §9.2 Maritime trade
 
@@ -218,8 +223,10 @@ The bank must hold the requested resource.
 ### §10.1 Longest Road
 
 * The length of a player's road is the longest trail (no edge reused; vertices may repeat) through their own roads. An opponent's settlement or city on a vertex breaks the trail at that vertex.
-* The first player to reach length **5** takes Longest Road (2 VP). Another player takes it only by **exceeding** the holder's length. Ties leave the card where it is.
+* The first player to reach length **5** takes Longest Road (2 VP). Another player takes it only by **exceeding** the holder's length. A tie with the holder leaves the card where it is.
 * If the holder's length drops below 5 (a road cut by an opponent's settlement), the card is lost. It then goes to the unique player with the longest road of at least 5, or to nobody if there is a tie or no one qualifies.
+* If the holder still qualifies but two or more other players exceed them with equal lengths (possible only when a settlement shortens the holder's road), nobody holds the card until one player is uniquely longest.
+* The card is re-evaluated after every road and every settlement.
 
 ### §10.2 Largest Army
 
@@ -227,8 +234,13 @@ The first player to have played **3** knights takes Largest Army (2 VP). Another
 
 ## §11 Winning
 
-After every action on a player's own turn, the engine checks that player's VP (§2.8, including hidden `victoryPoint` cards). If it is **10 or more**, the game ends immediately and that player wins. VP is never checked for players whose turn it is not.
+After every action, the engine checks the **current player's** VP (§2.8, including hidden `victoryPoint` cards). If it is **10 or more**, the game ends immediately and that player wins. VP is never checked for players whose turn it is not, so a player who reaches 10 during an opponent's turn (for example by receiving Longest Road when a road is cut) wins at the start of their own next turn, provided they still have 10 then.
 
 ## §12 Randomness
 
-Every random event is derived from the game's seed plus the index of the action that caused it: dice, deck order, board generation, and steal targets. The engine never reads a clock or an unseeded random source. Replaying the action log from the seed reproduces the game exactly.
+Every random event is derived from the game's seed plus an integer index: `rng(seed, index)`.
+
+* Dice and stolen cards use the index of the action that caused them (`actionIndex` before the action is applied).
+* The development deck is shuffled with index `-1`; the random board with index `-2`.
+
+The engine never reads a clock or an unseeded random source. Replaying the action log from the seed reproduces the game exactly. The human-readable `log` in the state keeps only the most recent 100 entries; the action log is the audit trail.
