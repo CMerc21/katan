@@ -63,7 +63,7 @@ async function greedyStep(page: Page): Promise<"winner" | "acted" | "idle"> {
   }
   const discard = await q("discard-confirm");
   if (await discard.isVisible().catch(() => false)) {
-    while (!(await discard.isEnabled())) await page.getByRole("dialog").getByRole("button", { name: /^More / }).filter({ hasNot: page.locator("[disabled]") }).first().click();
+    while (!(await discard.isEnabled())) await page.getByRole("dialog").getByRole("button", { name: /^More /, disabled: false }).first().click();
     await discard.click();
     return "acted";
   }

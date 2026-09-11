@@ -101,7 +101,7 @@ test("a 4-player hotseat game plays from setup to a win with no console errors",
         await clickId(page, "discard-confirm");
         seen.add("DISCARD");
       } else {
-        await page.getByRole("dialog").getByRole("button", { name: /^More / }).filter({ hasNot: page.locator("[disabled]") }).first().click();
+        await page.getByRole("dialog").getByRole("button", { name: /^More /, disabled: false }).first().click();
       }
       continue;
     }

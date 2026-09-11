@@ -18,7 +18,7 @@ async function resolveSeven(page: Page): Promise<void> {
   const discard = page.getByTestId("discard-confirm");
   while (await discard.isVisible().catch(() => false)) {
     // Nobody can hold more than 7 cards this early, but stay robust.
-    await page.getByRole("button", { name: /^More / }).first().click();
+    await page.getByRole("dialog").getByRole("button", { name: /^More /, disabled: false }).first().click();
   }
   const hexes = page.locator('[data-testid^="target-hex-"]');
   if ((await hexes.count()) > 0) {
