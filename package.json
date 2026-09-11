@@ -8,7 +8,8 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
     "build:functions": "node scripts/build-functions.mjs",
-    "seed:local": "node scripts/seed-local.mjs"
+    "seed:local": "node scripts/seed-local.mjs",
+    "deploy:functions": "pnpm build:functions && supabase functions deploy"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
