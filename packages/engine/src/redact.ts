@@ -24,7 +24,7 @@ export interface RedactedPlayer {
   readonly cities: Player["cities"];
   /** Buildings and special cards: visible to everyone. */
   readonly publicVP: number;
-  /** Hidden victoryPoint cards; only present for the requesting player. */
+  /** Hidden victoryPoint cards; only present for the requesting player (everyone once the game has ended). */
   readonly privateVP: number | null;
 }
 
@@ -41,9 +41,11 @@ export function isHiddenCount(value: Hand | DevCard[] | HiddenCount): value is H
 export function redact(state: GameState, viewer: PlayerId): RedactedGameState {
   const { seed: _seed, players, devDeck, ...rest } = cloneJson(state);
   void _seed;
+  const revealAll = state.phase.kind === "ended";
   const redactedPlayers: RedactedPlayer[] = players.map((p) => {
     const vp = victoryPoints(state, p);
     const mine = p.id === viewer;
+    const showVP = mine || revealAll;
     return {
       id: p.id,
       name: p.name,
@@ -57,7 +59,7 @@ export function redact(state: GameState, viewer: PlayerId): RedactedGameState {
       settlements: p.settlements,
       cities: p.cities,
       publicVP: vp.publicVP,
-      privateVP: mine ? vp.hiddenVP : null,
+      privateVP: showVP ? vp.hiddenVP : null,
     };
   });
   return { ...rest, viewer, players: redactedPlayers, devDeck: { count: devDeck.length } };

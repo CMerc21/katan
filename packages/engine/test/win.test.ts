@@ -96,3 +96,19 @@ describe("§11 winning", () => {
     expect(bTurn.winner).toBeNull();
   });
 });
+
+describe("§11 redact after the game ends", () => {
+  it("reveals every player's hidden victory points once there is a winner", async () => {
+    const { redact } = await import("../src/redact");
+    const { state, target } = nineVP();
+    const s = give(mut(state, (x) => void (x.players[1]!.devCards = [{ type: "victoryPoint", boughtOnTurn: 0 }])), "a", {
+      wood: 1, clay: 1, wool: 1, grain: 1,
+    });
+    const before = redact(s, "a");
+    expect(before.players[1]!.privateVP).toBeNull();
+    const ended = applyAction(s, { type: "BUILD_SETTLEMENT", playerId: "a", vertex: target });
+    const after = redact(ended, "a");
+    expect(after.players[1]!.privateVP).toBe(1);
+    expect(after.players[1]!.hand).toEqual({ count: 0 });
+  });
+});

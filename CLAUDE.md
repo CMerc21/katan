@@ -39,10 +39,11 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 * Data shapes and the action catalog are pinned in `docs/phase2.md`.
 * Done when: a scripted full game reaches a win in tests, and a property-based test plays 200 random legal-action games to completion with no invariant violations (piece counts, bank totals, VP math).
 
-### Phase 3 — Board UI, hotseat
+### Phase 3 — Board UI, hotseat (done)
 
 * SVG board component, click targets for vertices/edges/hexes, hand/resource panel, turn controls, trade dialog, discard dialog.
 * Hotseat mode: all players on one screen, driven directly by the engine. No network.
+* UI shapes, driver interface, and screens are pinned in `docs/phase3.md`.
 * Done when: a full hotseat game is playable in the browser.
 
 ### Phase 4 — Supabase multiplayer
@@ -83,6 +84,17 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 `pnpm lint` enforces engine purity (no host/framework imports, no `Date`, no `Math.random`) via `eslint.config.js`.
 
+## Web layout (apps/web)
+
+* `app/` — `/` (start a hotseat game) and `/play` (the game). Both are client components.
+* `src/driver/` — `GameDriver` interface (`types.ts`) and `HotseatDriver`. Components never import `applyAction`; they only talk to a driver. Phase 4 adds a network driver behind the same interface.
+* `src/game/store.ts` — in-memory holder for the live driver; a reload loses it and `/play` redirects to `/`.
+* `src/hooks/useGame.ts` — the one hook: `{ view, legal, dispatch, me }`.
+* `src/board/layout.ts` — hex/vertex/edge screen geometry and viewBox (unit tested).
+* `src/components/` — `Board` (one `<svg>`, interaction layer only for legal targets), `BottomBar`, `PlayersPanel`, `LogPanel`, `dialogs` (handoff, discard, trade, steal, resource picker, ended), `ui` primitives.
+* `e2e/` — Playwright: `smoke.spec.ts` (setup by clicking, roll, end turn) and `fullgame.spec.ts` (a whole greedy game through the UI; slow).
+* Chromium is preinstalled in the dev container; `playwright.config.ts` points at it and never downloads a browser.
+
 ## Commands
 
 ```
@@ -92,6 +104,9 @@ pnpm lint            # eslint, including engine purity rules
 pnpm typecheck
 pnpm --filter @katan/engine test -- --watch
 pnpm --filter web dev
+pnpm --filter web build
+pnpm --filter web test:e2e          # Playwright (starts next dev on :3100)
+pnpm --filter web test:e2e -- fullgame   # slow whole-game run
 supabase start       # local stack
 supabase db reset    # apply migrations locally
 ```

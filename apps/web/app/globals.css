@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #211d19;
+  --color-ink-soft: #4a433c;
+  --color-parchment: #efe8d8;
+  --color-parchment-deep: #e3dac6;
+  --color-line: #c9bda3;
+  --color-water: #4a7d8c;
+  --color-wood: #3e6b46;
+  --color-clay: #b25a3d;
+  --color-wool: #a5b95e;
+  --color-grain: #d9a642;
+  --color-ore: #7d8089;
+  --color-p-red: #b83a2c;
+  --color-p-blue: #2f5f9d;
+  --color-p-orange: #e0862b;
+  --color-p-white: #f4efe3;
+  --font-sans: "Trebuchet MS", "Gill Sans", "Segoe UI", "Noto Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-parchment);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+/* --- Board highlights (docs/phase3.md §4.3) --- */
+
+@keyframes ring-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+}
+
+.target-vertex {
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ring-pulse 1.4s ease-in-out infinite;
+}
+
+.target-vertex:hover {
+  animation-play-state: paused;
+  opacity: 1;
+  transform: scale(1.25);
+}
+
+.target-edge {
+  cursor: pointer;
+}
+
+.target-edge:hover .target-edge-line {
+  stroke-dasharray: none;
+  opacity: 1;
+}
+
+.target-hex {
+  cursor: pointer;
+}
+
+.target-hex:hover .target-hex-outline {
+  opacity: 1;
+  stroke-width: 6;
+}
+
+/* --- The single motion effect: a card sliding into the hand --- */
+
+@keyframes slide-in {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.card-in {
+  animation: slide-in 260ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .target-vertex,
+  .card-in {
+    animation: none;
+  }
+}

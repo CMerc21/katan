@@ -6,3 +6,7 @@ coverage/
 .env.local
 *.tsbuildinfo
 .DS_Store
+next-env.d.ts
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/screenshots/
