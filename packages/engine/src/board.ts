@@ -14,7 +14,7 @@ import {
   type HexId,
   type VertexId,
 } from "./geometry";
-import { createRng, type Rng } from "./rng";
+import { RNG_INDEX_BOARD, rng, type Rng } from "./rng";
 
 export const RESOURCES = ["wood", "clay", "wool", "grain", "ore"] as const;
 export type Resource = (typeof RESOURCES)[number];
@@ -177,7 +177,7 @@ export function randomBoardWithRng(rng: Rng): Board {
 }
 
 export function randomBoard(seed: string): Board {
-  return randomBoardWithRng(createRng(seed, "board"));
+  return randomBoardWithRng(rng(seed, RNG_INDEX_BOARD));
 }
 
 export function makeBoard(kind: BoardKind, seed: string): Board {

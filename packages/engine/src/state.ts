@@ -1,0 +1,226 @@
+/**
+ * Small pure helpers over GameState: hands, costs, lookups, victory points.
+ */
+
+import { RESOURCES, type PortKind, type Resource } from "./board";
+import { RuleError } from "./errors";
+import { GEOMETRY, type EdgeId, type HexId, type VertexId } from "./geometry";
+import { WINNING_VP, type GameState, type Hand, type LogEntry, type Player, type PlayerId } from "./types";
+
+// ---------------------------------------------------------------------------
+// Hands
+
+export function emptyHand(): Hand {
+  return { wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 };
+}
+
+/** Build a full hand from a partial one. */
+export function hand(partial: Partial<Hand>): Hand {
+  return { ...emptyHand(), ...partial };
+}
+
+export function handSize(h: Hand): number {
+  let n = 0;
+  for (const r of RESOURCES) n += h[r];
+  return n;
+}
+
+export function isValidHand(h: unknown): h is Hand {
+  if (typeof h !== "object" || h === null) return false;
+  const obj = h as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!(RESOURCES as readonly string[]).includes(key)) return false;
+  }
+  return RESOURCES.every((r) => {
+    const v = obj[r];
+    return typeof v === "number" && Number.isInteger(v) && v >= 0;
+  });
+}
+
+export function hasResources(h: Hand, cost: Hand): boolean {
+  return RESOURCES.every((r) => h[r] >= cost[r]);
+}
+
+/** target += sign * delta (mutates target). */
+export function addHand(target: Hand, delta: Hand, sign: 1 | -1 = 1): void {
+  for (const r of RESOURCES) target[r] += sign * delta[r];
+}
+
+/** Move `amount` from one hand to another (mutates both). */
+export function transfer(from: Hand, to: Hand, amount: Hand): void {
+  addHand(from, amount, -1);
+  addHand(to, amount, 1);
+}
+
+/** Expand a hand into a list of resources in canonical order (for random draws). */
+export function expandHand(h: Hand): Resource[] {
+  const out: Resource[] = [];
+  for (const r of RESOURCES) for (let i = 0; i < h[r]; i++) out.push(r);
+  return out;
+}
+
+/** §5.1 */
+export const COSTS = {
+  road: hand({ wood: 1, clay: 1 }),
+  settlement: hand({ wood: 1, clay: 1, wool: 1, grain: 1 }),
+  city: hand({ grain: 2, ore: 3 }),
+  devCard: hand({ ore: 1, wool: 1, grain: 1 }),
+} as const;
+
+// ---------------------------------------------------------------------------
+// Players
+
+export function getPlayer(state: GameState, id: PlayerId): Player {
+  const player = state.players.find((p) => p.id === id);
+  if (!player) throw new RuleError("UNKNOWN_PLAYER", `unknown player ${id}`);
+  return player;
+}
+
+export function playerIndex(state: GameState, id: PlayerId): number {
+  const i = state.players.findIndex((p) => p.id === id);
+  if (i < 0) throw new RuleError("UNKNOWN_PLAYER", `unknown player ${id}`);
+  return i;
+}
+
+export function currentPlayer(state: GameState): Player {
+  const p = state.players[state.currentPlayer];
+  if (!p) throw new Error(`bad currentPlayer index ${state.currentPlayer}`);
+  return p;
+}
+
+export function currentPlayerId(state: GameState): PlayerId {
+  return currentPlayer(state).id;
+}
+
+// ---------------------------------------------------------------------------
+// Board occupancy
+
+export type BuildingKind = "settlement" | "city";
+
+export interface Building {
+  readonly owner: PlayerId;
+  readonly kind: BuildingKind;
+}
+
+export function buildingAt(state: GameState, vertex: VertexId): Building | null {
+  for (const p of state.players) {
+    if (p.settlements.includes(vertex)) return { owner: p.id, kind: "settlement" };
+    if (p.cities.includes(vertex)) return { owner: p.id, kind: "city" };
+  }
+  return null;
+}
+
+export function roadOwner(state: GameState, edge: EdgeId): PlayerId | null {
+  for (const p of state.players) {
+    if (p.roads.includes(edge)) return p.id;
+  }
+  return null;
+}
+
+export function buildingsMap(state: GameState): Map<VertexId, Building> {
+  const map = new Map<VertexId, Building>();
+  for (const p of state.players) {
+    for (const v of p.settlements) map.set(v, { owner: p.id, kind: "settlement" });
+    for (const v of p.cities) map.set(v, { owner: p.id, kind: "city" });
+  }
+  return map;
+}
+
+export function roadsMap(state: GameState): Map<EdgeId, PlayerId> {
+  const map = new Map<EdgeId, PlayerId>();
+  for (const p of state.players) for (const e of p.roads) map.set(e, p.id);
+  return map;
+}
+
+export interface HexBuilding extends Building {
+  readonly vertex: VertexId;
+}
+
+/** Buildings on the corners of a hex. */
+export function buildingsOnHex(state: GameState, hex: HexId): HexBuilding[] {
+  const out: HexBuilding[] = [];
+  for (const v of GEOMETRY.hexVertices[hex] ?? []) {
+    const b = buildingAt(state, v);
+    if (b) out.push({ ...b, vertex: v });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Ports (§9.2)
+
+export function portsOf(state: GameState, player: Player): Set<PortKind> {
+  const kinds = new Set<PortKind>();
+  const mine = new Set([...player.settlements, ...player.cities]);
+  for (const port of state.board.ports) {
+    if (port.vertices.some((v) => mine.has(v))) kinds.add(port.kind);
+  }
+  return kinds;
+}
+
+/** Best maritime ratio the player may use when giving `resource`. */
+export function bestRatio(state: GameState, player: Player, resource: Resource): 4 | 3 | 2 {
+  const ports = portsOf(state, player);
+  if (ports.has(resource)) return 2;
+  if (ports.has("any")) return 3;
+  return 4;
+}
+
+export function ratioAllowed(state: GameState, player: Player, resource: Resource, ratio: number): boolean {
+  if (ratio === 4) return true;
+  const ports = portsOf(state, player);
+  if (ratio === 3) return ports.has("any");
+  if (ratio === 2) return ports.has(resource);
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Victory points (§2.8)
+
+export interface VictoryPoints {
+  /** Visible to everyone: buildings and special cards. */
+  readonly publicVP: number;
+  /** Hidden victoryPoint cards. */
+  readonly hiddenVP: number;
+  readonly total: number;
+}
+
+export function victoryPoints(state: GameState, player: Player): VictoryPoints {
+  let publicVP = player.settlements.length + 2 * player.cities.length;
+  if (state.longestRoad.playerId === player.id) publicVP += 2;
+  if (state.largestArmy.playerId === player.id) publicVP += 2;
+  const hiddenVP = player.devCards.filter((c) => c.type === "victoryPoint").length;
+  return { publicVP, hiddenVP, total: publicVP + hiddenVP };
+}
+
+export function hasWon(state: GameState, player: Player): boolean {
+  return victoryPoints(state, player).total >= WINNING_VP;
+}
+
+// ---------------------------------------------------------------------------
+// Log
+
+/** The UI feed keeps only the most recent entries; the action log is the audit trail. */
+export const LOG_LIMIT = 100;
+
+export function appendLog(state: GameState, playerId: PlayerId | null, text: string): void {
+  const entry: LogEntry = { turn: state.turn, playerId, text };
+  state.log.push(entry);
+  if (state.log.length > LOG_LIMIT) state.log.splice(0, state.log.length - LOG_LIMIT);
+}
+
+/**
+ * Deep-clone a JSON-shaped value (plain objects, arrays, primitives). The
+ * state is exactly that, and this keeps the engine free of host APIs.
+ */
+export function cloneJson<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item: unknown) => cloneJson(item)) as unknown as T;
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = cloneJson(v);
+    return out as T;
+  }
+  return value;
+}

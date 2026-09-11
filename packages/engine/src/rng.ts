@@ -64,3 +64,16 @@ export function createRng(seed: string, stream: string | number = 0): Rng {
     },
   };
 }
+
+/** Reserved stream indices (docs/phase2.md §5). */
+export const RNG_INDEX_DECK = -1;
+export const RNG_INDEX_BOARD = -2;
+
+/**
+ * The RNG for the random event caused by action number `index` (§12).
+ * Never call without an index: every draw must be replayable.
+ */
+export function rng(seed: string, index: number): Rng {
+  if (!Number.isInteger(index)) throw new Error(`rng: index must be an integer, got ${index}`);
+  return createRng(seed, index);
+}
