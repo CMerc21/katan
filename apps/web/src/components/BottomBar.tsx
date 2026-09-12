@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { COSTS, RESOURCES, isHiddenCount, type Action, type DevCard, type Hand, type Resource } from "@katan/engine";
 import type { RedactedState, SeatInfo } from "@/driver/types";
 import { COST_TEXT, DEV_CARD_HELP, DEV_CARD_LABEL, bannerText, currentPlayerId } from "@/game/labels";
-import type { TargetMode } from "./Board";
+import type { TargetMode } from "@/board3d/Board3D";
 import { useAnchor } from "./anim/anchors";
 import { Avatar } from "./Avatar";
 import { CardBack, DevCardFace } from "./cards";

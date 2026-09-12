@@ -5,10 +5,12 @@ const executablePath = process.env.PW_CHROMIUM ?? "/opt/pw-browsers/chromium-119
 
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 60_000,
+  timeout: 90_000,
+  snapshotPathTemplate: "{testDir}/__screenshots__/{testFilePath}/{arg}{ext}",
   use: {
     baseURL: "http://127.0.0.1:3100",
-    launchOptions: { executablePath },
+    // WebGL in headless CI runs on SwiftShader (docs/phase7-5.md §9).
+    launchOptions: { executablePath, args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] },
     viewport: { width: 1280, height: 800 },
   },
   webServer: {

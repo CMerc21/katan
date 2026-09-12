@@ -64,9 +64,9 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 * Engine event stream (`applyActionWithEvents`, `describeEvent`, `redactEvents`; `state.log` is derived), events in `game_views` and `game_events`, client animation queue with skip and speed settings, bot thinking pauses, `packages/avatars`, generated bot names, medieval re-skin, optional synthesised sound. Details in `docs/phase7.md`, palette in `docs/art-direction.md`.
 
-### Phase 7.5 — 3D diorama board
+### Phase 7.5 — 3D diorama board (done)
 
-* react-three-fiber board in `apps/web/src/board3d`; the SVG board moves to `board2d` for thumbnails. Details in `docs/phase7-5.md`.
+* react-three-fiber board in `apps/web/src/board3d` (tiles, seeded props, figurines, camera rig, raycast interaction layer with accessible overlay buttons, in-scene dice and robber animations, quality presets with a frame watchdog); the SVG board moved to `board2d` for thumbnails. Details in `docs/phase7-5.md`.
 
 ### Phase 8 — Generalized boards and the editor
 
@@ -115,8 +115,10 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 * `src/hooks/useGame.ts` — the one hook: `{ view, legal, dispatch, me }`. `src/hooks/useEventQueue.ts` — the animation queue between the driver and the components (`src/game/eventQueue.ts` is its pure core).
 * `src/game/settings.ts` — animation speed, sound, graphics quality (localStorage, mirrored to the profile). `src/game/sound.ts` — WebAudio cues.
 * `src/board/layout.ts` — hex/vertex/edge screen geometry and viewBox (unit tested).
-* `src/components/` — `Board` (one `<svg>`, interaction layer only for legal targets), `BottomBar`, `PlayersPanel`, `LogPanel`, `dialogs` (handoff, discard, trade, steal, resource picker, ended), `ui` primitives, `cards` (resource and dev card faces), `Avatar` / `AvatarPicker`, `anim/` (anchors, turn banner, dice tray, flying cards, dev card reveal, confetti), `SettingsMenu`.
-* `e2e/` — Playwright: `smoke.spec.ts` (setup by clicking, roll, end turn), `pacing.spec.ts` (bot turns take 2–8 s on Normal, instant on Off) and `fullgame.spec.ts` (a whole greedy game through the UI; slow).
+* `src/board3d/` — the diorama used in play: `Board3D` (Canvas), `layout3d` (world coords = engine geometry, y → z), `Tiles`, `Props` + `props.ts` (seeded layouts), `Pieces`, `Harbor`, `Camera`, `Interaction` (layer-1 raycast targets), `Effects3d` (dice, robber, projector), `quality` (presets, detection, watchdog), `textures` (canvas sprites).
+* `src/board2d/` — the SVG board (`Board`, `parts`, `Thumbnail`), thumbnails only.
+* `src/components/` — `BottomBar`, `PlayersPanel`, `LogPanel`, `dialogs` (handoff, discard, trade, steal, resource picker, ended), `ui` primitives, `cards` (resource and dev card faces), `Avatar` / `AvatarPicker`, `anim/` (anchors, turn banner, dice tray, flying cards, dev card reveal, confetti), `SettingsMenu`.
+* `e2e/` — Playwright (Chromium on SwiftShader for WebGL): `smoke.spec.ts` (setup by clicking, roll, end turn), `pacing.spec.ts` (bot turns take 2–8 s on Normal, instant on Off), `board3d.spec.ts` (diorama renders, raycast and overlay clicks dispatch), `visual.spec.ts` (screenshot baselines in `e2e/__screenshots__`) and `fullgame.spec.ts` (a whole greedy game through the UI; slow).
 * Chromium is preinstalled in the dev container; `playwright.config.ts` points at it and never downloads a browser.
 
 ## Commands

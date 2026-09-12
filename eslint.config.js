@@ -29,7 +29,7 @@ const ENGINE_FORBIDDEN_IMPORTS = [
 
 export default tseslint.config(
   {
-    ignores: ["**/node_modules/**", "**/dist/**", "**/.next/**", "**/coverage/**"],
+    ignores: ["**/node_modules/**", "**/dist/**", "**/.next/**", "**/coverage/**", "supabase/functions/_shared/katan.bundle.js", "apps/web/test-results/**", "apps/web/playwright-report/**"],
   },
   ...tseslint.configs.recommended,
   {

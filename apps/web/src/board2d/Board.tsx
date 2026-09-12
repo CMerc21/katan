@@ -6,8 +6,8 @@ import { createLayout, hexPoints, waterPoints } from "@/board/layout";
 import type { RedactedState } from "@/driver/types";
 import type { Step } from "@/game/eventQueue";
 import { PLAYER_FILL, SAND, WATER, WATER_DEEP } from "@/game/theme";
-import { useAnchors } from "./anim/anchors";
-import { CityGlyph, HarborMarker, NumberToken, RoadGlyph, Robber, SettlementGlyph, TerrainDefs } from "./boardParts";
+import { useAnchors } from "@/components/anim/anchors";
+import { CityGlyph, HarborMarker, NumberToken, RoadGlyph, Robber, SettlementGlyph, TerrainDefs } from "./parts";
 
 export type TargetMode = "road" | "settlement" | "city" | null;
 

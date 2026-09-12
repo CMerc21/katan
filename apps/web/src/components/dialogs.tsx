@@ -74,20 +74,13 @@ export function StealPopover({
   view,
   targets,
   onSteal,
-  position,
 }: {
   view: RedactedState;
   targets: string[];
   onSteal: (targetPlayerId: string) => void;
-  position: { left: string; top: string };
 }) {
   return (
-    <div
-      className="absolute z-20 -translate-x-1/2 rounded-md border border-ink bg-parchment p-2 shadow-lg"
-      style={{ left: position.left, top: position.top }}
-      role="group"
-      aria-label="Steal from"
-    >
+    <div className="parchment z-20 rounded-md p-2" role="group" aria-label="Steal from">
       <p className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-ink-soft">Steal from</p>
       <div className="flex flex-col gap-1">
         {targets.map((id) => {

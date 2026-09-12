@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { BotLevel } from "@katan/bots";
 import { isHiddenCount, nextActor, viewToState, type Action } from "@katan/engine";
@@ -8,13 +9,14 @@ import type { ConnectionState, GameDriver, SeatInfo } from "@/driver/types";
 import type { Step } from "@/game/eventQueue";
 import { clearDriver } from "@/game/store";
 import { errorText, playerName } from "@/game/labels";
-import { effectiveSpeed, useSettings } from "@/game/settings";
+import { effectiveSpeed, useSettings, type Quality } from "@/game/settings";
+import { stepDown } from "@/board3d/quality";
+import type { TargetMode } from "@/board3d/Board3D";
 import { playSound } from "@/game/sound";
 import { useEventQueue } from "@/hooks/useEventQueue";
 import { useGame } from "@/hooks/useGame";
 import { AnchorsProvider } from "./anim/anchors";
 import { Confetti, DevCardReveal, DiceTray, FlightLayer, TurnBanner, thinkingPlayer } from "./anim/effects";
-import { Board, hexPercent, type TargetMode } from "./Board";
 import { BottomBar } from "./BottomBar";
 import { DiscardDialog, EndedOverlay, HandoffOverlay, ResourcePicker, StealPopover, TradeDialog } from "./dialogs";
 import { LogPanel } from "./LogPanel";
@@ -24,6 +26,16 @@ import { Button } from "./ui";
 type Dialog = { kind: "trade" } | { kind: "picker"; card: "invention" | "monopoly" } | null;
 
 const ABSENT_MS = 10 * 60 * 1000;
+
+/** The diorama needs WebGL and the DOM; never render it on the server (docs/phase7-5.md). */
+const Board3D = dynamic(() => import("@/board3d/Board3D").then((m) => m.Board3D), {
+  ssr: false,
+  loading: () => (
+    <div className="grid h-full w-full place-items-center text-sm text-parchment/70" aria-busy="true">
+      Setting the table…
+    </div>
+  ),
+});
 
 /** The game screen for any driver (docs/phase3.md §3.2, docs/phase5.md §2–§5, docs/phase7.md §2–§3). */
 export function GameScreen({ driver, onExit }: { driver: GameDriver; onExit?: () => void }) {
@@ -74,6 +86,24 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
   );
   const { view, latest, current, draining, skip } = useEventQueue(driver, settings, isBot, onStep);
   const me = latest.viewer;
+
+  // Graphics quality: the setting, or auto-detection, minus any watchdog step-downs (docs/phase7-5.md §7).
+  const [detected, setDetected] = useState<Quality>("medium");
+  const [degraded, setDegraded] = useState<Quality | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const quality: Quality = degraded ?? (settings.quality === "auto" ? detected : settings.quality);
+  useEffect(() => setDegraded(null), [settings.quality]);
+  const onDegrade = useCallback((from: Quality) => {
+    const next = stepDown(from);
+    if (!next) return;
+    setDegraded(next);
+    setToast(`Graphics lowered to ${next} to keep the game smooth`);
+  }, []);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const [mode, setMode] = useState<TargetMode>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -178,21 +208,38 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
         </div>
       )}
 
+      {toast && (
+        <div className="parchment fixed left-1/2 top-3 z-30 -translate-x-1/2 rounded-md px-3 py-1.5 text-sm" role="status" data-testid="quality-toast">
+          {toast}
+        </div>
+      )}
+
       <div className="grid min-h-0 grid-cols-1 md:grid-cols-[minmax(0,1fr)_16rem]">
-        <main className="relative flex min-h-0 items-center justify-center overflow-hidden p-2 md:p-4" aria-label="Board">
-          <div className="relative w-full max-w-[min(100%,calc((100dvh-9rem)*1.08))]">
-            <Board view={view} legal={activeLegal} mode={mode} meColor={meView.color} onAction={run} step={current} onSkip={draining ? skip : undefined} />
-            <DiceTray step={current} view={view} />
-            <DevCardReveal step={current} view={view} />
-            {interactive && view.phase.kind === "steal" && view.players[view.currentPlayer]!.id === me && (
-              <StealPopover
-                view={view}
-                targets={view.phase.targets}
-                position={hexPercent(view.phase.hex)}
-                onSteal={(targetPlayerId) => run({ type: "STEAL", playerId: me, targetPlayerId })}
-              />
-            )}
-          </div>
+        <main className="relative min-h-0 overflow-hidden" aria-label="Board">
+          <Board3D
+            view={view}
+            legal={activeLegal}
+            mode={mode}
+            meColor={meView.color}
+            onAction={run}
+            step={current}
+            onSkip={draining ? skip : undefined}
+            onCancelMode={() => setMode(null)}
+            quality={quality}
+            onDegrade={onDegrade}
+            onDetected={setDetected}
+            followTurns={settings.followTurns}
+            overlay={
+              interactive && view.phase.kind === "steal" && view.players[view.currentPlayer]!.id === me
+                ? {
+                    hex: view.phase.hex,
+                    node: <StealPopover view={view} targets={view.phase.targets} onSteal={(targetPlayerId) => run({ type: "STEAL", playerId: me, targetPlayerId })} />,
+                  }
+                : null
+            }
+          />
+          <DiceTray step={current} view={view} />
+          <DevCardReveal step={current} view={view} />
         </main>
         <aside className="parchment flex min-h-0 flex-col" aria-label="Game info">
           <PlayersPanel
@@ -254,6 +301,7 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
         waitingOn={waitingOn}
         draining={draining}
         onSkip={skip}
+        showGraphics
       />
 
       <TurnBanner step={current} view={view} seats={seats} />

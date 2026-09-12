@@ -55,12 +55,13 @@ test("3-player hotseat: setup by clicking, roll, end turn twice", async ({ page 
     await acknowledgeHandoff(page);
     await expect(page.getByTestId("banner")).toHaveText(`${name}: place a settlement`);
     const vertices = page.locator('[data-testid^="target-vertex-"]');
+    await expect(vertices.first()).toBeAttached({ timeout: 15_000 }); // the diorama projects targets after its first frame
     const n = await vertices.count();
     expect(n).toBeGreaterThan(0);
     await vertices.nth(Math.floor(n / 3)).click();
     await expect(page.getByTestId("banner")).toHaveText(`${name}: place a road`);
     const edges = page.locator('[data-testid^="target-edge-"]');
-    expect(await edges.count()).toBeGreaterThan(0);
+    await expect(edges.first()).toBeAttached();
     await edges.first().click();
   }
 
