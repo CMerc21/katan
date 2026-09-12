@@ -60,6 +60,22 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 * Vercel + Supabase project, env vars documented in `.env.example`, `README.md` with the "how to play with friends" instructions.
 
+### Phase 7 — Feel and pacing (done)
+
+* Engine event stream (`applyActionWithEvents`, `describeEvent`, `redactEvents`; `state.log` is derived), events in `game_views` and `game_events`, client animation queue with skip and speed settings, bot thinking pauses, `packages/avatars`, generated bot names, medieval re-skin, optional synthesised sound. Details in `docs/phase7.md`, palette in `docs/art-direction.md`.
+
+### Phase 7.5 — 3D diorama board
+
+* react-three-fiber board in `apps/web/src/board3d`; the SVG board moves to `board2d` for thumbnails. Details in `docs/phase7-5.md`.
+
+### Phase 8 — Generalized boards and the editor
+
+* `BoardDefinition`, per-board geometry, pools, validation, frames, 5–6 players with the special build phase, boards table and editor. Details in `docs/phase8.md`.
+
+### Phase 9 — Tides (sea module)
+
+* Ships, pirate, gold, islands, longest route, scenarios. Details in `docs/phase9.md`.
+
 ## Conventions
 
 * Commit per meaningful step with a message in the form `phaseN: <what>`.
@@ -71,7 +87,7 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 ## Packages
 
-* `packages/engine` — rules (pure). `packages/bots` — AI policies over redacted views (pure). `packages/server` — game and lobby transactions over a `postgres` client, shared by the Edge Functions and the Node tests. `apps/web` — Next.js client. `supabase/` — migrations, config, Edge Functions (thin Deno handlers importing `_shared/katan.bundle.js`).
+* `packages/engine` — rules (pure). `packages/bots` — AI policies over redacted views (pure) and seeded bot names. `packages/avatars` — seeded SVG portraits (pure). `packages/server` — game and lobby transactions over a `postgres` client, shared by the Edge Functions and the Node tests. `apps/web` — Next.js client. `supabase/` — migrations, config, Edge Functions (thin Deno handlers importing `_shared/katan.bundle.js`).
 
 ## Engine layout (packages/engine/src)
 
@@ -80,10 +96,11 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 * `board.ts` — terrain/resource tables, beginner board, seeded random board, ports.
 * `types.ts` — `GameState`, `Phase`, `Action` catalog, player/bank shapes.
 * `errors.ts` — `RuleError` with a stable `code`.
+* `events.ts` — `GameEvent` union, `describeEvent` (public log sentences), `redactEvents`.
 * `state.ts` — pure helpers: hands, costs, occupancy lookups, ports, victory points, `cloneJson`.
 * `specialCards.ts` — Longest Road and Largest Army.
 * `legal.ts` — placement queries and `legalActions`.
-* `actions.ts` — `applyAction` (the authoritative transition) and `replay`.
+* `actions.ts` — `applyActionWithEvents` / `applyAction` (the authoritative transition) and `replay`.
 * `game.ts` — `createGame`.
 * `redact.ts` — `redact(state, playerId)`, the only thing a client should ever receive.
 
@@ -95,10 +112,11 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 * `src/driver/` — `GameDriver` interface (`types.ts`), `HotseatDriver` (in-memory, device handoff, optional bot seats) and `SupabaseDriver` (server views over Realtime, actions via Edge Functions). Components never import `applyAction`; they only talk to a driver and its optional capabilities.
 * `src/lib/supabase.ts` — browser client, magic-link helpers, Edge Function envelope.
 * `src/game/store.ts` — in-memory holder for the live driver; a reload loses it and `/play` redirects to `/`.
-* `src/hooks/useGame.ts` — the one hook: `{ view, legal, dispatch, me }`.
+* `src/hooks/useGame.ts` — the one hook: `{ view, legal, dispatch, me }`. `src/hooks/useEventQueue.ts` — the animation queue between the driver and the components (`src/game/eventQueue.ts` is its pure core).
+* `src/game/settings.ts` — animation speed, sound, graphics quality (localStorage, mirrored to the profile). `src/game/sound.ts` — WebAudio cues.
 * `src/board/layout.ts` — hex/vertex/edge screen geometry and viewBox (unit tested).
-* `src/components/` — `Board` (one `<svg>`, interaction layer only for legal targets), `BottomBar`, `PlayersPanel`, `LogPanel`, `dialogs` (handoff, discard, trade, steal, resource picker, ended), `ui` primitives.
-* `e2e/` — Playwright: `smoke.spec.ts` (setup by clicking, roll, end turn) and `fullgame.spec.ts` (a whole greedy game through the UI; slow).
+* `src/components/` — `Board` (one `<svg>`, interaction layer only for legal targets), `BottomBar`, `PlayersPanel`, `LogPanel`, `dialogs` (handoff, discard, trade, steal, resource picker, ended), `ui` primitives, `cards` (resource and dev card faces), `Avatar` / `AvatarPicker`, `anim/` (anchors, turn banner, dice tray, flying cards, dev card reveal, confetti), `SettingsMenu`.
+* `e2e/` — Playwright: `smoke.spec.ts` (setup by clicking, roll, end turn), `pacing.spec.ts` (bot turns take 2–8 s on Normal, instant on Off) and `fullgame.spec.ts` (a whole greedy game through the UI; slow).
 * Chromium is preinstalled in the dev container; `playwright.config.ts` points at it and never downloads a browser.
 
 ## Commands

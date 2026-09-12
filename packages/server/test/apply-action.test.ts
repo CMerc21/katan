@@ -140,6 +140,41 @@ describe("§3.1 bot loop (docs/phase5.md §6.2)", () => {
     expect(log.map((l) => l.index)).toEqual(log.map((_, i) => i));
   });
 
+  it("docs/phase7.md §1.2: one version bump carries the events of every action it applied, redacted per player", async () => {
+    const { gameId } = await createGameForUsers(sql, {
+      createdBy: alice,
+      board: "random",
+      seed: "events-in-views",
+      players: [
+        { name: "Alice", color: "red", kind: "human", userId: alice },
+        { name: "Bot B", color: "blue", kind: "bot", level: "easy" },
+        { name: "Bot C", color: "orange", kind: "bot", level: "easy" },
+      ],
+    });
+    // Alice's first settlement: only her own event.
+    let { state } = await stateOf(gameId);
+    const r1 = await applyActionForUser(sql, { gameId, userId: alice, action: legalActions(state, "seat-0")[0]!, expectedVersion: 0 });
+    const v1 = await sql<{ view: { events: { kind: string; seq: number }[] } }[]>`select view from game_views where game_id = ${gameId} and player_id = 'seat-0'`;
+    expect(v1[0]!.view.events.map((e) => e.kind)).toEqual(["built"]);
+    // Her road: the bots then place both rounds, so the view carries a long sequence with contiguous seq numbers.
+    ({ state } = await stateOf(gameId));
+    const r2 = await applyActionForUser(sql, { gameId, userId: alice, action: legalActions(state, "seat-0")[0]!, expectedVersion: r1.version });
+    expect(r2.applied).toBeGreaterThan(5);
+    const v2 = await sql<{ view: { events: { kind: string; seq: number }[] } }[]>`select view from game_views where game_id = ${gameId} and player_id = 'seat-0'`;
+    const events = v2[0]!.view.events;
+    expect(events.length).toBeGreaterThan(r2.applied);
+    expect(events.map((e) => e.seq)).toEqual(events.map((_, i) => events[0]!.seq + i));
+    expect(events.filter((e) => e.kind === "built")).toHaveLength(r2.applied);
+    expect(events[0]!.kind).toBe("built");
+    // The events since the previous version only: nothing from version 1 repeats.
+    expect(events[0]!.seq).toBe(v1[0]!.view.events.at(-1)!.seq + 1);
+    // game_events holds the whole history, and clients cannot read it.
+    const rows = await sql<{ seq: number }[]>`select seq from game_events where game_id = ${gameId} order by seq`;
+    expect(rows.map((r) => r.seq)).toEqual(rows.map((_, i) => i));
+    expect(rows.length).toBe(events.at(-1)!.seq + 1);
+    await expect(asUser(sql, alice, (tx) => tx`select * from game_events where game_id = ${gameId}`)).rejects.toMatchObject({ code: "42501" });
+  });
+
   it("the loop is capped and reports it", () => {
     const seats: SeatRow[] = ["seat-0", "seat-1", "seat-2", "seat-3"].map((id, seat) => ({
       game_id: "g",
@@ -153,6 +188,7 @@ describe("§3.1 bot loop (docs/phase5.md §6.2)", () => {
       bot_level: "easy",
       last_seen_at: null,
       joined_at: new Date(),
+      avatar: null,
     }));
     const state = createGame({ seed: "cap", players: seats.map((s) => ({ id: s.player_id, name: s.name })), board: "random" });
     const capped = runBotLoop(state, seats, 10);

@@ -8,9 +8,10 @@
  * it never imports the Postgres library itself.
  */
 
-import { botStep, isBotLevel, type BotLevel } from "@katan/bots";
+import { avatarFromSeed, isAvatarSpec, type AvatarSpec } from "@katan/avatars";
+import { botStep, generateBotName, isBotLevel, type BotLevel } from "@katan/bots";
 import {
-  applyAction,
+  applyActionWithEvents,
   createGame as engineCreateGame,
   isRuleError,
   nextActor,
@@ -18,6 +19,7 @@ import {
   replay,
   type Action,
   type BoardKind,
+  type GameEvent,
   type GameState,
   type PlayerColor,
   type PlayerId,
@@ -43,6 +45,8 @@ export interface SeatRow {
   bot_level: BotLevel | null;
   last_seen_at: Date | null;
   joined_at: Date;
+  /** packages/avatars AvatarSpec, or null for a legacy seat (docs/phase7.md §4). */
+  avatar: AvatarSpec | null;
 }
 
 export interface GameRow {
@@ -78,10 +82,14 @@ export function seatOfUser(seats: SeatRow[], userId: string): SeatRow {
   return seat;
 }
 
-/** Rewrite every player's redacted view (§3.1: recomputed on every action; cheap). */
-export async function refreshViews(tx: Tx, gameId: string, state: GameState, seats: SeatRow[], version: number): Promise<void> {
+/**
+ * Rewrite every player's redacted view (§3.1: recomputed on every action;
+ * cheap). `events` are the events since the previous version, redacted per
+ * player inside `redact` (docs/phase7.md §1.2).
+ */
+export async function refreshViews(tx: Tx, gameId: string, state: GameState, seats: SeatRow[], version: number, events: readonly GameEvent[] = []): Promise<void> {
   for (const seat of seats) {
-    const view = redact(state, seat.player_id);
+    const view = redact(state, seat.player_id, events);
     await tx`
       insert into game_views (game_id, player_id, user_id, view, version)
       values (${gameId}, ${seat.player_id}, ${seat.user_id}, ${tx.json(view as unknown as JSONValue)}, ${version})
@@ -93,6 +101,8 @@ export async function refreshViews(tx: Tx, gameId: string, state: GameState, sea
 export interface BotLoopResult {
   state: GameState;
   actions: Action[];
+  /** Every event from every bot action, in order (docs/phase7.md §1.2). */
+  events: GameEvent[];
   hitCap: boolean;
 }
 
@@ -104,6 +114,7 @@ export function runBotLoop(state: GameState, seats: SeatRow[], cap = BOT_ACTION_
   const levels = new Map<PlayerId, BotLevel>();
   for (const s of seats) if (s.kind === "bot" && s.bot_level) levels.set(s.player_id, s.bot_level);
   const actions: Action[] = [];
+  const events: GameEvent[] = [];
   let hitCap = false;
   while (state.phase.kind !== "ended") {
     const actor = nextActor(state);
@@ -114,10 +125,12 @@ export function runBotLoop(state: GameState, seats: SeatRow[], cap = BOT_ACTION_
       break;
     }
     const action = botStep(state, actor, createBot(level));
-    state = applyAction(state, action);
+    const applied = applyActionWithEvents(state, action);
+    state = applied.state;
+    events.push(...applied.events);
     actions.push(action);
   }
-  return { state, actions, hitCap };
+  return { state, actions, events, hitCap };
 }
 
 async function appendActions(tx: Tx, gameId: string, fromIndex: number, actions: Action[]): Promise<void> {
@@ -128,14 +141,23 @@ async function appendActions(tx: Tx, gameId: string, fromIndex: number, actions:
   }
 }
 
-async function persist(tx: Tx, game: GameRow, seats: SeatRow[], state: GameState, applied: Action[]): Promise<number> {
+/** The replay/debug event log (docs/phase7.md §1.2); never client-readable. */
+export async function appendEvents(tx: Tx, gameId: string, events: readonly GameEvent[]): Promise<void> {
+  for (const e of events) {
+    await tx`insert into game_events (game_id, seq, event) values (${gameId}, ${e.seq}, ${tx.json(e as unknown as JSONValue)})
+             on conflict (game_id, seq) do nothing`;
+  }
+}
+
+export async function persist(tx: Tx, game: GameRow, seats: SeatRow[], state: GameState, applied: Action[], events: readonly GameEvent[]): Promise<number> {
   const version = game.version + applied.length;
   const status = state.phase.kind === "ended" ? "ended" : game.status;
   await appendActions(tx, game.id, game.version, applied);
+  await appendEvents(tx, game.id, events);
   await tx`update games set state = ${tx.json(state as unknown as JSONValue)}, version = ${version},
            status = ${status}, updated_at = now() where id = ${game.id}`;
   await tx`update lobbies set status = ${status}, winner = ${state.winner}, updated_at = now() where game_id = ${game.id}`;
-  await refreshViews(tx, game.id, state, seats, version);
+  await refreshViews(tx, game.id, state, seats, version, events);
   return version;
 }
 
@@ -172,15 +194,16 @@ export async function applyActionForUser(sql: Db, input: ApplyInput): Promise<Ap
     if (seat.kind === "bot") throw new ServiceError("NOT_YOUR_SEAT", "a bot is playing your seat; reclaim it first", 403);
 
     let state: GameState;
+    let events: GameEvent[];
     try {
-      state = applyAction(game.state, input.action);
+      ({ state, events } = applyActionWithEvents(game.state, input.action));
     } catch (err) {
       if (isRuleError(err)) throw err; // surfaces as { ok: false, code }
       throw err;
     }
     const loop = runBotLoop(state, seats);
     const applied = [input.action, ...loop.actions];
-    const version = await persist(tx as Tx, game, seats, loop.state, applied);
+    const version = await persist(tx as Tx, game, seats, loop.state, applied, [...events, ...loop.events]);
     return { version, applied: applied.length, botCapHit: loop.hitCap };
   });
 }
@@ -194,6 +217,38 @@ export interface CreatePlayer {
   kind: "human" | "bot";
   userId?: string;
   level?: BotLevel;
+  avatar?: AvatarSpec;
+}
+
+/** A deterministic portrait for a seat that was not given one. */
+export function defaultAvatar(gameId: string, seat: number): AvatarSpec {
+  return avatarFromSeed(`${gameId}:${seat}`);
+}
+
+/** A generated medieval name for a bot, distinct from every name at the table (docs/phase7.md §5). */
+export function defaultBotName(gameId: string, seat: number, taken: readonly string[]): string {
+  const rng = seededStream(`${gameId}:bot-name:${seat}`);
+  return generateBotName(rng, taken);
+}
+
+function seededStream(seed: string): () => number {
+  let a = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i++) {
+    a ^= seed.charCodeAt(i);
+    a = Math.imul(a, 0x01000193);
+  }
+  a >>>= 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function avatarOrNull(value: unknown): AvatarSpec | null {
+  return isAvatarSpec(value) ? value : null;
 }
 
 export interface CreateGameInput {
@@ -226,13 +281,14 @@ export async function createGameForUsers(sql: Db, input: CreateGameInput): Promi
              values (${gameId}, ${"DEVGME"}, 'active', ${input.createdBy}, ${input.players.length}, ${input.board})`;
     for (let seat = 0; seat < input.players.length; seat++) {
       const p = input.players[seat] as CreatePlayer;
-      await tx`insert into game_players (game_id, user_id, player_id, seat, name, color, kind, bot_level, ready)
-               values (${gameId}, ${p.userId ?? null}, ${playerIdForSeat(seat)}, ${seat}, ${p.name}, ${p.color}, ${p.kind}, ${p.kind === "bot" ? p.level! : null}, true)`;
+      const avatar = p.avatar ?? defaultAvatar(gameId, seat);
+      await tx`insert into game_players (game_id, user_id, player_id, seat, name, color, kind, bot_level, ready, avatar)
+               values (${gameId}, ${p.userId ?? null}, ${playerIdForSeat(seat)}, ${seat}, ${p.name}, ${p.color}, ${p.kind}, ${p.kind === "bot" ? p.level! : null}, true, ${tx.json(avatar as unknown as JSONValue)})`;
     }
     const seats = await seatsOf(tx as Tx, gameId);
     const loop = runBotLoop(initial, seats);
     const game: GameRow = { id: gameId, seed, state: initial, version: 0, status: "active", created_by: input.createdBy, join_code: null, host_user_id: input.createdBy, max_players: input.players.length, board: input.board };
-    const version = await persist(tx as Tx, game, seats, loop.state, loop.actions);
+    const version = await persist(tx as Tx, game, seats, loop.state, loop.actions, loop.events);
     return { gameId, version };
   });
 }
@@ -244,7 +300,7 @@ export async function activateGame(tx: Tx, game: GameRow, seats: SeatRow[]): Pro
   await tx`update games set state = ${tx.json(initial as unknown as JSONValue)}, status = 'active', updated_at = now() where id = ${game.id}`;
   await tx`update lobbies set status = 'active', updated_at = now() where game_id = ${game.id}`;
   const loop = runBotLoop(initial, seats);
-  return persist(tx as Tx, { ...game, status: "active", state: initial }, seats, loop.state, loop.actions);
+  return persist(tx as Tx, { ...game, status: "active", state: initial }, seats, loop.state, loop.actions, loop.events);
 }
 
 // ---------------------------------------------------------------------------

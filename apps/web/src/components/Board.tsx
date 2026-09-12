@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { GEOMETRY, type Action, type HexId, type PlayerColor } from "@katan/engine";
 import { createLayout, hexPoints, waterPoints } from "@/board/layout";
 import type { RedactedState } from "@/driver/types";
-import { INK, PLAYER_FILL, SAND, WATER, WATER_DEEP } from "@/game/theme";
-import { CityGlyph, HarborMarker, NumberToken, Robber, SettlementGlyph, TerrainDefs } from "./boardParts";
+import type { Step } from "@/game/eventQueue";
+import { PLAYER_FILL, SAND, WATER, WATER_DEEP } from "@/game/theme";
+import { useAnchors } from "./anim/anchors";
+import { CityGlyph, HarborMarker, NumberToken, RoadGlyph, Robber, SettlementGlyph, TerrainDefs } from "./boardParts";
 
 export type TargetMode = "road" | "settlement" | "city" | null;
 
@@ -17,15 +19,37 @@ export interface BoardProps {
   mode: TargetMode;
   meColor: PlayerColor;
   onAction: (action: Action) => void;
+  /** The animation step being played, for piece/robber/token effects (docs/phase7.md §2.2). */
+  step?: Step | null;
+  /** Clicking the board while animations drain fast-forwards them. */
+  onSkip?: (() => void) | undefined;
 }
 
 const R = 50;
 const layout = createLayout(R);
 
-/** The board (docs/phase3.md §4). One <svg>; only legal targets are interactive. */
-export function Board({ view, legal, mode, meColor, onAction }: BoardProps) {
+/** The 2D board (docs/phase3.md §4). One <svg>; only legal targets are interactive. */
+export function Board({ view, legal, mode, meColor, onAction, step = null, onSkip }: BoardProps) {
   const accent = PLAYER_FILL[meColor];
   const phase = view.phase.kind;
+  const svgRef = useRef<SVGSVGElement>(null);
+  const anchors = useAnchors();
+
+  // Register the projector so flying cards can start from a hex (docs/phase7.md §2.2).
+  useEffect(() => {
+    anchors.setProjector((key) => {
+      const svg = svgRef.current;
+      if (!svg) return null;
+      const [kind, id] = key.split(":", 2);
+      if (!id) return null;
+      const rect = svg.getBoundingClientRect();
+      const [x0, y0, w, h] = layout.viewBox.split(" ").map(Number) as [number, number, number, number];
+      const p = kind === "hex" ? layout.hex(id) : kind === "vertex" ? layout.vertex(id) : kind === "edge" ? layout.edgeMid(id) : null;
+      if (!p) return null;
+      return { x: rect.left + ((p.x - x0) / w) * rect.width, y: rect.top + ((p.y - y0) / h) * rect.height };
+    });
+    return () => anchors.setProjector(null);
+  }, [anchors]);
 
   const targets = useMemo(() => {
     const vertices = new Map<string, Action>();
@@ -46,13 +70,23 @@ export function Board({ view, legal, mode, meColor, onAction }: BoardProps) {
   const me = view.players.find((p) => p.id === view.viewer);
   const myVertices = new Set([...(me?.settlements ?? []), ...(me?.cities ?? [])]);
 
+  // Animation cues from the current step.
+  const event = step?.kind === "event" ? step.event : null;
+  const justBuilt = event?.kind === "built" ? event : null;
+  const rolled = event?.kind === "diceRolled" ? event.dice[0] + event.dice[1] : null;
+  const blockedHex = event?.kind === "productionBlocked" ? event.hex : null;
+  const hexIds = Object.keys(view.board.hexes) as HexId[];
+  const robber = layout.hex(view.robberHex);
+
   return (
     <svg
+      ref={svgRef}
       viewBox={layout.viewBox}
       className="h-auto w-full max-h-full select-none"
       role="img"
       aria-label="Game board"
       data-testid="board"
+      onClick={onSkip}
     >
       <TerrainDefs />
 
@@ -63,53 +97,33 @@ export function Board({ view, legal, mode, meColor, onAction }: BoardProps) {
         const o = layout.outward(port.edge);
         const ends = layout.edge(port.edge);
         const owned = port.vertices.some((v) => myVertices.has(v));
-        return (
-          <HarborMarker
-            key={port.edge}
-            x={m.x + o.x * R * 0.72}
-            y={m.y + o.y * R * 0.72}
-            ends={ends}
-            kind={port.kind}
-            R={R}
-            owned={owned}
-          />
-        );
+        return <HarborMarker key={port.edge} x={m.x + o.x * R * 0.78} y={m.y + o.y * R * 0.78} ends={ends} kind={port.kind} R={R} owned={owned} />;
       })}
 
       {/* 2. Terrain */}
-      {GEOMETRY.hexes.map((hex) => (
-        <polygon
-          key={hex}
-          points={hexPoints(layout, hex, 1.5)}
-          fill={`url(#pat-${view.board.hexes[hex]!.terrain})`}
-          stroke={SAND}
-          strokeWidth={3}
-          strokeLinejoin="round"
-        />
+      {hexIds.map((hex) => (
+        <g key={hex} className={blockedHex === hex ? "hex-shake" : undefined}>
+          <polygon points={hexPoints(layout, hex, 1.5)} fill={`url(#pat-${view.board.hexes[hex]!.terrain})`} stroke={SAND} strokeWidth={3} strokeLinejoin="round" />
+        </g>
       ))}
 
       {/* 3. Tokens and 4. robber */}
-      {GEOMETRY.hexes.map((hex) => {
+      {hexIds.map((hex) => {
         const tile = view.board.hexes[hex]!;
         const c = layout.hex(hex);
-        return tile.token === null ? null : <NumberToken key={hex} x={c.x} y={c.y} n={tile.token} R={R} />;
+        if (tile.token === null) return null;
+        const cls = blockedHex === hex ? "token-dim" : rolled === tile.token && hex !== view.robberHex ? "token-pulse" : "";
+        return <NumberToken key={`${hex}-${rolled ?? ""}`} x={c.x} y={c.y} n={tile.token} R={R} className={cls} />;
       })}
-      {(() => {
-        const c = layout.hex(view.robberHex);
-        return <Robber x={c.x + R * 0.42} y={c.y + R * 0.2} R={R} />;
-      })()}
+      <Robber x={robber.x + R * 0.42} y={robber.y + R * 0.2} R={R} className="robber-move" />
 
       {/* 5. Roads */}
-      <g strokeLinecap="round">
+      <g>
         {view.players.flatMap((p) =>
           p.roads.map((edge) => {
             const [a, b] = layout.edge(edge);
-            return (
-              <g key={edge}>
-                <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={INK} strokeWidth={R * 0.22} />
-                <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={PLAYER_FILL[p.color]} strokeWidth={R * 0.14} />
-              </g>
-            );
+            const fresh = justBuilt?.piece === "road" && justBuilt.at === edge;
+            return <RoadGlyph key={edge} a={a} b={b} color={p.color} R={R} className={fresh ? "road-draw" : ""} />;
           }),
         )}
       </g>
@@ -118,11 +132,13 @@ export function Board({ view, legal, mode, meColor, onAction }: BoardProps) {
       {view.players.flatMap((p) => [
         ...p.settlements.map((v) => {
           const pt = layout.vertex(v);
-          return <SettlementGlyph key={v} x={pt.x} y={pt.y} color={p.color} R={R} />;
+          const fresh = justBuilt?.piece === "settlement" && justBuilt.at === v;
+          return <SettlementGlyph key={v} x={pt.x} y={pt.y} color={p.color} R={R} className={fresh ? "piece-pop" : ""} />;
         }),
         ...p.cities.map((v) => {
           const pt = layout.vertex(v);
-          return <CityGlyph key={v} x={pt.x} y={pt.y} color={p.color} R={R} />;
+          const fresh = justBuilt?.piece === "city" && justBuilt.at === v;
+          return <CityGlyph key={v} x={pt.x} y={pt.y} color={p.color} R={R} className={fresh ? "piece-rise" : ""} />;
         }),
       ])}
 
@@ -136,7 +152,10 @@ export function Board({ view, legal, mode, meColor, onAction }: BoardProps) {
             tabIndex={0}
             aria-label={`Move robber to hex ${hex}`}
             data-testid={`target-hex-${hex}`}
-            onClick={() => onAction(action)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAction(action);
+            }}
             onKeyDown={(e) => e.key === "Enter" && onAction(action)}
           >
             <polygon points={hexPoints(layout, hex, 1.5)} fill={accent} fillOpacity={0.14} />
@@ -162,7 +181,10 @@ export function Board({ view, legal, mode, meColor, onAction }: BoardProps) {
               tabIndex={0}
               aria-label={`Build road on ${edge}`}
               data-testid={`target-edge-${edge}`}
-              onClick={() => onAction(action)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onAction(action);
+              }}
               onKeyDown={(e) => e.key === "Enter" && onAction(action)}
             >
               <polygon points={edgeHitPolygon(a, b, R * 0.2)} fill="transparent" />
@@ -199,7 +221,10 @@ export function Board({ view, legal, mode, meColor, onAction }: BoardProps) {
               fillOpacity={0.35}
               stroke={accent}
               strokeWidth={3}
-              onClick={() => onAction(action)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onAction(action);
+              }}
               onKeyDown={(e) => e.key === "Enter" && onAction(action)}
             />
           );
@@ -233,5 +258,5 @@ export function hexPercent(hex: HexId): { left: string; top: string } {
   return { left: `${((c.x - x0) / w) * 100}%`, top: `${((c.y - y0) / h) * 100}%` };
 }
 
-export { layout as boardLayout };
+export { layout as boardLayout, GEOMETRY as boardGeometry };
 export type { PlayerColor };

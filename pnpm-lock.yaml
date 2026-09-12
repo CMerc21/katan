@@ -30,6 +30,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@katan/avatars':
+        specifier: workspace:*
+        version: link:../../packages/avatars
       '@katan/bots':
         specifier: workspace:*
         version: link:../../packages/bots
@@ -74,6 +77,15 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)
 
+  packages/avatars:
+    devDependencies:
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.2)(jiti@2.7.0)(lightningcss@1.32.0)
+
   packages/bots:
     dependencies:
       '@katan/engine':
@@ -104,6 +116,9 @@ importers:
 
   packages/server:
     dependencies:
+      '@katan/avatars':
+        specifier: workspace:*
+        version: link:../avatars
       '@katan/bots':
         specifier: workspace:*
         version: link:../bots

@@ -50,6 +50,36 @@ async function game(gameId: string): Promise<{ status: string; state: GameState;
   return row!;
 }
 
+describe("docs/phase7.md §4 §5 seats carry portraits and bots get medieval names", () => {
+  it("every seat gets an avatar, bots a generated name, and the host can rename a bot", async () => {
+    const { gameId } = await lobbyWith(bob);
+    await addBot(sql, { gameId, userId: host, level: "easy" });
+    await addBot(sql, { gameId, userId: host, level: "hard" });
+    const seats = await sql<{ player_id: string; name: string; kind: string; avatar: Record<string, number> | null }[]>`select player_id, name, kind, avatar from game_players where game_id = ${gameId} order by seat`;
+    expect(seats).toHaveLength(4);
+    for (const s of seats) {
+      expect(s.avatar).not.toBeNull();
+      expect(typeof s.avatar!.hair).toBe("number");
+    }
+    const bots = seats.filter((s) => s.kind === "bot");
+    expect(bots.map((b) => b.name)).not.toContain("Bot (easy)");
+    for (const b of bots) expect(b.name).not.toMatch(/easy|hard|bot/i);
+    expect(new Set(bots.map((b) => b.name)).size).toBe(2);
+    // Distinct portraits per seat.
+    expect(new Set(seats.map((s) => JSON.stringify(s.avatar))).size).toBe(4);
+    // Own avatar can be changed; a malformed one is refused; the host renames a bot.
+    const spec = { skin: 1, face: 2, eyes: 3, brows: 0, mouth: 1, hair: 4, hairColor: 5, facialHair: 0, headwear: 6, garment: 2, accessory: 3 };
+    await setSeat(sql, { gameId, userId: bob, avatar: spec });
+    const [bobRow] = await sql<{ avatar: unknown }[]>`select avatar from game_players where game_id = ${gameId} and user_id = ${bob}`;
+    expect(bobRow!.avatar).toEqual(spec);
+    await expect(setSeat(sql, { gameId, userId: bob, avatar: { skin: 99 } as never })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await setSeat(sql, { gameId, userId: host, playerId: bots[0]!.player_id, name: "Sir Reginald" });
+    const [renamed] = await sql<{ name: string }[]>`select name from game_players where game_id = ${gameId} and player_id = ${bots[0]!.player_id}`;
+    expect(renamed!.name).toBe("Sir Reginald");
+    await expect(setSeat(sql, { gameId, userId: bob, playerId: bots[0]!.player_id, name: "Nope" })).rejects.toMatchObject({ code: "NOT_HOST" });
+  });
+});
+
 describe("§1 lobby", () => {
   it("join codes use the safe alphabet and are unique among non-ended games", async () => {
     for (let i = 0; i < 50; i++) {
@@ -127,7 +157,8 @@ describe("§1 lobby", () => {
     const { version } = await startGame(sql, { gameId, userId: host });
     const g = await game(gameId);
     expect(g.status).toBe("active");
-    expect(g.state.players.map((p) => p.name)).toEqual(["Host", bob.slice(0, 4), "Bot (easy)"]);
+    expect(g.state.players.slice(0, 2).map((p) => p.name)).toEqual(["Host", bob.slice(0, 4)]);
+    expect(g.state.players[2]!.name).not.toMatch(/bot/i); // docs/phase7.md §5: generated medieval name
     expect(g.state.players.map((p) => p.color)).toEqual(["red", "blue", "orange"]);
     expect(version).toBe(0); // seat 0 is human, so no bot moved yet
     const views = await sql`select player_id from game_views where game_id = ${gameId}`;

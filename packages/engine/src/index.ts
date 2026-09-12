@@ -2,6 +2,7 @@ export * from "./rng";
 export * from "./geometry";
 export * from "./board";
 export * from "./errors";
+export * from "./events";
 export * from "./types";
 export * from "./state";
 export * from "./specialCards";

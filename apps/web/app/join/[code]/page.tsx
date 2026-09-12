@@ -24,7 +24,7 @@ export default function JoinPage() {
   }, [code, session, loading, router]);
 
   return (
-    <main className="mx-auto max-w-md px-4 py-10">
+    <main className="parchment mx-auto my-8 max-w-md rounded-lg px-6 py-8">
       {problem ? (
         <>
           <h1 className="text-2xl font-semibold">Couldn&apos;t join</h1>

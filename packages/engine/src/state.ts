@@ -4,6 +4,7 @@
 
 import { RESOURCES, type PortKind, type Resource } from "./board";
 import { RuleError } from "./errors";
+import { describeEvent, eventPlayer, type EventBody, type GameEvent } from "./events";
 import { GEOMETRY, type EdgeId, type HexId, type VertexId } from "./geometry";
 import { WINNING_VP, type GameState, type Hand, type LogEntry, type Player, type PlayerId } from "./types";
 
@@ -207,6 +208,45 @@ export function appendLog(state: GameState, playerId: PlayerId | null, text: str
   const entry: LogEntry = { turn: state.turn, playerId, text };
   state.log.push(entry);
   if (state.log.length > LOG_LIMIT) state.log.splice(0, state.log.length - LOG_LIMIT);
+}
+
+// ---------------------------------------------------------------------------
+// Events (docs/phase7.md §1)
+
+let sink: GameEvent[] | null = null;
+
+/**
+ * Run `fn` collecting every event emitted meanwhile. `applyActionWithEvents`
+ * is the only caller; nesting is safe (the previous sink is restored).
+ */
+export function collectEvents<T>(fn: () => T): { result: T; events: GameEvent[] } {
+  const events: GameEvent[] = [];
+  const previous = sink;
+  sink = events;
+  try {
+    const result = fn();
+    return { result, events };
+  } finally {
+    sink = previous;
+  }
+}
+
+/**
+ * Record an event: number it, hand it to the collector, and append its
+ * public description to `state.log`. Mutates `state`.
+ */
+export function emit(state: GameState, body: EventBody): GameEvent {
+  const event = { seq: state.eventSeq, ...body } as GameEvent;
+  state.eventSeq += 1;
+  if (sink) sink.push(event);
+  const text = describeEvent(event, (id) => state.players.find((p) => p.id === id)?.name ?? id);
+  if (text !== null) appendLog(state, eventPlayer(event), text);
+  return event;
+}
+
+/** A free-text log line from outside the rules (server escape hatches). */
+export function appendNote(state: GameState, playerId: PlayerId | null, text: string): void {
+  emit(state, { kind: "note", playerId, text });
 }
 
 /**

@@ -65,7 +65,8 @@ test("3-player hotseat: setup by clicking, roll, end turn twice", async ({ page 
   }
 
   // Pieces are on the board: 6 settlements and 6 roads.
-  await expect(page.locator('[data-testid="board"] polygon[stroke="#211d19"]')).toHaveCount(6);
+  await expect(page.locator('[data-testid="board"] [data-piece="settlement"]')).toHaveCount(6);
+  await expect(page.locator('[data-testid="board"] [data-piece="road"]')).toHaveCount(6);
   await expect(page.getByTestId("log")).toContainText("setup complete");
 
   // Two full turns.

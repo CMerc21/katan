@@ -67,6 +67,7 @@ export function createGame(options: CreateGameOptions): GameState {
     boardKind,
     board,
     actionIndex: 0,
+    eventSeq: 0,
     turn: 0,
     phase: { kind: "setup", round: 1, step: "settlement", lastSettlement: null },
     players: seated,

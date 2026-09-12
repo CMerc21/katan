@@ -38,7 +38,7 @@ function LoginForm() {
 
   if (!configured) {
     return (
-      <main className="mx-auto max-w-md px-4 py-10">
+      <main className="parchment mx-auto my-8 max-w-md rounded-lg px-6 py-8">
         <h1 className="text-2xl font-semibold">Online play is not configured</h1>
         <p className="mt-2 text-ink-soft">Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, or play hotseat on this device.</p>
         <Button className="mt-6" onClick={() => router.push("/hotseat")}>
@@ -66,8 +66,8 @@ function LoginForm() {
   };
 
   return (
-    <main className="mx-auto max-w-md px-4 py-10">
-      <h1 className="text-3xl font-semibold">Sign in</h1>
+    <main className="parchment mx-auto my-8 max-w-md rounded-lg px-6 py-8">
+      <h1 className="font-display text-4xl font-semibold">Sign in</h1>
       <p className="mt-1 text-ink-soft">We email you a link and a code. No password.</p>
       {!sent ? (
         <form

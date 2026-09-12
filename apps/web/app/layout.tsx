@@ -4,13 +4,13 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Katan",
-  description: "A hex settlement-building game for 3 to 4 friends",
+  description: "A hex settlement-building game for friends",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-full bg-parchment text-ink antialiased">{children}</body>
+      <body className="min-h-full text-ink antialiased">{children}</body>
     </html>
   );
 }

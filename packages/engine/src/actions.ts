@@ -18,13 +18,15 @@ import {
 } from "./legal";
 import { rng } from "./rng";
 import { updateLargestArmy, updateLongestRoad } from "./specialCards";
+import type { GameEvent } from "./events";
 import {
   COSTS,
   addHand,
-  appendLog,
   buildingAt,
   cloneJson,
+  collectEvents,
   currentPlayerId,
+  emit,
   emptyHand,
   expandHand,
   getPlayer,
@@ -35,6 +37,7 @@ import {
   ratioAllowed,
   roadOwner,
   transfer,
+  victoryPoints,
 } from "./state";
 import type {
   Action,
@@ -79,23 +82,34 @@ function requireHand(value: unknown, what: string): Hand {
 // ---------------------------------------------------------------------------
 // Roll and production (§6)
 
+type Gain = { playerId: PlayerId; hex: HexId; resource: Resource; count: number };
+
 function produce(state: GameState, total: number): void {
-  // owed[playerIndex][resource]
+  // owed[playerIndex][resource], plus per-hex gains for the event stream.
   const owed = state.players.map(() => emptyHand());
+  const gains: Gain[] = [];
   for (const hex of GEOMETRY.hexes) {
     const tile = state.board.hexes[hex];
-    if (!tile || tile.token !== total || hex === state.robberHex) continue;
+    if (!tile || tile.token !== total) continue;
+    if (hex === state.robberHex) {
+      emit(state, { kind: "productionBlocked", hex });
+      continue;
+    }
     const resource = TERRAIN_RESOURCE[tile.terrain];
     if (resource === null) continue;
     for (const v of GEOMETRY.hexVertices[hex] ?? []) {
       const b = buildingAt(state, v);
       if (!b) continue;
       const idx = state.players.findIndex((p) => p.id === b.owner);
-      (owed[idx] as Hand)[resource] += b.kind === "city" ? 2 : 1;
+      const count = b.kind === "city" ? 2 : 1;
+      (owed[idx] as Hand)[resource] += count;
+      gains.push({ playerId: b.owner, hex, resource, count });
     }
   }
 
   // §6.2 bank shortage, one resource at a time.
+  const shortfalls: { resource: Resource; playerId: PlayerId | null; count: number }[] = [];
+  const paidGains: Gain[] = [];
   for (const r of RESOURCES) {
     const recipients = owed.map((h, i) => ({ i, n: h[r] })).filter((x) => x.n > 0);
     if (recipients.length === 0) continue;
@@ -105,16 +119,27 @@ function produce(state: GameState, total: number): void {
         (state.players[x.i] as Player).hand[r] += x.n;
         state.bank[r] -= x.n;
       }
+      paidGains.push(...gains.filter((g) => g.resource === r));
     } else if (recipients.length === 1) {
       const x = recipients[0] as { i: number; n: number };
+      const player = state.players[x.i] as Player;
       const paid = state.bank[r];
-      (state.players[x.i] as Player).hand[r] += paid;
+      player.hand[r] += paid;
       state.bank[r] = 0;
-      appendLog(state, null, `bank ran short of ${r}; ${(state.players[x.i] as Player).name} received ${paid}`);
+      shortfalls.push({ resource: r, playerId: player.id, count: paid });
+      // Attribute the partial payment to the player's hexes in order.
+      let left = paid;
+      for (const g of gains.filter((x) => x.resource === r)) {
+        const count = Math.min(left, g.count);
+        if (count > 0) paidGains.push({ ...g, count });
+        left -= count;
+      }
     } else {
-      appendLog(state, null, `bank ran short of ${r}; nobody received any`);
+      shortfalls.push({ resource: r, playerId: null, count: 0 });
     }
   }
+  if (paidGains.length > 0) emit(state, { kind: "produced", gains: paidGains });
+  for (const short of shortfalls) emit(state, { kind: "bankShort", ...short });
 }
 
 function applyRoll(state: GameState, playerId: PlayerId): void {
@@ -125,7 +150,8 @@ function applyRoll(state: GameState, playerId: PlayerId): void {
   const d2 = dice.int(6) + 1;
   const total = d1 + d2;
   state.lastRoll = [d1, d2];
-  appendLog(state, playerId, `${player.name} rolled ${d1} + ${d2} = ${total}`);
+  void player;
+  emit(state, { kind: "diceRolled", playerId, dice: [d1, d2] });
 
   if (total === 7) {
     const pending: Record<PlayerId, number> = {};
@@ -158,7 +184,7 @@ function applyDiscard(state: GameState, action: DiscardAction): void {
   if (!hasResources(player.hand, cards)) throw new RuleError("INSUFFICIENT_RESOURCES", "not holding those cards");
   transfer(player.hand, state.bank, cards);
   delete state.pendingDiscards[action.playerId];
-  appendLog(state, action.playerId, `${player.name} discarded ${owed} cards`);
+  emit(state, { kind: "discarded", playerId: action.playerId, count: owed, cards });
   if (Object.keys(state.pendingDiscards).length === 0) {
     state.phase = { kind: "moveRobber", via: "seven", returnTo: "action" };
   }
@@ -169,8 +195,10 @@ function applyMoveRobber(state: GameState, playerId: PlayerId, hex: HexId): void
   const player = requireCurrent(state, playerId);
   if (!GEOMETRY.hexes.includes(hex)) throw new RuleError("INVALID_HEX", `no such hex ${hex}`);
   if (hex === state.robberHex) throw new RuleError("ROBBER_MUST_MOVE", "robber must move to a different hex");
+  void player;
+  const from = state.robberHex;
   state.robberHex = hex;
-  appendLog(state, playerId, `${player.name} moved the robber`);
+  emit(state, { kind: "robberMoved", from, to: hex, by: playerId });
   const targets = stealTargets(state, hex, playerId);
   state.phase =
     targets.length === 0 ? { kind: phase.returnTo } : { kind: "steal", hex, targets, returnTo: phase.returnTo };
@@ -185,7 +213,7 @@ function applySteal(state: GameState, playerId: PlayerId, targetPlayerId: Player
   const pick = cards[rng(state.seed, state.actionIndex).int(cards.length)] as Resource;
   target.hand[pick] -= 1;
   player.hand[pick] += 1;
-  appendLog(state, playerId, `${player.name} stole a card from ${target.name}`);
+  emit(state, { kind: "stole", from: targetPlayerId, to: playerId, resource: pick });
   state.phase = { kind: phase.returnTo };
 }
 
@@ -204,11 +232,12 @@ function advanceSetup(state: GameState): void {
     }
   } else if (state.currentPlayer === 0) {
     state.phase = { kind: "roll" }; // §4.5
-    appendLog(state, null, "setup complete");
+    emit(state, { kind: "setupCompleted" });
   } else {
     state.currentPlayer -= 1;
     state.phase = { kind: "setup", round: 2, step: "settlement", lastSettlement: null };
   }
+  emit(state, { kind: "turnStarted", playerId: currentPlayerId(state), turn: state.turn });
 }
 
 function applyBuildRoad(state: GameState, playerId: PlayerId, edge: EdgeId): void {
@@ -230,7 +259,7 @@ function applyBuildRoad(state: GameState, playerId: PlayerId, edge: EdgeId): voi
 
   player.roads.push(edge);
   player.pieces.roads -= 1;
-  appendLog(state, playerId, `${player.name} built a road`);
+  emit(state, { kind: "built", playerId, piece: "road", at: edge });
   updateLongestRoad(state);
 
   if (phase.kind === "setup") {
@@ -247,6 +276,7 @@ function applyBuildRoad(state: GameState, playerId: PlayerId, edge: EdgeId): voi
 
 /** §4.3: one resource per producing hex adjacent to the second settlement. */
 function grantStartingResources(state: GameState, player: Player, vertex: VertexId): void {
+  const gains: Gain[] = [];
   for (const h of GEOMETRY.vertexHexes[vertex] ?? []) {
     const tile = state.board.hexes[h];
     if (!tile) continue;
@@ -254,7 +284,9 @@ function grantStartingResources(state: GameState, player: Player, vertex: Vertex
     if (resource === null || state.bank[resource] <= 0) continue;
     state.bank[resource] -= 1;
     player.hand[resource] += 1;
+    gains.push({ playerId: player.id, hex: h, resource, count: 1 });
   }
+  if (gains.length > 0) emit(state, { kind: "produced", gains });
 }
 
 function applyBuildSettlement(state: GameState, playerId: PlayerId, vertex: VertexId): void {
@@ -273,7 +305,7 @@ function applyBuildSettlement(state: GameState, playerId: PlayerId, vertex: Vert
 
   player.settlements.push(vertex);
   player.pieces.settlements -= 1;
-  appendLog(state, playerId, `${player.name} built a settlement`);
+  emit(state, { kind: "built", playerId, piece: "settlement", at: vertex });
   updateLongestRoad(state); // an opponent's road may have been cut
 
   if (phase.kind === "setup") {
@@ -293,7 +325,7 @@ function applyBuildCity(state: GameState, playerId: PlayerId, vertex: VertexId):
   player.cities.push(vertex);
   player.pieces.cities -= 1;
   player.pieces.settlements += 1; // §5.4
-  appendLog(state, playerId, `${player.name} upgraded a settlement to a city`);
+  emit(state, { kind: "built", playerId, piece: "city", at: vertex });
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +338,7 @@ function applyBuyDevCard(state: GameState, playerId: PlayerId): void {
   pay(state, player, COSTS.devCard);
   const type = state.devDeck.shift() as DevCardType;
   player.devCards.push({ type, boughtOnTurn: state.turn });
-  appendLog(state, playerId, `${player.name} bought a development card`);
+  emit(state, { kind: "devCardBought", playerId, card: type });
 }
 
 function playDevCard(state: GameState, player: Player, type: DevCardType): void {
@@ -315,6 +347,7 @@ function playDevCard(state: GameState, player: Player, type: DevCardType): void 
   const idx = player.devCards.findIndex((c) => c.type === type && c.boughtOnTurn < state.turn);
   player.devCards.splice(idx, 1);
   player.devCardPlayedThisTurn = true;
+  emit(state, { kind: "devCardPlayed", playerId: player.id, card: type });
 }
 
 function applyPlayKnight(state: GameState, playerId: PlayerId): void {
@@ -323,7 +356,6 @@ function applyPlayKnight(state: GameState, playerId: PlayerId): void {
   playDevCard(state, player, "knight");
   player.playedKnights += 1;
   updateLargestArmy(state);
-  appendLog(state, playerId, `${player.name} played a knight`);
   state.phase = { kind: "moveRobber", via: "knight", returnTo: phase.kind };
 }
 
@@ -335,7 +367,6 @@ function applyPlayRoadBuilding(state: GameState, playerId: PlayerId): void {
   if (player.pieces.roads <= 0) throw new RuleError("NO_PIECES_LEFT", "no roads left");
   if (legalRoadEdges(state, playerId).length === 0) throw new RuleError("NO_LEGAL_ROAD", "nowhere to build a road");
   playDevCard(state, player, "roadBuilding");
-  appendLog(state, playerId, `${player.name} played road building`);
   state.phase = { kind: "roadBuilding", remaining: player.pieces.roads >= 2 ? 2 : 1 };
 }
 
@@ -352,7 +383,7 @@ function applyPlayInvention(state: GameState, action: PlayInventionAction): void
   if (!hasResources(state.bank, want)) throw new RuleError("BANK_EMPTY", "bank cannot supply those resources");
   playDevCard(state, player, "invention");
   transfer(state.bank, player.hand, want);
-  appendLog(state, action.playerId, `${player.name} played invention for ${a} and ${b}`);
+  emit(state, { kind: "inventionTaken", playerId: action.playerId, resources: [a, b] });
 }
 
 function applyPlayMonopoly(state: GameState, playerId: PlayerId, resource: Resource): void {
@@ -360,14 +391,14 @@ function applyPlayMonopoly(state: GameState, playerId: PlayerId, resource: Resou
   const player = requireCurrent(state, playerId);
   if (!RESOURCES.includes(resource)) throw new RuleError("INVALID_TRADE", "unknown resource");
   playDevCard(state, player, "monopoly");
-  let taken = 0;
+  const taken: Record<PlayerId, number> = {};
   for (const other of state.players) {
     if (other.id === playerId) continue;
-    taken += other.hand[resource];
+    taken[other.id] = other.hand[resource];
     player.hand[resource] += other.hand[resource];
     other.hand[resource] = 0;
   }
-  appendLog(state, playerId, `${player.name} played monopoly on ${resource} and took ${taken}`);
+  emit(state, { kind: "monopolised", playerId, resource, taken });
 }
 
 // ---------------------------------------------------------------------------
@@ -385,7 +416,7 @@ function applyOfferTrade(state: GameState, action: OfferTradeAction): void {
   }
   if (!hasResources(player.hand, give)) throw new RuleError("INSUFFICIENT_RESOURCES", "you do not hold those cards");
   state.pendingTrade = { from: action.playerId, give, receive, rejectedBy: [] };
-  appendLog(state, action.playerId, `${player.name} offered a trade`);
+  emit(state, { kind: "tradeOffered", playerId: action.playerId, give, receive });
 }
 
 function applyAcceptTrade(state: GameState, playerId: PlayerId): void {
@@ -400,7 +431,7 @@ function applyAcceptTrade(state: GameState, playerId: PlayerId): void {
   transfer(offerer.hand, acceptor.hand, trade.give);
   transfer(acceptor.hand, offerer.hand, trade.receive);
   state.pendingTrade = null;
-  appendLog(state, playerId, `${acceptor.name} accepted ${offerer.name}'s trade`);
+  emit(state, { kind: "tradeAccepted", from: trade.from, to: playerId, give: trade.give, receive: trade.receive });
 }
 
 function applyRejectTrade(state: GameState, playerId: PlayerId): void {
@@ -410,8 +441,12 @@ function applyRejectTrade(state: GameState, playerId: PlayerId): void {
   if (!trade || trade.rejectedBy.includes(playerId)) throw new RuleError("NO_PENDING_TRADE", "no trade to reject");
   if (trade.from === playerId) throw new RuleError("INVALID_TRADE", "cancel your own offer instead");
   trade.rejectedBy.push(playerId);
-  appendLog(state, playerId, `${player.name} declined the trade`);
-  if (trade.rejectedBy.length >= state.players.length - 1) state.pendingTrade = null;
+  void player;
+  emit(state, { kind: "tradeDeclined", playerId, from: trade.from });
+  if (trade.rejectedBy.length >= state.players.length - 1) {
+    state.pendingTrade = null;
+    emit(state, { kind: "tradeCancelled", playerId: trade.from, reason: "everyoneDeclined" });
+  }
 }
 
 function applyCancelTrade(state: GameState, playerId: PlayerId): void {
@@ -421,7 +456,8 @@ function applyCancelTrade(state: GameState, playerId: PlayerId): void {
     throw new RuleError("NO_PENDING_TRADE", "no trade of yours to cancel");
   }
   state.pendingTrade = null;
-  appendLog(state, playerId, `${player.name} withdrew the trade`);
+  void player;
+  emit(state, { kind: "tradeCancelled", playerId, reason: "withdrawn" });
 }
 
 function applyMaritimeTrade(state: GameState, action: MaritimeTradeAction): void {
@@ -440,7 +476,7 @@ function applyMaritimeTrade(state: GameState, action: MaritimeTradeAction): void
   state.bank[give] += giveCount;
   state.bank[receive] -= 1;
   player.hand[receive] += 1;
-  appendLog(state, action.playerId, `${player.name} traded ${giveCount} ${give} for 1 ${receive}`);
+  emit(state, { kind: "maritimeTrade", playerId: action.playerId, give, count: giveCount, receive });
 }
 
 // ---------------------------------------------------------------------------
@@ -449,11 +485,16 @@ function applyMaritimeTrade(state: GameState, action: MaritimeTradeAction): void
 function applyEndTurn(state: GameState, playerId: PlayerId): void {
   requirePhase(state, "action");
   requireCurrent(state, playerId);
-  state.pendingTrade = null;
+  if (state.pendingTrade) {
+    state.pendingTrade = null;
+    emit(state, { kind: "tradeCancelled", playerId, reason: "turnEnded" });
+  }
   for (const p of state.players) p.devCardPlayedThisTurn = false;
+  emit(state, { kind: "turnEnded", playerId });
   state.currentPlayer = (state.currentPlayer + 1) % state.players.length;
   state.turn += 1;
   state.phase = { kind: "roll" };
+  emit(state, { kind: "turnStarted", playerId: currentPlayerId(state), turn: state.turn });
 }
 
 // ---------------------------------------------------------------------------
@@ -463,7 +504,7 @@ function expireUnpayableTrade(state: GameState): void {
   const trade = state.pendingTrade;
   if (trade && !hasResources(getPlayer(state, trade.from).hand, trade.give)) {
     state.pendingTrade = null;
-    appendLog(state, trade.from, "trade offer withdrawn: offerer can no longer pay");
+    emit(state, { kind: "tradeCancelled", playerId: trade.from, reason: "unpayable" });
   }
 }
 
@@ -474,15 +515,28 @@ function checkWin(state: GameState): void {
   if (player && hasWon(state, player)) {
     state.winner = player.id;
     state.phase = { kind: "ended" };
-    appendLog(state, player.id, `${player.name} wins`);
+    const scores: Record<PlayerId, number> = {};
+    for (const p of state.players) scores[p.id] = victoryPoints(state, p).total;
+    emit(state, { kind: "gameEnded", winner: player.id, scores });
   }
 }
 
 /**
- * Apply `action` to `state` and return the new state. Throws `RuleError`
- * if the action is illegal; the input state is never modified.
+ * Apply `action` to `state` and return the new state together with the
+ * events it produced (docs/phase7.md §1.1). Throws `RuleError` if the
+ * action is illegal; the input state is never modified.
  */
+export function applyActionWithEvents(state: GameState, action: Action): { state: GameState; events: GameEvent[] } {
+  const { result, events } = collectEvents(() => applyCore(state, action));
+  return { state: result, events };
+}
+
+/** Apply `action` and return only the new state (the Phase 2 contract). */
 export function applyAction(state: GameState, action: Action): GameState {
+  return applyActionWithEvents(state, action).state;
+}
+
+function applyCore(state: GameState, action: Action): GameState {
   const next = cloneJson(state);
   if (next.phase.kind === "ended") throw new RuleError("GAME_OVER", "the game is over");
   getPlayer(next, action.playerId);

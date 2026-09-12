@@ -5,8 +5,12 @@ import { COSTS, RESOURCES, isHiddenCount, type Action, type DevCard, type Hand, 
 import type { RedactedState, SeatInfo } from "@/driver/types";
 import { COST_TEXT, DEV_CARD_HELP, DEV_CARD_LABEL, bannerText, currentPlayerId } from "@/game/labels";
 import type { TargetMode } from "./Board";
+import { useAnchor } from "./anim/anchors";
+import { Avatar } from "./Avatar";
+import { CardBack, DevCardFace } from "./cards";
 import { TradeResponse } from "./dialogs";
-import { Button, PlayerTag, ResourceChip } from "./ui";
+import { SettingsMenu } from "./SettingsMenu";
+import { Button, ResourceChip } from "./ui";
 
 export interface BottomBarProps {
   view: RedactedState;
@@ -20,39 +24,50 @@ export interface BottomBarProps {
   onMode: (mode: TargetMode) => void;
   onTrade: () => void;
   onPickResources: (card: "invention" | "monopoly") => void;
-  /** Online: seat metadata, to say whether the game waits on a bot. */
+  /** Seat metadata, to say whether the game waits on a bot and to show portraits. */
   seats?: SeatInfo[];
   /** The player the game is waiting for (engine `nextActor`). */
   waitingOn?: string;
+  /** Animations are draining: show the skip hint instead of controls (docs/phase7.md §2.1). */
+  draining?: boolean;
+  onSkip?: () => void;
+  /** The 3D board has graphics settings (docs/phase7-5.md §7). */
+  showGraphics?: boolean;
 }
 
 /** The acting player's bar: banner, hand, dev cards, actions (docs/phase3.md §3.2, §5, §6). */
 export function BottomBar(props: BottomBarProps) {
-  const { view, me, legal, mode, revealed, error, onDispatch, onMode, onTrade, onPickResources, seats, waitingOn } = props;
+  const { view, me, legal, mode, revealed, error, onDispatch, onMode, onTrade, onPickResources, seats, waitingOn, draining = false, onSkip, showGraphics = false } = props;
   const player = view.players.find((p) => p.id === me)!;
   const hand: Hand | null = isHiddenCount(player.hand) ? null : player.hand;
   const devCards: DevCard[] = isHiddenCount(player.devCards) ? [] : player.devCards;
   const phase = view.phase;
   const isCurrent = currentPlayerId(view) === me;
   const has = (type: Action["type"]) => legal.some((a) => a.type === type);
+  const seat = seats?.find((s) => s.playerId === me);
+  const bankAnchor = useAnchor("bank");
+  const deckAnchor = useAnchor("deck");
 
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-line bg-parchment-deep/60 px-3 py-2" data-testid="bottom-bar">
-      <div className="flex min-w-[12rem] flex-col items-start gap-1">
-        <PlayerTag name={player.name} color={player.color} />
-        <p className="text-sm" aria-live="polite" data-testid="banner">
-          {waitingText(view, me, waitingOn, seats) ?? bannerText(view, me)}
-        </p>
-        {view.pendingTrade?.from === me && view.pendingTrade.rejectedBy.length > 0 && (
-          <p className="text-xs text-ink-soft" data-testid="declined">
-            Declined: {view.pendingTrade.rejectedBy.map((id) => view.players.find((p) => p.id === id)?.name ?? id).join(", ")}
+    <div className="parchment flex flex-wrap items-center gap-x-5 gap-y-3 px-3 py-2" data-testid="bottom-bar">
+      <div className="flex min-w-[12rem] items-center gap-2">
+        <Avatar spec={seat?.avatar} color={player.color} name={player.name} size={40} />
+        <div className="flex flex-col items-start gap-0.5">
+          <span className="font-display text-base font-semibold leading-tight">{player.name}</span>
+          <p className="text-sm" aria-live="polite" data-testid="banner">
+            {draining ? "…" : (waitingText(view, me, waitingOn, seats) ?? bannerText(view, me))}
           </p>
-        )}
-        {error && (
-          <p className="text-sm text-clay" role="alert" data-testid="error">
-            {error}
-          </p>
-        )}
+          {view.pendingTrade?.from === me && view.pendingTrade.rejectedBy.length > 0 && (
+            <p className="text-xs text-ink-soft" data-testid="declined">
+              Declined: {view.pendingTrade.rejectedBy.map((id) => view.players.find((p) => p.id === id)?.name ?? id).join(", ")}
+            </p>
+          )}
+          {error && (
+            <p className="text-sm text-clay" role="alert" data-testid="error">
+              {error}
+            </p>
+          )}
+        </div>
       </div>
 
       {revealed && hand && <HandView hand={hand} />}
@@ -60,7 +75,7 @@ export function BottomBar(props: BottomBarProps) {
       {revealed && devCards.length > 0 && (
         <div className="flex flex-wrap gap-1.5" aria-label="Development cards">
           {devCards.map((card, i) => {
-            const reason = devCardReason(view, player.devCardPlayedThisTurn, card, legal, isCurrent);
+            const reason = draining ? "Wait for the animation" : devCardReason(view, player.devCardPlayedThisTurn, card, legal, isCurrent);
             const playable = reason === null;
             return (
               <Button
@@ -70,6 +85,7 @@ export function BottomBar(props: BottomBarProps) {
                 disabled={!playable}
                 reason={reason ?? undefined}
                 title={playable ? DEV_CARD_HELP[card.type] : (reason ?? undefined)}
+                className="flex items-center gap-1.5"
                 onClick={() => {
                   if (card.type === "knight") onDispatch({ type: "PLAY_KNIGHT", playerId: me });
                   else if (card.type === "roadBuilding") onDispatch({ type: "PLAY_ROAD_BUILDING", playerId: me });
@@ -77,6 +93,7 @@ export function BottomBar(props: BottomBarProps) {
                 }}
                 data-testid={`dev-${card.type}`}
               >
+                <DevCardFace type={card.type} size={18} />
                 {DEV_CARD_LABEL[card.type]}
               </Button>
             );
@@ -84,47 +101,63 @@ export function BottomBar(props: BottomBarProps) {
         </div>
       )}
 
-      <div className="ml-auto flex flex-wrap items-center gap-2" aria-label="Actions">
-        {phase.kind === "action" && view.pendingTrade && !isCurrent && (
-          <TradeResponse view={view} me={me} legal={legal} onDispatch={onDispatch} />
-        )}
-
-        {phase.kind === "roll" && isCurrent && (
-          <>
-            {has("PLAY_KNIGHT") && (
-              <Button onClick={() => onDispatch({ type: "PLAY_KNIGHT", playerId: me })}>Play knight first</Button>
-            )}
-            <Button variant="primary" onClick={() => onDispatch({ type: "ROLL", playerId: me })} data-testid="roll">
-              Roll dice
-            </Button>
-          </>
-        )}
-
-        {phase.kind === "action" && isCurrent && hand && (
-          <>
-            <BuildButton label="Build road" active={mode === "road"} reason={buildReason(view, player, hand, legal, "road")} onClick={() => onMode(mode === "road" ? null : "road")} testId="build-road" />
-            <BuildButton label="Build settlement" active={mode === "settlement"} reason={buildReason(view, player, hand, legal, "settlement")} onClick={() => onMode(mode === "settlement" ? null : "settlement")} testId="build-settlement" />
-            <BuildButton label="Build city" active={mode === "city"} reason={buildReason(view, player, hand, legal, "city")} onClick={() => onMode(mode === "city" ? null : "city")} testId="build-city" />
-            <Button disabled={!has("BUY_DEV_CARD")} reason={buyReason(view, hand)} onClick={() => onDispatch({ type: "BUY_DEV_CARD", playerId: me })} data-testid="buy-dev">
-              Buy development card
-            </Button>
-            <Button disabled={!!view.pendingTrade} reason="An offer is already open" onClick={onTrade} data-testid="trade">
-              Trade
-            </Button>
-            {view.pendingTrade?.from === me && (
-              <Button onClick={() => onDispatch({ type: "CANCEL_TRADE", playerId: me })}>Withdraw offer</Button>
-            )}
-            <Button variant="primary" disabled={!has("END_TURN")} reason="Finish the current step first" onClick={() => onDispatch({ type: "END_TURN", playerId: me })} data-testid="end-turn">
-              End turn
-            </Button>
-          </>
-        )}
-
-        {mode !== null && (
-          <span className="text-sm text-ink-soft">
-            Choose a spot on the board · <kbd className="rounded border border-line px-1">Esc</kbd> cancels
+      {/* Bank and deck anchors: where cards fly from and to. */}
+      <div className="flex items-center gap-1" aria-label="Bank" title={`Deck: ${view.devDeck.count} cards`}>
+        <span ref={bankAnchor} className="grid h-9 w-7 place-items-center rounded border border-ink/40 bg-parchment-deep text-[10px] font-semibold text-ink-soft">
+          bank
+        </span>
+        <span ref={deckAnchor} className="relative">
+          <CardBack size={26} />
+          <span className="absolute -right-1 -top-1 rounded-full bg-ink px-1 text-[10px] text-parchment" data-testid="deck-count">
+            {view.devDeck.count}
           </span>
+        </span>
+      </div>
+
+      <div className="ml-auto flex flex-wrap items-center gap-2" aria-label="Actions">
+        {draining ? (
+          <Button size="sm" variant="quiet" onClick={onSkip} data-testid="skip">
+            Skip <kbd className="ml-1 rounded border border-line px-1 text-xs">Space</kbd>
+          </Button>
+        ) : (
+          <>
+            {phase.kind === "action" && view.pendingTrade && !isCurrent && <TradeResponse view={view} me={me} legal={legal} onDispatch={onDispatch} />}
+
+            {phase.kind === "roll" && isCurrent && (
+              <>
+                {has("PLAY_KNIGHT") && <Button onClick={() => onDispatch({ type: "PLAY_KNIGHT", playerId: me })}>Play knight first</Button>}
+                <Button variant="primary" onClick={() => onDispatch({ type: "ROLL", playerId: me })} data-testid="roll">
+                  Roll dice
+                </Button>
+              </>
+            )}
+
+            {phase.kind === "action" && isCurrent && hand && (
+              <>
+                <BuildButton label="Build road" active={mode === "road"} reason={buildReason(view, player, hand, legal, "road")} onClick={() => onMode(mode === "road" ? null : "road")} testId="build-road" />
+                <BuildButton label="Build settlement" active={mode === "settlement"} reason={buildReason(view, player, hand, legal, "settlement")} onClick={() => onMode(mode === "settlement" ? null : "settlement")} testId="build-settlement" />
+                <BuildButton label="Build city" active={mode === "city"} reason={buildReason(view, player, hand, legal, "city")} onClick={() => onMode(mode === "city" ? null : "city")} testId="build-city" />
+                <Button disabled={!has("BUY_DEV_CARD")} reason={buyReason(view, hand)} onClick={() => onDispatch({ type: "BUY_DEV_CARD", playerId: me })} data-testid="buy-dev">
+                  Buy development card
+                </Button>
+                <Button disabled={!!view.pendingTrade} reason="An offer is already open" onClick={onTrade} data-testid="trade">
+                  Trade
+                </Button>
+                {view.pendingTrade?.from === me && <Button onClick={() => onDispatch({ type: "CANCEL_TRADE", playerId: me })}>Withdraw offer</Button>}
+                <Button variant="primary" disabled={!has("END_TURN")} reason="Finish the current step first" onClick={() => onDispatch({ type: "END_TURN", playerId: me })} data-testid="end-turn">
+                  End turn
+                </Button>
+              </>
+            )}
+
+            {mode !== null && (
+              <span className="text-sm text-ink-soft">
+                Choose a spot on the board · <kbd className="rounded border border-line px-1">Esc</kbd> cancels
+              </span>
+            )}
+          </>
         )}
+        <SettingsMenu showGraphics={showGraphics} />
       </div>
     </div>
   );
@@ -171,13 +204,7 @@ function afford(hand: Hand, cost: Hand): boolean {
 }
 
 /** Why a build button is disabled, or null when it is enabled (docs/phase3.md §5). */
-export function buildReason(
-  view: RedactedState,
-  player: RedactedState["players"][number],
-  hand: Hand,
-  legal: Action[],
-  kind: "road" | "settlement" | "city",
-): string | null {
+export function buildReason(view: RedactedState, player: RedactedState["players"][number], hand: Hand, legal: Action[], kind: "road" | "settlement" | "city"): string | null {
   const type = kind === "road" ? "BUILD_ROAD" : kind === "settlement" ? "BUILD_SETTLEMENT" : "BUILD_CITY";
   if (legal.some((a) => a.type === type)) return null;
   if (view.phase.kind !== "action") return "Only after rolling";
@@ -206,7 +233,12 @@ function devCardReason(view: RedactedState, playedThisTurn: boolean, card: DevCa
   return "Not right now";
 }
 
-/** Five resource stacks; a stack that grew slides in (the page's single motion effect). */
+function HandStack({ resource, count, bump }: { resource: Resource; count: number; bump: number }) {
+  const anchor = useAnchor(`hand:${resource}`);
+  return <ResourceChip resource={resource} count={count} animateKey={bump} anchorRef={anchor} />;
+}
+
+/** Five resource stacks; a stack that grew bumps its count. */
 function HandView({ hand }: { hand: Hand }) {
   const previous = useRef<Hand>(hand);
   const [bumps, setBumps] = useState<Record<Resource, number>>({ wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 });
@@ -218,7 +250,7 @@ function HandView({ hand }: { hand: Hand }) {
   return (
     <div className="flex flex-wrap gap-1.5" aria-label="Your hand" data-testid="hand">
       {RESOURCES.map((r) => (
-        <ResourceChip key={r} resource={r} count={hand[r]} animateKey={bumps[r]} />
+        <HandStack key={r} resource={r} count={hand[r]} bump={bumps[r]} />
       ))}
     </div>
   );

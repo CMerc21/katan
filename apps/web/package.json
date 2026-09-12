@@ -12,6 +12,7 @@
     "lint": "eslint app src test e2e"
   },
   "dependencies": {
+    "@katan/avatars": "workspace:*",
     "@katan/engine": "workspace:*",
     "next": "^16.3.5",
     "react": "^19.3.0",

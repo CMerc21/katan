@@ -7,7 +7,7 @@ export function LogPanel({ view }: { view: RedactedState }) {
   const entries = view.log.slice().reverse();
   return (
     <section aria-label="Log" className="flex min-h-0 flex-1 flex-col">
-      <h2 className="px-3 pt-2 text-xs font-semibold uppercase tracking-wide text-ink-soft">Log</h2>
+      <h2 className="font-display px-3 pt-2 text-sm font-semibold text-ink-soft">Log</h2>
       <ol className="min-h-0 flex-1 overflow-y-auto px-3 pb-2 text-sm" data-testid="log">
         {entries.length === 0 && <li className="text-ink-soft">Nothing has happened yet.</li>}
         {entries.map((entry, i) => (

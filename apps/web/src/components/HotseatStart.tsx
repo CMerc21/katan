@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { BotLevel } from "@katan/bots";
-import { PLAYER_COLORS, type BoardKind } from "@katan/engine";
-import { Button, Swatch } from "@/components/ui";
+import { avatarFromSeed, type AvatarSpec } from "@katan/avatars";
+import { generateBotNames, type BotLevel } from "@katan/bots";
+import { PLAYER_COLORS, createRng, type BoardKind } from "@katan/engine";
+import { AvatarPicker } from "@/components/AvatarPicker";
+import { Button } from "@/components/ui";
 import { startHotseat } from "@/game/store";
 
 const DEFAULT_NAMES = ["Ada", "Bo", "Cy", "Di"];
@@ -17,25 +19,34 @@ function randomSeed(): string {
   return out;
 }
 
-/** Start a hotseat game on this device (docs/phase3.md §3.1); seats may be bots (docs/phase5.md §6.2). */
+/** Start a hotseat game on this device (docs/phase3.md §3.1); seats may be bots with medieval names and portraits (docs/phase7.md §4–§5). */
 export function HotseatStart() {
   const router = useRouter();
   const [count, setCount] = useState<3 | 4>(4);
-  const [names, setNames] = useState<string[]>(DEFAULT_NAMES);
-  const [kinds, setKinds] = useState<SeatKind[]>(["human", "human", "human", "human"]);
-  const [board, setBoard] = useState<BoardKind>("beginner");
   const [seed, setSeed] = useState<string>(() => randomSeed());
+  const botNames = useMemo(() => {
+    const r = createRng(seed, "bot-names");
+    return generateBotNames(() => r.next(), 4, DEFAULT_NAMES);
+  }, [seed]);
+  const [names, setNames] = useState<string[]>(DEFAULT_NAMES);
+  const [touched, setTouched] = useState<boolean[]>([false, false, false, false]);
+  const [kinds, setKinds] = useState<SeatKind[]>(["human", "human", "human", "human"]);
+  const [avatars, setAvatars] = useState<AvatarSpec[]>(() => DEFAULT_NAMES.map((n, i) => avatarFromSeed(`hotseat:${n}:${i}`)));
+  const [board, setBoard] = useState<BoardKind>("beginner");
   const [problem, setProblem] = useState<string | null>(null);
 
+  const shownName = (i: number) => (kinds[i] !== "human" && !touched[i] ? (botNames[i] ?? names[i] ?? "") : (names[i] ?? ""));
+
   const start = () => {
-    const chosen = names.slice(0, count).map((n) => n.trim());
+    const chosen = Array.from({ length: count }, (_, i) => shownName(i).trim());
     if (chosen.some((n) => n.length === 0)) return setProblem("Every player needs a name.");
     if (new Set(chosen.map((n) => n.toLowerCase())).size !== chosen.length) return setProblem("Player names must differ.");
-    if (kinds.slice(0, count).every((k) => k !== "human")) setProblem(null);
+    setProblem(null);
     const players = chosen.map((name, i) => {
       const id = `p${i + 1}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
       const kind = kinds[i] ?? "human";
-      return kind === "human" ? { id, name } : { id, name, bot: kind };
+      const avatar = avatars[i]!;
+      return kind === "human" ? { id, name, avatar } : { id, name, bot: kind, avatar };
     });
     startHotseat({ players, board, seed: board === "random" ? seed.trim() || randomSeed() : "beginner" });
     router.push("/play");
@@ -50,7 +61,7 @@ export function HotseatStart() {
       }}
     >
       <fieldset>
-        <legend className="text-sm font-semibold">Players</legend>
+        <legend className="font-display text-base font-semibold">Players</legend>
         <div className="mt-2 flex gap-2" role="radiogroup" aria-label="Player count">
           {([3, 4] as const).map((n) => (
             <Button key={n} variant={count === n ? "primary" : "secondary"} role="radio" aria-checked={count === n} onClick={() => setCount(n)} data-testid={`count-${n}`}>
@@ -58,20 +69,23 @@ export function HotseatStart() {
             </Button>
           ))}
         </div>
-        <ol className="mt-3 space-y-2">
-          {names.slice(0, count).map((name, i) => (
-            <li key={i} className="flex items-center gap-3">
-              <Swatch color={PLAYER_COLORS[i]!} size={18} />
+        <ol className="mt-3 space-y-3">
+          {Array.from({ length: count }, (_, i) => (
+            <li key={i} className="flex flex-wrap items-center gap-3">
+              <AvatarPicker spec={avatars[i]!} color={PLAYER_COLORS[i]!} name={shownName(i)} compact onChange={(spec) => setAvatars(avatars.map((a, j) => (j === i ? spec : a)))} size={44} />
               <label className="sr-only" htmlFor={`name-${i}`}>
                 Player {i + 1} name
               </label>
               <input
                 id={`name-${i}`}
                 data-testid={`name-${i}`}
-                className="w-full rounded-md border border-line bg-white/60 px-3 py-1.5"
-                value={name}
-                maxLength={20}
-                onChange={(e) => setNames(names.map((n, j) => (j === i ? e.target.value : n)))}
+                className="min-w-0 flex-1 rounded-md border border-line bg-white/60 px-3 py-1.5"
+                value={shownName(i)}
+                maxLength={24}
+                onChange={(e) => {
+                  setNames(names.map((n, j) => (j === i ? e.target.value : n)));
+                  setTouched(touched.map((t, j) => (j === i ? true : t)));
+                }}
               />
               <label className="sr-only" htmlFor={`kind-${i}`}>
                 Player {i + 1} kind
@@ -94,7 +108,7 @@ export function HotseatStart() {
       </fieldset>
 
       <fieldset>
-        <legend className="text-sm font-semibold">Board</legend>
+        <legend className="font-display text-base font-semibold">Board</legend>
         <div className="mt-2 flex gap-2" role="radiogroup" aria-label="Board">
           <Button variant={board === "beginner" ? "primary" : "secondary"} role="radio" aria-checked={board === "beginner"} onClick={() => setBoard("beginner")} data-testid="board-beginner">
             Beginner

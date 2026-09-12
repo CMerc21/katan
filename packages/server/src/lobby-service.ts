@@ -2,12 +2,16 @@
  * Lobby, presence and escape-hatch transactions (docs/phase5.md §1, §4).
  */
 
+import { isAvatarSpec, type AvatarSpec } from "@katan/avatars";
 import { isBotLevel, type BotLevel } from "@katan/bots";
-import { PLAYER_COLORS, cloneJson, nextActor, type BoardKind, type GameState, type PlayerColor } from "@katan/engine";
+import { PLAYER_COLORS, appendNote, cloneJson, nextActor, type BoardKind, type GameState, type PlayerColor } from "@katan/engine";
 import type { JSONValue } from "postgres";
 import { ServiceError } from "./errors";
 import {
   activateGame,
+  appendEvents,
+  defaultAvatar,
+  defaultBotName,
   lockGame,
   playerIdForSeat,
   randomSeed,
@@ -95,8 +99,8 @@ export async function createLobby(sql: Db, input: CreateLobbyInput): Promise<{ g
         const gameId = row!.id;
         await tx`insert into lobbies (game_id, join_code, status, host_user_id, max_players, board)
                  values (${gameId}, ${joinCode}, 'lobby', ${input.hostUserId}, ${input.maxPlayers}, ${input.board})`;
-        await tx`insert into game_players (game_id, user_id, player_id, seat, name, color, kind, ready, last_seen_at)
-                 values (${gameId}, ${input.hostUserId}, ${playerIdForSeat(0)}, 0, ${cleanName(input.name, "Host")}, 'red', 'human', false, now())`;
+        await tx`insert into game_players (game_id, user_id, player_id, seat, name, color, kind, ready, last_seen_at, avatar)
+                 values (${gameId}, ${input.hostUserId}, ${playerIdForSeat(0)}, 0, ${cleanName(input.name, "Host")}, 'red', 'human', false, now(), ${tx.json(defaultAvatar(gameId, 0) as unknown as JSONValue)})`;
         return { gameId, joinCode };
       });
     } catch (err) {
@@ -126,8 +130,8 @@ export async function joinGame(sql: Db, input: { code: string; userId: string; n
     const seat = freeSeat(seats, game.max_players);
     const color = freeColor(seats);
     const playerId = playerIdForSeat(seat);
-    await tx`insert into game_players (game_id, user_id, player_id, seat, name, color, kind, ready, last_seen_at)
-             values (${game.id}, ${input.userId}, ${playerId}, ${seat}, ${cleanName(input.name, `Player ${seat + 1}`)}, ${color}, 'human', false, now())`;
+    await tx`insert into game_players (game_id, user_id, player_id, seat, name, color, kind, ready, last_seen_at, avatar)
+             values (${game.id}, ${input.userId}, ${playerId}, ${seat}, ${cleanName(input.name, `Player ${seat + 1}`)}, ${color}, 'human', false, now(), ${tx.json(defaultAvatar(game.id, seat) as unknown as JSONValue)})`;
     return { gameId: game.id, playerId };
   });
 }
@@ -141,15 +145,28 @@ export async function setReady(sql: Db, input: { gameId: string; userId: string;
   });
 }
 
-export async function setSeat(sql: Db, input: { gameId: string; userId: string; color?: PlayerColor; name?: string }): Promise<void> {
+export async function setSeat(
+  sql: Db,
+  input: { gameId: string; userId: string; color?: PlayerColor; name?: string; avatar?: AvatarSpec; playerId?: string },
+): Promise<void> {
   await sql.begin(async (tx) => {
     const game = await lockGame(tx as Tx, input.gameId);
     requireLobby(game);
     const seats = await seatsOf(tx as Tx, game.id);
-    const seat = seatOfUser(seats, input.userId);
+    const mine = seatOfUser(seats, input.userId);
+    // The host may rename a bot (docs/phase7.md §5); everything else is your own seat only.
+    let seat = mine;
+    if (input.playerId !== undefined && input.playerId !== mine.player_id) {
+      requireHost(game, input.userId);
+      const target = seats.find((s) => s.player_id === input.playerId);
+      if (!target || target.kind !== "bot") throw new ServiceError("BAD_REQUEST", "only bots can be edited by the host");
+      seat = target;
+    }
     const color = input.color ? freeColor(seats.filter((s) => s.player_id !== seat.player_id), input.color) : seat.color;
     const name = input.name !== undefined ? cleanName(input.name, seat.name) : seat.name;
-    await tx`update game_players set color = ${color}, name = ${name} where game_id = ${game.id} and player_id = ${seat.player_id}`;
+    if (input.avatar !== undefined && !isAvatarSpec(input.avatar)) throw new ServiceError("BAD_REQUEST", "malformed avatar");
+    const avatar = input.avatar ?? seat.avatar ?? defaultAvatar(game.id, seat.seat);
+    await tx`update game_players set color = ${color}, name = ${name}, avatar = ${tx.json(avatar as unknown as JSONValue)} where game_id = ${game.id} and player_id = ${seat.player_id}`;
   });
 }
 
@@ -163,8 +180,9 @@ export async function addBot(sql: Db, input: { gameId: string; userId: string; l
     if (seats.length >= game.max_players) throw new ServiceError("LOBBY_FULL", "no free seat", 409);
     const seat = freeSeat(seats, game.max_players);
     const playerId = playerIdForSeat(seat);
-    await tx`insert into game_players (game_id, user_id, player_id, seat, name, color, kind, bot_level, ready)
-             values (${game.id}, null, ${playerId}, ${seat}, ${cleanName(input.name, `Bot (${input.level})`)}, ${freeColor(seats)}, 'bot', ${input.level}, true)`;
+    const name = cleanName(input.name, defaultBotName(game.id, seat, seats.map((s) => s.name)));
+    await tx`insert into game_players (game_id, user_id, player_id, seat, name, color, kind, bot_level, ready, avatar)
+             values (${game.id}, null, ${playerId}, ${seat}, ${name}, ${freeColor(seats)}, 'bot', ${input.level}, true, ${tx.json(defaultAvatar(game.id, seat) as unknown as JSONValue)})`;
     return { playerId };
   });
 }
@@ -226,17 +244,18 @@ async function convertSeatToBot(tx: Tx, game: GameRow, seats: SeatRow[], playerI
   await tx`update game_players set kind = 'bot', bot_level = ${level} where game_id = ${game.id} and player_id = ${playerId}`;
   const updated = seats.map((s) => (s.player_id === playerId ? { ...s, kind: "bot" as const, bot_level: level } : s));
   const state: GameState = cloneJson(game.state);
-  state.log.push({ turn: state.turn, playerId, text: note });
+  appendNote(state, playerId, note);
   const loop = runBotLoop(state, updated);
   const version = game.version + loop.actions.length;
   for (let i = 0; i < loop.actions.length; i++) {
     const a = loop.actions[i]!;
     await tx`insert into game_actions (game_id, index, player_id, action) values (${game.id}, ${game.version + i}, ${a.playerId}, ${tx.json(a as unknown as JSONValue)})`;
   }
+  await appendEvents(tx, game.id, loop.events);
   const status = loop.state.phase.kind === "ended" ? "ended" : "active";
   await tx`update games set state = ${tx.json(loop.state as unknown as JSONValue)}, version = ${version}, status = ${status}, updated_at = now() where id = ${game.id}`;
   await tx`update lobbies set status = ${status}, winner = ${loop.state.winner}, updated_at = now() where game_id = ${game.id}`;
-  await refreshViews(tx, game.id, loop.state, updated, version);
+  await refreshViews(tx, game.id, loop.state, updated, version, loop.events);
   return version;
 }
 
@@ -264,7 +283,7 @@ export async function reclaimSeat(sql: Db, input: { gameId: string; userId: stri
     if (seat.kind === "human") return;
     await tx`update game_players set kind = 'human', bot_level = null, last_seen_at = now() where game_id = ${game.id} and player_id = ${seat.player_id}`;
     const state: GameState = cloneJson(game.state);
-    state.log.push({ turn: state.turn, playerId: seat.player_id, text: `${seat.name} is back at the table` });
+    appendNote(state, seat.player_id, `${seat.name} is back at the table`);
     await tx`update games set state = ${tx.json(state as unknown as JSONValue)}, updated_at = now() where id = ${game.id}`;
     await refreshViews(tx as Tx, game.id, state, seats, game.version);
   });
@@ -301,7 +320,7 @@ export async function abandonGame(sql: Db, input: { gameId: string; userId: stri
     if (game.status === "active") {
       const state: GameState = cloneJson(game.state);
       state.phase = { kind: "ended" };
-      state.log.push({ turn: state.turn, playerId: null, text: "The host ended the game" });
+      appendNote(state, null, "The host ended the game");
       await tx`update games set state = ${tx.json(state as unknown as JSONValue)}, status = 'ended', updated_at = now() where id = ${game.id}`;
       await refreshViews(tx as Tx, game.id, state, seats, game.version);
     } else {

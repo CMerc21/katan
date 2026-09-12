@@ -3,15 +3,16 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import type { PlayerColor, Resource } from "@katan/engine";
-import { RESOURCE_LABEL, RESOURCE_SHORT } from "@/game/labels";
-import { PLAYER_FILL, PLAYER_TEXT, RESOURCE_COLOR } from "@/game/theme";
+import { RESOURCE_LABEL } from "@/game/labels";
+import { PLAYER_FILL, PLAYER_TEXT } from "@/game/theme";
+import { ResourceCardFace } from "./cards";
 
 type Variant = "primary" | "secondary" | "quiet";
 
 const VARIANT: Record<Variant, string> = {
-  primary: "bg-ink text-parchment hover:bg-ink-soft disabled:bg-line disabled:text-ink-soft",
-  secondary: "border border-ink bg-transparent text-ink hover:bg-parchment-deep disabled:border-line disabled:text-ink-soft",
-  quiet: "bg-transparent text-ink hover:bg-parchment-deep disabled:text-ink-soft",
+  primary: "btn-wax rounded-md",
+  secondary: "rounded-md border border-ink bg-parchment/70 text-ink hover:bg-parchment-deep disabled:border-line disabled:text-ink-soft disabled:bg-transparent",
+  quiet: "rounded-md bg-transparent text-ink hover:bg-parchment-deep disabled:text-ink-soft",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -28,7 +29,7 @@ export function Button({ variant = "secondary", reason, size = "md", className =
       type="button"
       title={rest.disabled && reason ? reason : rest.title}
       aria-disabled={rest.disabled ? true : undefined}
-      className={`rounded-md font-medium leading-tight transition-colors disabled:cursor-not-allowed ${pad} ${VARIANT[variant]} ${className}`}
+      className={`font-medium leading-tight transition-colors disabled:cursor-not-allowed ${pad} ${VARIANT[variant]} ${className}`}
       {...rest}
     >
       {children}
@@ -57,33 +58,32 @@ export function PlayerTag({ name, color }: { name: string; color: PlayerColor })
   );
 }
 
-/** A resource card with a count badge. */
+/** A resource card with a count badge (docs/phase7.md §6: illustrated faces). */
 export function ResourceChip({
   resource,
   count,
   animateKey,
   compact = false,
+  anchorRef,
 }: {
   resource: Resource;
   count: number;
   animateKey?: string | number;
   compact?: boolean;
+  anchorRef?: (el: HTMLDivElement | null) => void;
 }) {
   return (
     <div
-      key={animateKey}
-      className={`flex items-center gap-2 rounded-md border border-ink/40 bg-white/40 ${compact ? "px-1.5 py-1" : "px-2 py-1.5"} ${animateKey !== undefined ? "card-in" : ""}`}
+      ref={anchorRef}
+      className={`flex items-center gap-1.5 rounded-md border border-ink/40 bg-parchment/80 ${compact ? "px-1 py-0.5" : "px-1.5 py-1"}`}
       aria-label={`${count} ${RESOURCE_LABEL[resource]}`}
+      data-resource={resource}
     >
-      <span
-        aria-hidden
-        className="grid h-7 w-5 place-items-center rounded-sm text-[10px] font-bold text-white shadow-[inset_0_0_0_1px_rgba(0,0,0,.25)]"
-        style={{ background: RESOURCE_COLOR[resource] }}
-      >
-        {RESOURCE_SHORT[resource]}
-      </span>
+      <ResourceCardFace resource={resource} size={compact ? 22 : 30} />
       {!compact && <span className="text-sm">{RESOURCE_LABEL[resource]}</span>}
-      <span className="ml-auto min-w-[1.25rem] text-right text-base font-semibold tabular-nums">{count}</span>
+      <span key={animateKey} className={`ml-auto min-w-[1.25rem] text-right text-base font-semibold tabular-nums ${animateKey !== undefined ? "count-bump" : ""}`}>
+        {count}
+      </span>
     </div>
   );
 }
@@ -145,16 +145,16 @@ export function Modal({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-ink/50 p-4" role="presentation">
+    <div className="fixed inset-0 z-40 grid place-items-center bg-ink/60 p-4" role="presentation">
       <div
         ref={panel}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`w-full ${wide ? "max-w-xl" : "max-w-md"} rounded-lg border border-line bg-parchment p-5 shadow-xl`}
+        className={`parchment w-full ${wide ? "max-w-xl" : "max-w-md"} rounded-lg p-5`}
       >
-        <div className="mb-3 flex items-start justify-between gap-4">
-          <h2 className="text-lg font-semibold">{title}</h2>
+        <div className="ink-rule mb-3 flex items-start justify-between gap-4 pb-2">
+          <h2 className="font-display text-xl font-semibold">{title}</h2>
           {onClose && (
             <Button variant="quiet" size="sm" aria-label="Close" onClick={onClose}>
               ✕

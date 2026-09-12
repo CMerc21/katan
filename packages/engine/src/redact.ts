@@ -3,6 +3,7 @@
  * (docs/phase2.md §4). Everything sent to a client goes through this.
  */
 
+import { redactEvents, type GameEvent } from "./events";
 import { legalActions } from "./legal";
 import { cloneJson, handSize, victoryPoints } from "./state";
 import type { Action, DevCard, GameState, Hand, Player, PlayerId } from "./types";
@@ -33,13 +34,15 @@ export type RedactedGameState = Omit<GameState, "seed" | "players" | "devDeck"> 
   readonly viewer: PlayerId;
   readonly players: RedactedPlayer[];
   readonly devDeck: HiddenCount;
+  /** Events since the previous view this player received, redacted for them (docs/phase7.md §1.2). */
+  readonly events: GameEvent[];
 };
 
 export function isHiddenCount(value: Hand | DevCard[] | HiddenCount): value is HiddenCount {
   return !Array.isArray(value) && "count" in value;
 }
 
-export function redact(state: GameState, viewer: PlayerId): RedactedGameState {
+export function redact(state: GameState, viewer: PlayerId, events: readonly GameEvent[] = []): RedactedGameState {
   const { seed: _seed, players, devDeck, ...rest } = cloneJson(state);
   void _seed;
   const revealAll = state.phase.kind === "ended";
@@ -63,7 +66,7 @@ export function redact(state: GameState, viewer: PlayerId): RedactedGameState {
       privateVP: showVP ? vp.hiddenVP : null,
     };
   });
-  return { ...rest, viewer, players: redactedPlayers, devDeck: { count: devDeck.length } };
+  return { ...rest, viewer, players: redactedPlayers, devDeck: { count: devDeck.length }, events: redactEvents(events, viewer) };
 }
 
 /**
@@ -79,8 +82,9 @@ export function redact(state: GameState, viewer: PlayerId): RedactedGameState {
  * robber moves, so steal legality does not need opponents' hand sizes.
  */
 export function viewToState(view: RedactedGameState): GameState {
-  const { viewer, players, devDeck, ...rest } = view;
+  const { viewer, players, devDeck, events, ...rest } = view;
   void viewer;
+  void events;
   const fullPlayers: Player[] = players.map((p) => ({
     id: p.id,
     name: p.name,

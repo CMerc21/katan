@@ -12,6 +12,7 @@
     "lint": "eslint src test"
   },
   "dependencies": {
+    "@katan/avatars": "workspace:*",
     "@katan/bots": "workspace:*",
     "@katan/engine": "workspace:*",
     "postgres": "^3.4.7"

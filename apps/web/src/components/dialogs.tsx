@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { RESOURCES, isHiddenCount, type Action, type Hand, type Resource } from "@katan/engine";
-import type { RedactedState } from "@/driver/types";
+import type { RedactedState, SeatInfo } from "@/driver/types";
 import { RESOURCE_LABEL, playerName } from "@/game/labels";
 import { PLAYER_FILL, RESOURCE_COLOR } from "@/game/theme";
+import { Avatar } from "./Avatar";
 import { Button, Modal, PlayerTag, ResourceChip, Stepper } from "./ui";
 
 const emptyHand = (): Hand => ({ wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 });
@@ -14,10 +15,10 @@ const total = (h: Hand) => RESOURCES.reduce((n, r) => n + h[r], 0);
 
 export function HandoffOverlay({ name, onReady }: { name: string; onReady: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-parchment" role="dialog" aria-modal="true" aria-label="Pass the device">
+    <div className="parchment fixed inset-0 z-50 grid place-items-center" role="dialog" aria-modal="true" aria-label="Pass the device">
       <div className="text-center">
         <p className="text-lg text-ink-soft">Pass the device to</p>
-        <p className="mt-1 text-4xl font-semibold">{name}</p>
+        <p className="font-display mt-1 text-4xl font-semibold">{name}</p>
         <Button variant="primary" className="mt-8 px-6 py-3 text-lg" onClick={onReady} autoFocus data-testid="handoff-ready">
           I&apos;m {name}
         </Button>
@@ -173,6 +174,7 @@ export function TradeDialog({
   legal,
   onDispatch,
   onClose,
+  seats,
 }: {
   view: RedactedState;
   me: string;
@@ -180,6 +182,7 @@ export function TradeDialog({
   legal: Action[];
   onDispatch: (action: Action) => void;
   onClose: () => void;
+  seats?: SeatInfo[] | undefined;
 }) {
   const [tab, setTab] = useState<"players" | "bank">("players");
   const [give, setGive] = useState<Hand>(emptyHand);
@@ -233,7 +236,16 @@ export function TradeDialog({
               </div>
             </div>
           </div>
-          <p className="mt-3 text-sm text-ink-soft">The offer goes to every other player in turn; the first to accept trades with you.</p>
+          <p className="mt-3 flex items-center gap-2 text-sm text-ink-soft">
+            <span className="flex -space-x-2">
+              {view.players
+                .filter((p) => p.id !== me)
+                .map((p) => (
+                  <Avatar key={p.id} spec={seats?.find((s) => s.playerId === p.id)?.avatar} color={p.color} name={p.name} size={24} />
+                ))}
+            </span>
+            The offer goes to every other player in turn; the first to accept trades with you.
+          </p>
           <div className="mt-3 flex justify-end">
             <Button
               variant="primary"
@@ -346,15 +358,19 @@ export function HandInline({ hand }: { hand: Hand }) {
 
 // ---------------------------------------------------------------------------
 
-export function EndedOverlay({ view, onPlayAgain }: { view: RedactedState; onPlayAgain: () => void }) {
+export function EndedOverlay({ view, onPlayAgain, seats }: { view: RedactedState; onPlayAgain: () => void; seats?: SeatInfo[] | undefined }) {
   const winner = view.winner ? playerName(view, view.winner) : "Nobody";
+  const winnerPlayer = view.players.find((p) => p.id === view.winner);
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink/60 p-4" role="dialog" aria-modal="true" aria-label="Game over">
-      <div className="w-full max-w-md rounded-lg border border-line bg-parchment p-6 shadow-xl">
+      <div className="parchment w-full max-w-md rounded-lg p-6">
         <p className="text-sm uppercase tracking-wide text-ink-soft">Game over</p>
-        <h2 className="mt-1 text-3xl font-semibold" data-testid="winner">
-          {winner} wins
-        </h2>
+        <div className="mt-1 flex items-center gap-3">
+          {winnerPlayer && <Avatar spec={seats?.find((s) => s.playerId === winnerPlayer.id)?.avatar} color={winnerPlayer.color} name={winnerPlayer.name} size={72} className="piece-pop" />}
+          <h2 className="font-display text-3xl font-semibold" data-testid="winner">
+            {winner} wins
+          </h2>
+        </div>
         <table className="mt-4 w-full text-sm">
           <thead className="text-left text-xs uppercase tracking-wide text-ink-soft">
             <tr>
@@ -368,7 +384,10 @@ export function EndedOverlay({ view, onPlayAgain }: { view: RedactedState; onPla
             {view.players.map((p) => (
               <tr key={p.id} className={p.id === view.winner ? "font-semibold" : ""}>
                 <td className="py-1">
-                  <PlayerTag name={p.name} color={p.color} />
+                  <span className="inline-flex items-center gap-1.5">
+                    <Avatar spec={seats?.find((s) => s.playerId === p.id)?.avatar} color={p.color} name={p.name} size={22} />
+                    <PlayerTag name={p.name} color={p.color} />
+                  </span>
                 </td>
                 <td className="py-1 text-right tabular-nums">{p.publicVP}</td>
                 <td className="py-1 text-right tabular-nums">{p.privateVP ?? "?"}</td>

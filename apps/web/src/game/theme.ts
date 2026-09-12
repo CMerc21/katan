@@ -1,15 +1,24 @@
 /**
- * Visual tokens (docs/phase3.md §7). Colours come from the materials of the
- * game: timber, clay, fleece, grain, stone, water, ink and parchment.
+ * Visual tokens (docs/art-direction.md §1). Colours come from the materials
+ * of the game: timber, clay, fleece, grain, stone, water, ink and parchment,
+ * with heraldic tinctures for the seats.
  */
 
 import type { PlayerColor, Resource, Terrain } from "@katan/engine";
 
 export const INK = "#211d19";
+export const INK_SOFT = "#4a433c";
 export const PARCHMENT = "#efe8d8";
+export const PARCHMENT_DEEP = "#e3dac6";
+export const WALNUT = "#3b2a1e";
+export const WALNUT_LIGHT = "#5a4030";
+export const WAX = "#9b2226";
+export const GILT = "#c9a227";
 export const WATER = "#4a7d8c";
 export const WATER_DEEP = "#3b6674";
 export const SAND = "#d9c9a0";
+export const BONE = "#f2ead6";
+export const LEATHER = "#4a2f1c";
 
 export const TERRAIN_FILL: Record<Terrain, string> = {
   forest: "#3e6b46",
@@ -20,14 +29,14 @@ export const TERRAIN_FILL: Record<Terrain, string> = {
   wasteland: "#cfbd8e",
 };
 
-/** A darker mark colour used for the hand-drawn pattern on each terrain. */
+/** A darker mark colour used for the hand-drawn detail on each terrain. */
 export const TERRAIN_MARK: Record<Terrain, string> = {
   forest: "#2b4d32",
   claypit: "#8a4330",
   meadow: "#7d9143",
   farmland: "#b0812c",
   mountain: "#5b5e66",
-  wasteland: "#cfbd8e",
+  wasteland: "#b9a677",
 };
 
 export const RESOURCE_COLOR: Record<Resource, string> = {
@@ -38,11 +47,12 @@ export const RESOURCE_COLOR: Record<Resource, string> = {
   ore: TERRAIN_FILL.mountain,
 };
 
+/** Heraldic tinctures: gules, azure, or, argent (and vert, tenné for 5–6 players). */
 export const PLAYER_FILL: Record<PlayerColor, string> = {
-  red: "#b83a2c",
-  blue: "#2f5f9d",
-  orange: "#e0862b",
-  white: "#f4efe3",
+  red: "#a12a1e",
+  blue: "#2a4d8f",
+  orange: "#d9a21b",
+  white: "#e8e4d8",
 };
 
 /** Text colour that reads on each player colour. */

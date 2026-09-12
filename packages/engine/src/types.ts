@@ -96,6 +96,8 @@ export interface GameState {
   readonly board: Board;
   /** Count of applied actions; the next action has this index (§12). */
   actionIndex: number;
+  /** Count of events emitted so far; the next event has this `seq` (docs/phase7.md §1). */
+  eventSeq: number;
   /** Number of END_TURN actions applied so far (docs/phase2.md §1.2). */
   turn: number;
   phase: Phase;

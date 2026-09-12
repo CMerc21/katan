@@ -4,13 +4,14 @@
  * then redirects to `/`.
  */
 
+import type { AvatarSpec } from "@katan/avatars";
 import type { BotLevel } from "@katan/bots";
 import type { BoardKind } from "@katan/engine";
 import { HotseatDriver } from "@/driver/hotseat";
 import type { GameDriver } from "@/driver/types";
 
 export interface HotseatConfig {
-  readonly players: readonly { id: string; name: string; bot?: BotLevel }[];
+  readonly players: readonly { id: string; name: string; bot?: BotLevel; avatar?: AvatarSpec }[];
   readonly board: BoardKind;
   readonly seed: string;
 }
@@ -19,12 +20,17 @@ let current: GameDriver | null = null;
 
 export function startHotseat(config: HotseatConfig): GameDriver {
   const bots: Record<string, BotLevel> = {};
-  for (const p of config.players) if (p.bot) bots[p.id] = p.bot;
+  const avatars: Record<string, AvatarSpec> = {};
+  for (const p of config.players) {
+    if (p.bot) bots[p.id] = p.bot;
+    if (p.avatar) avatars[p.id] = p.avatar;
+  }
   current = HotseatDriver.create({
     seed: config.seed,
     players: config.players.map((p) => ({ id: p.id, name: p.name })),
     board: config.board,
     bots,
+    avatars,
   });
   return current;
 }

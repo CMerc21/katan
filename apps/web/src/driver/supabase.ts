@@ -8,6 +8,7 @@
  * `apply-action` Edge Function.
  */
 
+import { isAvatarSpec } from "@katan/avatars";
 import type { BotLevel } from "@katan/bots";
 import { legalActionsForView, type Action } from "@katan/engine";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -251,6 +252,7 @@ interface SeatRow {
   bot_level: BotLevel | null;
   ready: boolean;
   last_seen_at: string | null;
+  avatar?: unknown;
 }
 
 export function seatFromRow(r: SeatRow): SeatInfo {
@@ -264,6 +266,7 @@ export function seatFromRow(r: SeatRow): SeatInfo {
     botLevel: r.bot_level,
     ready: r.ready,
     lastSeenAt: r.last_seen_at,
+    avatar: isAvatarSpec(r.avatar) ? r.avatar : null,
   };
 }
 

@@ -6,6 +6,7 @@ import { GameScreen } from "@/components/GameScreen";
 import { Button } from "@/components/ui";
 import { SupabaseDriver, createSupabaseApi } from "@/driver/supabase";
 import { errorText } from "@/game/labels";
+import { adoptRemoteSettings, setRemoteSettingsSync } from "@/game/settings";
 import { useRequireSession } from "@/hooks/useSession";
 import { supabase } from "@/lib/supabase";
 
@@ -24,6 +25,9 @@ export default function OnlinePlayPage() {
     void (async () => {
       try {
         const client = supabase();
+        // Settings follow the player across devices (docs/phase7.md §2.1): profile metadata mirrors localStorage.
+        adoptRemoteSettings((session.user.user_metadata as { settings?: unknown }).settings);
+        setRemoteSettingsSync((s) => void client.auth.updateUser({ data: { settings: s } }).catch(() => undefined));
         const api = createSupabaseApi(client, session.user.id);
         const d = await SupabaseDriver.connect(api, gameId, session.user.id);
         const { data: lobby } = await client.from("lobby_games").select("host_user_id, status").eq("id", gameId).maybeSingle();
@@ -46,13 +50,14 @@ export default function OnlinePlayPage() {
     })();
     return () => {
       active = false;
+      setRemoteSettingsSync(null);
       created?.close();
     };
   }, [gameId, session, loading, router]);
 
   if (problem) {
     return (
-      <main className="mx-auto max-w-md px-4 py-10">
+      <main className="parchment mx-auto my-8 max-w-md rounded-lg px-6 py-8">
         <h1 className="text-2xl font-semibold">Can&apos;t open this game</h1>
         <p className="mt-2 text-ink-soft">{problem}</p>
         <Button className="mt-6" onClick={() => router.push("/")}>

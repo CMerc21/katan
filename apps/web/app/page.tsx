@@ -48,14 +48,14 @@ export default function HomePage() {
   };
 
   return (
-    <main className="mx-auto max-w-lg px-4 py-10">
-      <h1 className="text-3xl font-semibold">Katan</h1>
-      <p className="mt-1 text-ink-soft">A hex settlement game for 3 to 4 friends.</p>
+    <main className="parchment mx-auto my-8 max-w-lg rounded-lg px-6 py-8">
+      <h1 className="font-display text-4xl font-semibold">Katan</h1>
+      <p className="mt-1 text-ink-soft">A hex settlement game for friends.</p>
 
       {configured && (
-        <section className="mt-8 rounded-lg border border-line bg-white/40 p-5" aria-label="Play online">
+        <section className="ink-rule mt-8 pb-6" aria-label="Play online">
           <div className="flex items-baseline justify-between">
-            <h2 className="text-lg font-semibold">Play online</h2>
+            <h2 className="font-display text-xl font-semibold">Play online</h2>
             {session ? (
               <span className="text-sm text-ink-soft">
                 {displayNameOf(session)} ·{" "}
@@ -147,7 +147,7 @@ export default function HomePage() {
       )}
 
       <section className="mt-8" aria-label="Hotseat">
-        <h2 className="text-lg font-semibold">Hotseat on this device</h2>
+        <h2 className="font-display text-xl font-semibold">Hotseat on this device</h2>
         <p className="mb-4 text-sm text-ink-soft">Everyone shares this screen. Seats can be bots.</p>
         <HotseatStart />
       </section>

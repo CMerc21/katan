@@ -19,6 +19,7 @@ const SEATS: SeatInfo[] = PLAYERS.map((p, i) => ({
   botLevel: null,
   ready: true,
   lastSeenAt: null,
+  avatar: null,
 }));
 
 /** A fake transport with a real engine behind it, so views and versions behave like the server. */

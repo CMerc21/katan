@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import type { AvatarSpec } from "@katan/avatars";
 import type { BotLevel } from "@katan/bots";
 import { PLAYER_COLORS, type PlayerColor } from "@katan/engine";
+import { Avatar } from "@/components/Avatar";
+import { AvatarPicker } from "@/components/AvatarPicker";
 import { Button, Swatch } from "@/components/ui";
 import { seatFromRow } from "@/driver/supabase";
 import type { SeatInfo } from "@/driver/types";
@@ -31,7 +34,7 @@ export default function LobbyPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [botLevel, setBotLevel] = useState<BotLevel>("medium");
-  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState<{ playerId: string; name: string } | null>(null);
   const upper = code.toUpperCase();
 
   const load = useCallback(async () => {
@@ -94,7 +97,7 @@ export default function LobbyPage() {
 
   if (problem) {
     return (
-      <main className="mx-auto max-w-md px-4 py-10">
+      <main className="parchment mx-auto my-8 max-w-md rounded-lg px-6 py-8">
         <h1 className="text-2xl font-semibold">Couldn&apos;t open the lobby</h1>
         <p className="mt-2 text-ink-soft" role="alert">
           {problem}
@@ -129,8 +132,14 @@ export default function LobbyPage() {
     }
   };
 
+  const saveAvatar = (spec: AvatarSpec) => {
+    // Optimistic: show the new portrait at once, then persist.
+    setSeats(seats.map((s) => (s.userId === session.user.id ? { ...s, avatar: spec } : s)));
+    void call("set-seat", { avatar: spec });
+  };
+
   return (
-    <main className="mx-auto max-w-2xl px-4 py-8">
+    <main className="parchment mx-auto my-8 max-w-2xl rounded-lg px-6 py-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-sm uppercase tracking-wide text-ink-soft">Join code</p>
@@ -154,25 +163,30 @@ export default function LobbyPage() {
         <ul className="mt-2 divide-y divide-line rounded-md border border-line bg-white/40">
           {seats.map((s) => (
             <li key={s.playerId} className="flex flex-wrap items-center gap-3 px-3 py-2" data-testid={`seat-${s.seat}`}>
-              <Swatch color={s.color} size={18} />
-              {s.userId === session.user.id && nameDraft !== null ? (
+              {s.userId === session.user.id && s.avatar ? (
+                <AvatarPicker spec={s.avatar} color={s.color} name={s.name} onChange={saveAvatar} size={44} />
+              ) : (
+                <Avatar spec={s.avatar} color={s.color} name={s.name} size={44} />
+              )}
+              <Swatch color={s.color} size={14} />
+              {nameDraft?.playerId === s.playerId ? (
                 <form
                   className="flex items-center gap-2"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    void call("set-seat", { name: nameDraft }).then(() => setNameDraft(null));
+                    void call("set-seat", { name: nameDraft.name, playerId: s.playerId }).then(() => setNameDraft(null));
                   }}
                 >
-                  <input className="w-40 rounded-md border border-line bg-white/60 px-2 py-1" value={nameDraft} maxLength={20} onChange={(e) => setNameDraft(e.target.value)} autoFocus />
+                  <input className="w-40 rounded-md border border-line bg-white/60 px-2 py-1" value={nameDraft.name} maxLength={24} onChange={(e) => setNameDraft({ playerId: s.playerId, name: e.target.value })} autoFocus data-testid="rename-input" />
                   <Button size="sm" type="submit" variant="primary">
                     Save
                   </Button>
                 </form>
               ) : (
-                <span className="font-medium">{s.name}</span>
+                <span className="font-medium" data-testid={`seat-name-${s.seat}`}>{s.name}</span>
               )}
               {s.kind === "bot" ? (
-                <span className="rounded border border-line px-1 text-[10px] uppercase tracking-wide text-ink-soft">bot · {s.botLevel}</span>
+                <span className="rounded border border-line px-1 text-[10px] uppercase tracking-wide text-ink-soft" title="Computer player">{s.botLevel}</span>
               ) : (
                 <span className={`text-xs ${s.ready ? "text-wood" : "text-ink-soft"}`} data-testid={`ready-${s.seat}`}>
                   {s.ready ? "Ready" : "Not ready"}
@@ -180,13 +194,13 @@ export default function LobbyPage() {
               )}
               {s.userId === lobby.host_user_id && <span className="text-xs text-ink-soft">host</span>}
               <span className="ml-auto flex flex-wrap gap-1">
+                {(s.userId === session.user.id || (isHost && s.kind === "bot")) && nameDraft === null && (
+                  <Button size="sm" variant="quiet" onClick={() => setNameDraft({ playerId: s.playerId, name: s.name })} data-testid={`rename-${s.seat}`}>
+                    Rename
+                  </Button>
+                )}
                 {s.userId === session.user.id && (
                   <>
-                    {nameDraft === null && (
-                      <Button size="sm" variant="quiet" onClick={() => setNameDraft(s.name)}>
-                        Rename
-                      </Button>
-                    )}
                     {PLAYER_COLORS.filter((c) => !seats.some((x) => x.color === c)).map((c: PlayerColor) => (
                       <button key={c} type="button" aria-label={`Take ${c}`} title={`Take ${c}`} className="rounded-full p-0.5 hover:bg-parchment-deep" onClick={() => void call("set-seat", { color: c })}>
                         <Swatch color={c} size={16} />

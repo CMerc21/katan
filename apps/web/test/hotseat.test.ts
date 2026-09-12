@@ -47,6 +47,25 @@ describe("HotseatDriver", () => {
     expect(views).toHaveLength(2);
   });
 
+  it("docs/phase7.md §1.2: each emitted view carries the events since the previous one, bots included", async () => {
+    const d = HotseatDriver.create({ seed: "events", players: PLAYERS, board: "beginner", bots: { b: "easy", c: "easy", d: "easy" } });
+    const views: RedactedState[] = [];
+    d.subscribe((v) => views.push(v));
+    expect(views[0]!.events).toEqual([]);
+    await step(d); // a's settlement: one built event, a still acts (her road)
+    expect(views[1]!.events.map((e) => e.kind)).toEqual(["built"]);
+    await step(d); // a's road, then the bots place both rounds
+    const events = views[2]!.events;
+    expect(events.filter((e) => e.kind === "built").length).toBe(1 + 12);
+    expect(events[0]!.seq).toBe(views[1]!.events.at(-1)!.seq + 1);
+    expect(events.map((e) => e.seq)).toEqual(events.map((_, i) => events[0]!.seq + i));
+    // Third parties never see discard contents or stolen cards in their events.
+    expect(events.every((e) => e.kind !== "stole" || e.resource === null || e.to === "a" || e.from === "a")).toBe(true);
+    // Acknowledging a handoff re-emits with no events.
+    d.acknowledgeHandoff();
+    expect(views[3]!.events).toEqual([]);
+  });
+
   it("me() follows the setup snake and lands on seat 0 for the first roll", async () => {
     const d = driver();
     const seen: string[] = [];

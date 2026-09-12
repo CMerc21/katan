@@ -3,7 +3,7 @@
  */
 
 import { GEOMETRY, type EdgeId, type VertexId } from "./geometry";
-import { buildingsMap } from "./state";
+import { buildingsMap, emit } from "./state";
 import type { GameState, PlayerId } from "./types";
 
 export const LONGEST_ROAD_MIN = 5;
@@ -97,6 +97,7 @@ export function updateLongestRoad(state: GameState): void {
   }
 
   state.longestRoad = { playerId: next, length: next === null ? 0 : (lengths.get(next) ?? 0) };
+  if (next !== holder) emit(state, { kind: "specialCardMoved", card: "longestRoad", from: holder, to: next });
 }
 
 /** Re-evaluate Largest Army after a knight is played (§10.2). */
@@ -114,4 +115,5 @@ export function updateLargestArmy(state: GameState): void {
     }
   }
   state.largestArmy = { playerId: next, count: next === null ? 0 : best };
+  if (next !== holder) emit(state, { kind: "specialCardMoved", card: "largestArmy", from: holder, to: next });
 }

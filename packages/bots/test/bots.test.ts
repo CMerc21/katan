@@ -85,3 +85,27 @@ describe("§6.7 bots", () => {
     expect(perCall).toBeLessThan(50);
   });
 });
+
+describe("docs/phase7.md §5 bot names", () => {
+  it("is deterministic and never repeats a name within a game", async () => {
+    const { generateBotNames, isGeneratedBotName, FIRST_NAMES, EPITHETS, PLACES } = await import("../src/names");
+    const { createRng } = await import("@katan/engine");
+    const a = generateBotNames(() => createRng("names", 1).next(), 6);
+    void a;
+    const stream = () => {
+      const r = createRng("names-2", 7);
+      return () => r.next();
+    };
+    const x = generateBotNames(stream(), 6, ["Ada"]);
+    const y = generateBotNames(stream(), 6, ["Ada"]);
+    expect(x).toEqual(y);
+    expect(new Set(x.map((n) => n.toLowerCase())).size).toBe(6);
+    for (const n of x) expect(isGeneratedBotName(n)).toBe(true);
+    // Difficulty never appears in the name.
+    for (const n of x) expect(n).not.toMatch(/easy|medium|hard|bot/i);
+    expect(FIRST_NAMES.length).toBeGreaterThanOrEqual(60);
+    expect(EPITHETS.length).toBeGreaterThanOrEqual(40);
+    expect(PLACES.length).toBeGreaterThanOrEqual(30);
+    expect(isGeneratedBotName("Bot (easy)")).toBe(false);
+  });
+});

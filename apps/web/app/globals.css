@@ -1,22 +1,31 @@
 @import "tailwindcss";
 
+/* Tokens (docs/art-direction.md §1) */
 @theme {
   --color-ink: #211d19;
   --color-ink-soft: #4a433c;
   --color-parchment: #efe8d8;
   --color-parchment-deep: #e3dac6;
   --color-line: #c9bda3;
+  --color-walnut: #3b2a1e;
+  --color-walnut-light: #5a4030;
+  --color-wax: #9b2226;
+  --color-wax-deep: #6f1519;
+  --color-gilt: #c9a227;
   --color-water: #4a7d8c;
   --color-wood: #3e6b46;
   --color-clay: #b25a3d;
   --color-wool: #a5b95e;
   --color-grain: #d9a642;
   --color-ore: #7d8089;
-  --color-p-red: #b83a2c;
-  --color-p-blue: #2f5f9d;
-  --color-p-orange: #e0862b;
-  --color-p-white: #f4efe3;
-  --font-sans: "Trebuchet MS", "Gill Sans", "Segoe UI", "Noto Sans", ui-sans-serif, system-ui, sans-serif;
+  --color-p-red: #a12a1e;
+  --color-p-blue: #2a4d8f;
+  --color-p-orange: #d9a21b;
+  --color-p-white: #e8e4d8;
+  --color-p-green: #2f6b3a;
+  --color-p-brown: #7a4a1f;
+  --font-sans: "Palatino Linotype", Palatino, "Book Antiqua", "Iowan Old Style", Georgia, serif;
+  --font-display: "Cinzel", "Trajan Pro", "Luminari", "Palatino Linotype", Georgia, serif;
 }
 
 html,
@@ -25,10 +34,16 @@ body {
 }
 
 body {
-  background: var(--color-parchment);
+  /* A dark walnut table; panels sit on it as parchment sheets. */
+  background-color: var(--color-walnut);
+  background-image:
+    repeating-linear-gradient(92deg, rgba(255, 255, 255, 0.025) 0 2px, transparent 2px 9px),
+    repeating-linear-gradient(88deg, rgba(0, 0, 0, 0.12) 0 1px, transparent 1px 23px),
+    radial-gradient(ellipse at 50% 30%, #4b3625 0%, #3b2a1e 55%, #2a1c13 100%);
   color: var(--color-ink);
   font-family: var(--font-sans);
   margin: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 button,
@@ -38,8 +53,69 @@ select {
 }
 
 :focus-visible {
-  outline: 3px solid var(--color-ink);
+  outline: 3px solid var(--color-gilt);
   outline-offset: 2px;
+}
+
+.font-display {
+  font-family: var(--font-display);
+  font-variant-caps: small-caps;
+  letter-spacing: 0.04em;
+}
+
+/* Parchment: fibre texture through an SVG filter, one ink rule. */
+.parchment {
+  background-color: var(--color-parchment);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.38 0 0 0 0 0.25 0 0 0 0.09 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23f)'/%3E%3C/svg%3E");
+  box-shadow:
+    inset 0 0 0 1px rgba(33, 29, 25, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.ink-rule {
+  border-bottom: 1px solid rgba(33, 29, 25, 0.45);
+}
+
+/* Wax seal buttons */
+.btn-wax {
+  background: linear-gradient(180deg, #b12a2e 0%, var(--color-wax) 55%, var(--color-wax-deep) 100%);
+  color: #fff4ea;
+  border: 1px solid #4d0d10;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+.btn-wax:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.btn-wax:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.btn-wax:disabled {
+  background: var(--color-line);
+  color: var(--color-ink-soft);
+  border-color: var(--color-line);
+  text-shadow: none;
+  box-shadow: none;
+}
+
+/* Heraldic ribbon (turn banner): forked ends via clip-path. */
+.ribbon {
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 6% 50%);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 50%, 100% 100%, 0 100%, 14px 50%);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+  animation: ribbon-in 320ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes ribbon-in {
+  from {
+    transform: translate(-50%, -24px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
 }
 
 /* --- Board highlights (docs/phase3.md §4.3) --- */
@@ -62,33 +138,240 @@ select {
   transform-origin: center;
   animation: ring-pulse 1.4s ease-in-out infinite;
 }
-
 .target-vertex:hover {
   animation-play-state: paused;
   opacity: 1;
   transform: scale(1.25);
 }
-
 .target-edge {
   cursor: pointer;
 }
-
 .target-edge:hover .target-edge-line {
   stroke-dasharray: none;
   opacity: 1;
 }
-
 .target-hex {
   cursor: pointer;
 }
-
 .target-hex:hover .target-hex-outline {
   opacity: 1;
   stroke-width: 6;
 }
 
-/* --- The single motion effect: a card sliding into the hand --- */
+/* --- Event animations (docs/phase7.md §2.2) --- */
 
+/* Piece placed: scale up from 0 with overshoot. */
+@keyframes pop-in {
+  0% {
+    transform: scale(0);
+  }
+  70% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.piece-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pop-in 300ms cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+
+/* Road: the line draws from one end. */
+@keyframes draw-line {
+  from {
+    stroke-dashoffset: var(--len, 60);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.road-draw {
+  stroke-dasharray: var(--len, 60);
+  animation: draw-line 300ms ease-out;
+}
+
+/* City replaces settlement with a rise. */
+@keyframes rise-in {
+  from {
+    transform: translateY(10px) scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+.piece-rise {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: rise-in 300ms ease-out;
+}
+
+/* Robber hop along an arc, then the blocked-hex shake. */
+.robber-move {
+  transition: transform 450ms cubic-bezier(0.4, -0.3, 0.5, 1.3);
+}
+@keyframes shake {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(-3px, 1px);
+  }
+  50% {
+    transform: translate(3px, -1px);
+  }
+  75% {
+    transform: translate(-2px, 0);
+  }
+}
+.hex-shake {
+  animation: shake 300ms ease-in-out;
+}
+
+/* Number tokens matching the roll pulse. */
+@keyframes token-pulse {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.3);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.token-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: token-pulse 600ms ease-out 300ms;
+}
+.token-dim {
+  opacity: 0.35;
+  transition: opacity 300ms;
+}
+
+/* Dice */
+@keyframes tumble {
+  0% {
+    transform: translate(-40px, -30px) rotate(-200deg) scale(0.6);
+    opacity: 0;
+  }
+  60% {
+    transform: translate(4px, -6px) rotate(40deg) scale(1.1);
+    opacity: 1;
+  }
+  80% {
+    transform: translate(-2px, 2px) rotate(-8deg);
+  }
+  100% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+  }
+}
+.die-tumble {
+  animation: tumble 800ms cubic-bezier(0.3, 0.7, 0.2, 1) both;
+}
+.die-settle {
+  transition: transform 200ms;
+}
+
+/* Dev card reveal */
+@keyframes card-flip {
+  0% {
+    transform: translate(-50%, -50%) rotateY(90deg) scale(0.6);
+    opacity: 0;
+  }
+  35% {
+    transform: translate(-50%, -50%) rotateY(0deg) scale(1.05);
+    opacity: 1;
+  }
+  80% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0.9);
+    opacity: 0;
+  }
+}
+.card-reveal {
+  animation: card-flip 900ms ease-in-out both;
+}
+
+/* Hand count bump */
+@keyframes bump {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.count-bump {
+  animation: bump 320ms ease-out;
+}
+
+/* Confetti */
+@keyframes fall {
+  0% {
+    transform: translateY(-10vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(110vh) rotate(540deg);
+    opacity: 0.6;
+  }
+}
+.confetti {
+  animation: fall 2200ms linear both;
+}
+
+/* Thinking dots */
+@keyframes dots {
+  0%,
+  20% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.2;
+  }
+}
+.thinking-dot {
+  animation: dots 1000ms infinite;
+}
+.thinking-dot:nth-child(2) {
+  animation-delay: 150ms;
+}
+.thinking-dot:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+/* Special card glint */
+@keyframes glint {
+  0% {
+    box-shadow: 0 0 0 0 rgba(201, 162, 39, 0);
+  }
+  50% {
+    box-shadow: 0 0 12px 4px rgba(201, 162, 39, 0.8);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(201, 162, 39, 0);
+  }
+}
+.badge-glint {
+  animation: glint 600ms ease-out;
+}
+
+/* The single legacy motion effect: a card sliding into the hand */
 @keyframes slide-in {
   from {
     transform: translateY(14px);
@@ -99,14 +382,27 @@ select {
     opacity: 1;
   }
 }
-
 .card-in {
   animation: slide-in 260ms ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .target-vertex,
-  .card-in {
+  .card-in,
+  .piece-pop,
+  .road-draw,
+  .piece-rise,
+  .hex-shake,
+  .token-pulse,
+  .die-tumble,
+  .card-reveal,
+  .count-bump,
+  .confetti,
+  .ribbon,
+  .badge-glint {
     animation: none;
+  }
+  .robber-move {
+    transition: none;
   }
 }

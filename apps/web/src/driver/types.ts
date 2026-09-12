@@ -8,6 +8,7 @@
  * presence, escape hatches) without components knowing which driver is live.
  */
 
+import type { AvatarSpec } from "@katan/avatars";
 import type { BotLevel } from "@katan/bots";
 import type { Action, PlayerColor, RedactedGameState } from "@katan/engine";
 
@@ -31,6 +32,8 @@ export interface SeatInfo {
   readonly botLevel: BotLevel | null;
   readonly ready: boolean;
   readonly lastSeenAt: string | null;
+  /** Portrait (docs/phase7.md §4); null for a legacy seat. */
+  readonly avatar: AvatarSpec | null;
 }
 
 export interface GameDriver {
@@ -48,7 +51,7 @@ export interface GameDriver {
   pendingHandoff?(): string | null;
   acknowledgeHandoff?(): void;
 
-  /** Online: seat metadata (names, bots, readiness, presence timestamps). */
+  /** Seat metadata (names, bots, portraits, readiness, presence timestamps). Hotseat provides it too. */
   subscribeSeats?(cb: (seats: SeatInfo[]) => void): () => void;
   /** Online: player ids currently connected. */
   subscribePresence?(cb: (connected: ReadonlySet<string>) => void): () => void;
