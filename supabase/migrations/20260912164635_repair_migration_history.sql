@@ -1,0 +1,1 @@
+-- Migration history repair applied directly in the dashboard (no schema changes).
