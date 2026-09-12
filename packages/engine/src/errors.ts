@@ -35,7 +35,8 @@ export type RuleErrorCode =
   | "INVALID_TRADE"
   | "TRADE_ALREADY_PENDING"
   | "NO_PENDING_TRADE"
-  | "BAD_TRADE_RATIO";
+  | "BAD_TRADE_RATIO"
+  | "INVALID_BOARD";
 
 export class RuleError extends Error {
   readonly code: RuleErrorCode;

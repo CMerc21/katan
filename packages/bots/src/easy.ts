@@ -54,6 +54,13 @@ export function chooseEasy(view: RedactedState, legal: Action[], rng: Rng): Acti
 
   if (phase === "roadBuilding") return pick(rng, legal);
 
+  if (phase === "specialBuild") {
+    // docs/phase8.md §5: build something if we can, otherwise pass.
+    const builds = legal.filter((a) => a.type !== "SPECIAL_BUILD_DONE");
+    if (builds.length && rng() < 0.7) return pick(rng, builds);
+    return legal.find((a) => a.type === "SPECIAL_BUILD_DONE") ?? pick(rng, legal);
+  }
+
   if (phase === "action") {
     const current = view.players[view.currentPlayer]!.id;
     if (current !== me) {

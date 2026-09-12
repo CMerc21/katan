@@ -13,11 +13,13 @@ import { botStep, generateBotName, isBotLevel, type BotLevel } from "@katan/bots
 import {
   applyActionWithEvents,
   createGame as engineCreateGame,
+  isBoardDefinition,
   isRuleError,
   nextActor,
   redact,
   replay,
   type Action,
+  type BoardDefinition,
   type BoardKind,
   type GameEvent,
   type GameState,
@@ -59,7 +61,18 @@ export interface GameRow {
   join_code: string | null;
   host_user_id: string | null;
   max_players: number;
-  board: BoardKind;
+  board: BoardKind | "custom";
+  /** The chosen definition when `board = 'custom'` (docs/phase8.md §4.3). */
+  board_definition: BoardDefinition | null;
+}
+
+/** What `createGame` should be given for a game row. */
+export function boardOptionOf(game: Pick<GameRow, "board" | "board_definition">): BoardKind | BoardDefinition {
+  if (game.board === "custom") {
+    if (!isBoardDefinition(game.board_definition)) throw new ServiceError("BAD_REQUEST", "game has no valid board definition", 500);
+    return game.board_definition;
+  }
+  return game.board;
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +267,7 @@ export function avatarOrNull(value: unknown): AvatarSpec | null {
 export interface CreateGameInput {
   createdBy: string;
   players: CreatePlayer[];
-  board: BoardKind;
+  board: BoardKind | BoardDefinition;
   seed?: string;
 }
 
@@ -263,7 +276,7 @@ export function playerIdForSeat(seat: number): PlayerId {
 }
 
 export async function createGameForUsers(sql: Db, input: CreateGameInput): Promise<{ gameId: string; version: number }> {
-  if (input.players.length < 3 || input.players.length > 4) throw new ServiceError("BAD_REQUEST", "3 or 4 players");
+  if (input.players.length < 3 || input.players.length > 6) throw new ServiceError("BAD_REQUEST", "3 to 6 players");
   for (const p of input.players) {
     if (p.kind === "bot" && !isBotLevel(p.level)) throw new ServiceError("BAD_REQUEST", "bots need a level");
     if (p.kind === "human" && !p.userId) throw new ServiceError("BAD_REQUEST", "humans need a user id");
@@ -272,13 +285,15 @@ export async function createGameForUsers(sql: Db, input: CreateGameInput): Promi
   return sql.begin(async (tx) => {
     const players = input.players.map((p, seat) => ({ id: playerIdForSeat(seat), name: p.name, color: p.color }));
     const initial = engineCreateGame({ seed, players, board: input.board });
+    const boardKind = typeof input.board === "string" ? input.board : "custom";
+    const definition = typeof input.board === "string" ? null : input.board;
     const [row] = await tx<{ id: string }[]>`
-      insert into games (seed, state, version, status, created_by, board, max_players)
-      values (${seed}, ${tx.json(initial as unknown as JSONValue)}, 0, 'active', ${input.createdBy}, ${input.board}, ${input.players.length})
+      insert into games (seed, state, version, status, created_by, board, board_definition, max_players)
+      values (${seed}, ${tx.json(initial as unknown as JSONValue)}, 0, 'active', ${input.createdBy}, ${boardKind}, ${definition ? tx.json(definition as unknown as JSONValue) : null}, ${input.players.length})
       returning id`;
     const gameId = row!.id;
-    await tx`insert into lobbies (game_id, join_code, status, host_user_id, max_players, board)
-             values (${gameId}, ${"DEVGME"}, 'active', ${input.createdBy}, ${input.players.length}, ${input.board})`;
+    await tx`insert into lobbies (game_id, join_code, status, host_user_id, max_players, board, board_name)
+             values (${gameId}, ${"DEVGME"}, 'active', ${input.createdBy}, ${input.players.length}, ${boardKind}, ${initial.board.name})`;
     for (let seat = 0; seat < input.players.length; seat++) {
       const p = input.players[seat] as CreatePlayer;
       const avatar = p.avatar ?? defaultAvatar(gameId, seat);
@@ -287,7 +302,7 @@ export async function createGameForUsers(sql: Db, input: CreateGameInput): Promi
     }
     const seats = await seatsOf(tx as Tx, gameId);
     const loop = runBotLoop(initial, seats);
-    const game: GameRow = { id: gameId, seed, state: initial, version: 0, status: "active", created_by: input.createdBy, join_code: null, host_user_id: input.createdBy, max_players: input.players.length, board: input.board };
+    const game: GameRow = { id: gameId, seed, state: initial, version: 0, status: "active", created_by: input.createdBy, join_code: null, host_user_id: input.createdBy, max_players: input.players.length, board: boardKind, board_definition: definition };
     const version = await persist(tx as Tx, game, seats, loop.state, loop.actions, loop.events);
     return { gameId, version };
   });
@@ -296,7 +311,7 @@ export async function createGameForUsers(sql: Db, input: CreateGameInput): Promi
 /** Start an active game from an existing lobby's seats (Phase 5 start-game). */
 export async function activateGame(tx: Tx, game: GameRow, seats: SeatRow[]): Promise<number> {
   const players = seats.map((s) => ({ id: s.player_id, name: s.name, color: s.color }));
-  const initial = engineCreateGame({ seed: game.seed, players, board: game.board });
+  const initial = engineCreateGame({ seed: game.seed, players, board: boardOptionOf(game) });
   await tx`update games set state = ${tx.json(initial as unknown as JSONValue)}, status = 'active', updated_at = now() where id = ${game.id}`;
   await tx`update lobbies set status = 'active', updated_at = now() where game_id = ${game.id}`;
   const loop = runBotLoop(initial, seats);
@@ -319,7 +334,7 @@ export async function replayCheck(sql: Db, gameId: string): Promise<ReplayResult
   const rows = await sql<{ index: number; action: Action }[]>`select index, action from game_actions where game_id = ${gameId} order by index`;
   const seats = await sql<SeatRow[]>`select * from game_players where game_id = ${gameId} order by seat`;
   const players = seats.map((s) => ({ id: s.player_id, name: s.name, color: s.color }));
-  const initial = engineCreateGame({ seed: game.seed, players, board: game.board });
+  const initial = engineCreateGame({ seed: game.seed, players, board: boardOptionOf(game) });
   const rebuilt = replay(initial, rows.map((r) => r.action));
   // jsonb does not preserve key order, so compare canonical encodings.
   const a = canonicalJson(rebuilt);

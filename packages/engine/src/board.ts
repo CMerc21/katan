@@ -1,28 +1,21 @@
 /**
- * Board contents: terrain, number tokens, ports (docs/rules.md §2, §3.5–§3.6).
- *
- * The geometry (which hexes/vertices/edges exist) is fixed; a Board only
- * says what sits on each hex and where the ports are.
+ * Board contents: terrain, number tokens, ports (docs/rules.md §2, §3.5–§3.6;
+ * docs/phase8.md §1). A `Board` is the resolved, concrete board stored in
+ * the game state; `BoardDefinition` (definition.ts) is the editable form.
  */
 
-import {
-  GEOMETRY,
-  edgeMidpoint,
-  hexId,
-  spiralOrder,
-  type EdgeId,
-  type HexId,
-  type VertexId,
-} from "./geometry";
+import type { BoardDefinition } from "./definition";
+import { GEOMETRY, edgeMidpoint, geometryFor, type EdgeId, type Geometry, type HexId, type VertexId } from "./geometry";
 import { RNG_INDEX_BOARD, rng, type Rng } from "./rng";
 
 export const RESOURCES = ["wood", "clay", "wool", "grain", "ore"] as const;
 export type Resource = (typeof RESOURCES)[number];
 
-export const TERRAINS = ["forest", "claypit", "meadow", "farmland", "mountain", "wasteland"] as const;
+/** `gold` is reserved for the Tides module (docs/phase9.md): it produces a resource of the owner's choice. */
+export const TERRAINS = ["forest", "claypit", "meadow", "farmland", "mountain", "wasteland", "gold"] as const;
 export type Terrain = (typeof TERRAINS)[number];
 
-/** §2.1 */
+/** §2.1 (gold has no fixed resource; see §6.2 in Phase 9). */
 export const TERRAIN_RESOURCE: Readonly<Record<Terrain, Resource | null>> = {
   forest: "wood",
   claypit: "clay",
@@ -30,9 +23,10 @@ export const TERRAIN_RESOURCE: Readonly<Record<Terrain, Resource | null>> = {
   farmland: "grain",
   mountain: "ore",
   wasteland: null,
+  gold: null,
 };
 
-/** §2.1 */
+/** §2.1: the standard 19-hex counts. */
 export const TERRAIN_COUNTS: Readonly<Record<Terrain, number>> = {
   forest: 4,
   claypit: 3,
@@ -40,6 +34,7 @@ export const TERRAIN_COUNTS: Readonly<Record<Terrain, number>> = {
   farmland: 4,
   mountain: 3,
   wasteland: 1,
+  gold: 0,
 };
 
 /** §2.2 */
@@ -55,7 +50,7 @@ export const PORT_EDGE_INDICES: readonly number[] = [0, 3, 7, 10, 13, 17, 20, 23
 
 export interface HexTile {
   readonly terrain: Terrain;
-  /** null only for the wasteland. */
+  /** null for the wasteland (and for gold hexes without a token). */
   readonly token: number | null;
 }
 
@@ -66,13 +61,31 @@ export interface Port {
 }
 
 export interface Board {
+  readonly name: string;
+  /** Land tiles only. */
   readonly hexes: Readonly<Record<HexId, HexTile>>;
+  /** Water tiles: playable only when `seaPlayable` (Tides, Phase 9). */
+  readonly sea: readonly HexId[];
+  /** The wooden edge of the table: drawn, never playable. */
+  readonly frame: readonly HexId[];
   readonly ports: readonly Port[];
+  readonly seats: { readonly min: number; readonly max: number };
+  readonly seaPlayable: boolean;
 }
 
 export type BoardKind = "beginner" | "random";
 
-/** §3.6: boundary edges ordered by the angle of their midpoint. */
+/** The playable geometry of a board: land, plus sea when ships are in play (docs/phase8.md §1, docs/phase9.md §1). */
+export function boardGeometry(board: Board): Geometry {
+  const ids = Object.keys(board.hexes);
+  return geometryFor(board.seaPlayable ? [...ids, ...board.sea] : ids);
+}
+
+export function landHexIds(board: Board): HexId[] {
+  return Object.keys(board.hexes);
+}
+
+/** §3.6: the standard frame's boundary edges ordered by the angle of their midpoint. */
 export function portEdgesInOrder(): EdgeId[] {
   const withAngle = GEOMETRY.boundaryEdges.map((e) => {
     const m = edgeMidpoint(e);
@@ -83,38 +96,16 @@ export function portEdgesInOrder(): EdgeId[] {
   return PORT_EDGE_INDICES.map((i) => ordered[i] as EdgeId);
 }
 
-function makePorts(kinds: readonly PortKind[]): Port[] {
-  const edges = portEdgesInOrder();
-  return edges.map((edge, i) => ({
-    edge,
-    kind: kinds[i] as PortKind,
-    vertices: GEOMETRY.edgeVertices[edge] as readonly [VertexId, VertexId],
-  }));
-}
-
-function assembleHexes(terrains: readonly Terrain[], tokens: readonly number[]): Record<HexId, HexTile> {
-  const order = spiralOrder();
-  if (terrains.length !== order.length) throw new Error("need 19 terrains");
-  const hexes: Record<HexId, HexTile> = {};
-  let t = 0;
-  order.forEach((coord, i) => {
-    const terrain = terrains[i] as Terrain;
-    const token = terrain === "wasteland" ? null : (tokens[t++] as number);
-    hexes[hexId(coord)] = { terrain, token };
-  });
-  if (t !== tokens.length) throw new Error("token count does not match producing hexes");
-  return hexes;
-}
-
-/** §2.2: true when no two adjacent hexes both carry a 6 or an 8. */
+/** §2.2: true when no two adjacent land hexes both carry a 6 or an 8. */
 export function honorsSixEightRule(hexes: Readonly<Record<HexId, HexTile>>): boolean {
+  const geo = geometryFor(Object.keys(hexes));
   const hot = (h: HexId): boolean => {
     const tok = hexes[h]?.token;
     return tok === 6 || tok === 8;
   };
-  for (const h of GEOMETRY.hexes) {
+  for (const h of geo.hexes) {
     if (!hot(h)) continue;
-    for (const n of GEOMETRY.hexNeighbors[h] ?? []) {
+    for (const n of geo.hexNeighbors[h] ?? []) {
       if (hot(n)) return false;
     }
   }
@@ -124,7 +115,7 @@ export function honorsSixEightRule(hexes: Readonly<Record<HexId, HexTile>>): boo
 // ---------------------------------------------------------------------------
 // Beginner board: a fixed, original layout specified in spiral order (§3.5).
 
-const BEGINNER_TERRAINS: readonly Terrain[] = [
+export const BEGINNER_TERRAINS: readonly Terrain[] = [
   // outer ring (12)
   "forest", "meadow", "farmland", "mountain", "claypit", "forest",
   "meadow", "farmland", "mountain", "claypit", "forest", "meadow",
@@ -134,46 +125,24 @@ const BEGINNER_TERRAINS: readonly Terrain[] = [
   "wasteland",
 ];
 
-const BEGINNER_TOKENS: readonly number[] = [
+export const BEGINNER_TOKENS: readonly number[] = [
   // outer ring (12)
   6, 3, 11, 8, 4, 9, 6, 2, 10, 8, 5, 12,
   // inner ring (6)
   3, 11, 4, 9, 10, 5,
 ];
 
-const BEGINNER_PORTS: readonly PortKind[] = ["any", "wood", "any", "clay", "wool", "any", "grain", "any", "ore"];
-
-export function beginnerBoard(): Board {
-  return {
-    hexes: assembleHexes(BEGINNER_TERRAINS, BEGINNER_TOKENS),
-    ports: makePorts(BEGINNER_PORTS),
-  };
-}
+export const BEGINNER_PORTS: readonly PortKind[] = ["any", "wood", "any", "clay", "wool", "any", "grain", "any", "ore"];
 
 // ---------------------------------------------------------------------------
-// Random board (§2.2 six/eight rule, §12 seeded).
+// Resolution entry points (implemented over definitions; see generation.ts).
 
-function allTerrains(): Terrain[] {
-  const out: Terrain[] = [];
-  for (const t of TERRAINS) {
-    for (let i = 0; i < TERRAIN_COUNTS[t]; i++) out.push(t);
-  }
-  return out;
+export function beginnerBoard(): Board {
+  return resolveDefinition(beginnerDefinition(), rng("beginner", RNG_INDEX_BOARD));
 }
 
-const MAX_TOKEN_ATTEMPTS = 10_000;
-
-export function randomBoardWithRng(rng: Rng): Board {
-  const terrains = rng.shuffle(allTerrains());
-  for (let attempt = 0; attempt < MAX_TOKEN_ATTEMPTS; attempt++) {
-    const hexes = assembleHexes(terrains, rng.shuffle(NUMBER_TOKENS));
-    if (honorsSixEightRule(hexes)) {
-      return { hexes, ports: makePorts(rng.shuffle(PORT_KINDS)) };
-    }
-  }
-  // Unreachable in practice: a valid token assignment exists for every
-  // terrain layout, and rejection sampling finds one quickly.
-  throw new Error("randomBoard: could not satisfy the 6/8 rule");
+export function randomBoardWithRng(r: Rng): Board {
+  return resolveDefinition(randomDefinition(), r);
 }
 
 export function randomBoard(seed: string): Board {
@@ -193,10 +162,17 @@ export function makeBoard(kind: BoardKind, seed: string): Board {
   }
 }
 
-/** The hex holding the wasteland (where the robber starts, §4.4). */
+/** The hex holding the wasteland (where the robber starts, §4.4), or the first land hex when there is none. */
 export function wastelandHex(board: Board): HexId {
-  for (const h of GEOMETRY.hexes) {
+  for (const h of Object.keys(board.hexes)) {
     if (board.hexes[h]?.terrain === "wasteland") return h;
   }
-  throw new Error("board has no wasteland");
+  const first = Object.keys(board.hexes).sort()[0];
+  if (!first) throw new Error("board has no land");
+  return first;
 }
+
+// Late-bound to avoid an import cycle at module evaluation (generation → frames → board).
+import { resolveBoard as resolveDefinition } from "./generation";
+import { beginnerDefinition, randomDefinition } from "./frames";
+export type { BoardDefinition };

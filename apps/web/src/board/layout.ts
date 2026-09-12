@@ -9,6 +9,8 @@
 import {
   GEOMETRY,
   edgeMidpoint,
+  edgeVerticesOf,
+  geometryFor,
   hexCenter,
   parseEdgeId,
   parseHexId,
@@ -36,14 +38,27 @@ export interface Layout {
 
 const WATER_MARGIN = 1.5; // in hex radii beyond the outermost vertices
 
-export function createLayout(R: number): Layout {
+/** Screen geometry for a board of any shape (docs/phase8.md §1); defaults to the standard 19 hexes. */
+export function createLayout(R: number, hexIds: readonly HexId[] = GEOMETRY.hexes): Layout {
   const scale = (p: Point): Point => ({ x: p.x * R, y: p.y * R });
+  const geo = geometryFor(hexIds);
+  const centre = (() => {
+    if (hexIds.length === 0) return { x: 0, y: 0 };
+    let sx = 0;
+    let sy = 0;
+    for (const h of hexIds) {
+      const c = hexCenter(parseHexId(h));
+      sx += c.x;
+      sy += c.y;
+    }
+    return { x: sx / hexIds.length, y: sy / hexIds.length };
+  })();
 
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const v of GEOMETRY.vertices) {
+  for (const v of geo.vertices) {
     const p = scale(vertexPosition(v));
     minX = Math.min(minX, p.x);
     minY = Math.min(minY, p.y);
@@ -71,17 +86,16 @@ export function createLayout(R: number): Layout {
     },
     vertex: (id) => scale(vertexPosition(id)),
     edge: (id) => {
-      const [a, b] = GEOMETRY.edgeVertices[id] ?? [];
-      if (!a || !b) throw new Error(`unknown edge ${id}`);
+      const [a, b] = geo.edgeVertices[id] ?? edgeVerticesOf(id);
       return [scale(vertexPosition(a)), scale(vertexPosition(b))];
     },
     edgeMid: (id) => scale(edgeMidpoint(id)),
     outward: (id) => {
       const [a, b] = parseEdgeId(id);
       const m = edgeMidpoint(id);
-      const onBoard = GEOMETRY.edgeHexes[id] ?? [];
+      const onBoard = geo.edgeHexes[id] ?? [];
       // Point away from the real hex when there is exactly one; else from the centre.
-      const from = onBoard.length === 1 ? hexCenter(parseHexId(onBoard[0]!)) : { x: 0, y: 0 };
+      const from = onBoard.length === 1 ? hexCenter(parseHexId(onBoard[0]!)) : centre;
       void a;
       void b;
       const dx = m.x - from.x;
@@ -109,14 +123,16 @@ export function hexPoints(layout: Layout, id: HexId, inset = 0): string {
   return pts.join(" ");
 }
 
-/** A large hexagon around the whole board for the water. */
+/** A large hexagon around the whole board for the water, sized from the viewBox. */
 export function waterPoints(layout: Layout): string {
-  // Board half-width is 2.5·√3·R ≈ 4.33R; leave about one hex of water beyond it.
-  const radius = 5.55 * layout.R;
+  const [x0, y0, w, h] = layout.viewBox.split(" ").map(Number) as [number, number, number, number];
+  const cx = x0 + w / 2;
+  const cy = y0 + h / 2;
+  const radius = Math.hypot(w, h) / 2 - 0.4 * layout.R;
   const pts: string[] = [];
   for (let k = 0; k < 6; k++) {
     const angle = (-(60 * k) * Math.PI) / 180;
-    pts.push(`${round(radius * Math.cos(angle))},${round(radius * Math.sin(angle))}`);
+    pts.push(`${round(cx + radius * Math.cos(angle))},${round(cy + radius * Math.sin(angle))}`);
   }
   return pts.join(" ");
 }

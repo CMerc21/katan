@@ -244,3 +244,13 @@ Every random event is derived from the game's seed plus an integer index: `rng(s
 * The development deck is shuffled with index `-1`; the random board with index `-2`.
 
 The engine never reads a clock or an unseeded random source. Replaying the action log from the seed reproduces the game exactly. The human-readable `log` in the state keeps only the most recent 100 entries; the action log is the audit trail.
+
+## §13 Larger tables and custom boards
+
+### §13.1 Boards of any shape
+
+A game may be played on any board built in the editor: a set of land hexes (any connected shape of at least seven), optional decorative sea and frame hexes, harbours on coastal edges only, and a seat cap the board can support. The hex, vertex, edge, distance and connection rules of §3–§5 apply unchanged; unfilled terrain, tokens and harbours are drawn at game start from pools scaled to the land count (the 6/8 rule of §3 always holds).
+
+### §13.2 Five and six players
+
+Up to six players may sit at a board whose seat cap allows it. Piece counts per player are unchanged. With five or six players, after a player ends their turn every other player, in seat order, gets a **special build**: they may build roads, settlements and cities and buy development cards at the usual prices. They may not trade or play development cards. When the last special builder is done, the next turn begins with its roll. Winning (§11) is checked after every build, including special builds.

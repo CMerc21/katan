@@ -6,6 +6,7 @@
  */
 
 import type { Board, BoardKind, Resource } from "./board";
+import type { BoardDefinition } from "./definition";
 import type { EdgeId, HexId, VertexId } from "./geometry";
 
 export type PlayerId = string;
@@ -24,7 +25,8 @@ export const DEV_DECK_COMPOSITION: Readonly<Record<DevCardType, number>> = {
   monopoly: 2,
 };
 
-export const PLAYER_COLORS = ["red", "blue", "orange", "white"] as const;
+/** Seat colours in seat order; green and brown seat the fifth and sixth players (docs/phase8.md §5). */
+export const PLAYER_COLORS = ["red", "blue", "orange", "white", "green", "brown"] as const;
 export type PlayerColor = (typeof PLAYER_COLORS)[number];
 
 export interface PieceSupply {
@@ -71,6 +73,8 @@ export type Phase =
   | { kind: "steal"; hex: HexId; targets: PlayerId[]; returnTo: "roll" | "action" }
   | { kind: "action" }
   | { kind: "roadBuilding"; remaining: 1 | 2 }
+  /** 5–6 players (docs/phase8.md §5): after a turn ends, every other player may build in seat order. */
+  | { kind: "specialBuild"; order: PlayerId[]; index: number }
   | { kind: "ended" };
 
 export type PhaseKind = Phase["kind"];
@@ -92,7 +96,8 @@ export interface LogEntry {
 export interface GameState {
   readonly version: 1;
   readonly seed: string;
-  readonly boardKind: BoardKind;
+  readonly boardKind: BoardKind | "custom";
+  /** The resolved board; a custom definition is snapshotted here so later edits never touch a running game. */
   readonly board: Board;
   /** Count of applied actions; the next action has this index (§12). */
   actionIndex: number;
@@ -127,9 +132,10 @@ export interface PlayerSetup {
 
 export interface CreateGameOptions {
   readonly seed: string;
-  /** In seat order. 3 or 4 players. */
+  /** In seat order. 3 to `board.seats.max` players. */
   readonly players: readonly PlayerSetup[];
-  readonly board?: BoardKind;
+  /** A built-in kind or a full definition (docs/phase8.md §1). Defaults to `random`. */
+  readonly board?: BoardKind | BoardDefinition;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +188,8 @@ export interface MaritimeTradeAction extends Base<"MARITIME_TRADE"> {
   readonly receive: Resource;
 }
 export type EndTurnAction = Base<"END_TURN">;
+/** docs/phase8.md §5: the special builder is finished. */
+export type SpecialBuildDoneAction = Base<"SPECIAL_BUILD_DONE">;
 
 export type Action =
   | RollAction
@@ -201,7 +209,8 @@ export type Action =
   | RejectTradeAction
   | CancelTradeAction
   | MaritimeTradeAction
-  | EndTurnAction;
+  | EndTurnAction
+  | SpecialBuildDoneAction;
 
 export type ActionType = Action["type"];
 
@@ -224,4 +233,5 @@ export const ACTION_TYPES: readonly ActionType[] = [
   "CANCEL_TRADE",
   "MARITIME_TRADE",
   "END_TURN",
+  "SPECIAL_BUILD_DONE",
 ];

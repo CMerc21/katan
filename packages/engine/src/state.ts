@@ -2,10 +2,10 @@
  * Small pure helpers over GameState: hands, costs, lookups, victory points.
  */
 
-import { RESOURCES, type PortKind, type Resource } from "./board";
+import { RESOURCES, boardGeometry, type PortKind, type Resource } from "./board";
 import { RuleError } from "./errors";
 import { describeEvent, eventPlayer, type EventBody, type GameEvent } from "./events";
-import { GEOMETRY, type EdgeId, type HexId, type VertexId } from "./geometry";
+import type { EdgeId, HexId, VertexId } from "./geometry";
 import { WINNING_VP, type GameState, type Hand, type LogEntry, type Player, type PlayerId } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ export interface HexBuilding extends Building {
 /** Buildings on the corners of a hex. */
 export function buildingsOnHex(state: GameState, hex: HexId): HexBuilding[] {
   const out: HexBuilding[] = [];
-  for (const v of GEOMETRY.hexVertices[hex] ?? []) {
+  for (const v of boardGeometry(state.board).hexVertices[hex] ?? []) {
     const b = buildingAt(state, v);
     if (b) out.push({ ...b, vertex: v });
   }
@@ -276,6 +276,7 @@ export function cloneJson<T>(value: T): T {
 export function nextActor(state: GameState): PlayerId {
   const current = currentPlayerId(state);
   const phase = state.phase;
+  if (phase.kind === "specialBuild") return phase.order[phase.index] ?? current;
   if (phase.kind === "discard") {
     const owing = state.players.find((p) => state.pendingDiscards[p.id] !== undefined);
     return owing ? owing.id : current;

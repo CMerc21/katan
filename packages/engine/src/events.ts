@@ -36,6 +36,8 @@ export type EventBody =
   | { kind: "maritimeTrade"; playerId: PlayerId; give: Resource; count: number; receive: Resource }
   | { kind: "specialCardMoved"; card: SpecialCard; from: PlayerId | null; to: PlayerId | null }
   | { kind: "turnEnded"; playerId: PlayerId }
+  /** docs/phase8.md §5: the named player may build before the next roll. */
+  | { kind: "specialBuildTurn"; playerId: PlayerId }
   | { kind: "setupCompleted" }
   | { kind: "gameEnded"; winner: PlayerId; scores: Record<PlayerId, number> }
   /** Free text from outside the rules (a seat handed to a bot, the host ending the game). */
@@ -60,6 +62,7 @@ export function eventPlayer(event: GameEvent): PlayerId | null {
     case "tradeCancelled":
     case "maritimeTrade":
     case "turnEnded":
+    case "specialBuildTurn":
       return event.playerId;
     case "robberMoved":
       return event.by;
@@ -105,6 +108,8 @@ export function describeEvent(event: GameEvent, nameOf: (id: PlayerId) => string
     case "turnEnded":
     case "productionBlocked":
       return null;
+    case "specialBuildTurn":
+      return `${nameOf(event.playerId)} may build (special build phase)`;
     case "diceRolled":
       return `${nameOf(event.playerId)} rolled ${event.dice[0]} + ${event.dice[1]} = ${event.dice[0] + event.dice[1]}`;
     case "produced": {

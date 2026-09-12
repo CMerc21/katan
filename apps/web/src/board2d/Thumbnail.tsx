@@ -13,12 +13,18 @@ import { HarborMarker, NumberToken, TerrainDefs } from "./parts";
 const R = 50;
 
 export function BoardThumbnail({ board, size = 240, showTokens = true }: { board: Board; size?: number; showTokens?: boolean }) {
-  const layout = createLayout(R);
   const hexes = Object.keys(board.hexes);
+  const layout = createLayout(R, [...hexes, ...board.sea, ...board.frame]);
   return (
     <svg viewBox={layout.viewBox} width={size} height={size} role="img" aria-label="Board thumbnail" className="rounded-md">
       <TerrainDefs />
       <polygon points={waterPoints(layout)} fill={WATER} stroke={WATER_DEEP} strokeWidth={6} strokeLinejoin="round" />
+      {board.frame.map((hex) => (
+        <polygon key={hex} points={hexPoints(layout, hex, 1.5)} fill="#5a4030" stroke="#3b2a1e" strokeWidth={3} strokeLinejoin="round" />
+      ))}
+      {board.sea.map((hex) => (
+        <polygon key={hex} points={hexPoints(layout, hex, 1.5)} fill={WATER_DEEP} stroke={WATER} strokeWidth={3} strokeLinejoin="round" />
+      ))}
       {board.ports.map((port) => {
         const m = layout.edgeMid(port.edge);
         const o = layout.outward(port.edge);

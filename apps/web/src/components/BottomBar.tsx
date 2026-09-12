@@ -132,6 +132,20 @@ export function BottomBar(props: BottomBarProps) {
               </>
             )}
 
+            {phase.kind === "specialBuild" && phase.order[phase.index] === me && hand && (
+              <>
+                <BuildButton label="Build road" active={mode === "road"} reason={buildReason(view, player, hand, legal, "road")} onClick={() => onMode(mode === "road" ? null : "road")} testId="build-road" />
+                <BuildButton label="Build settlement" active={mode === "settlement"} reason={buildReason(view, player, hand, legal, "settlement")} onClick={() => onMode(mode === "settlement" ? null : "settlement")} testId="build-settlement" />
+                <BuildButton label="Build city" active={mode === "city"} reason={buildReason(view, player, hand, legal, "city")} onClick={() => onMode(mode === "city" ? null : "city")} testId="build-city" />
+                <Button disabled={!has("BUY_DEV_CARD")} reason={buyReason(view, hand)} onClick={() => onDispatch({ type: "BUY_DEV_CARD", playerId: me })} data-testid="buy-dev">
+                  Buy development card
+                </Button>
+                <Button variant="primary" onClick={() => onDispatch({ type: "SPECIAL_BUILD_DONE", playerId: me })} data-testid="special-build-done">
+                  Done building
+                </Button>
+              </>
+            )}
+
             {phase.kind === "action" && isCurrent && hand && (
               <>
                 <BuildButton label="Build road" active={mode === "road"} reason={buildReason(view, player, hand, legal, "road")} onClick={() => onMode(mode === "road" ? null : "road")} testId="build-road" />
@@ -182,6 +196,8 @@ export function waitingText(view: RedactedState, me: string, waitingOn: string |
       return `Waiting for ${who} to steal`;
     case "roadBuilding":
       return `Waiting for ${who} to place free roads`;
+    case "specialBuild":
+      return `Waiting for ${who} to build or pass`;
     case "action":
       if (view.pendingTrade && view.pendingTrade.from === me) return `Waiting for ${who} to respond to your trade`;
       if (view.pendingTrade) return null; // I am a responder: the offer card is showing
@@ -207,7 +223,7 @@ function afford(hand: Hand, cost: Hand): boolean {
 export function buildReason(view: RedactedState, player: RedactedState["players"][number], hand: Hand, legal: Action[], kind: "road" | "settlement" | "city"): string | null {
   const type = kind === "road" ? "BUILD_ROAD" : kind === "settlement" ? "BUILD_SETTLEMENT" : "BUILD_CITY";
   if (legal.some((a) => a.type === type)) return null;
-  if (view.phase.kind !== "action") return "Only after rolling";
+  if (view.phase.kind !== "action" && view.phase.kind !== "specialBuild") return "Only after rolling";
   const pieces = kind === "road" ? player.pieces.roads : kind === "settlement" ? player.pieces.settlements : player.pieces.cities;
   if (pieces <= 0) return "No pieces of that kind left";
   if (!afford(hand, COSTS[kind])) return `Needs ${COST_TEXT[kind]}`;

@@ -65,6 +65,8 @@ export const TRANSPORT_TEXT: Record<string, string> = {
   NOT_READY: "Everyone must be ready first",
   NOT_ABSENT: "That player has not been away long enough, or is not being waited on",
   BOT_CAP: "The bots stopped early; try again",
+  BOARD_NOT_FOUND: "That board no longer exists",
+  NOT_OWNER: "You do not own that board",
   NETWORK: "Couldn't reach the game server. Retrying…",
 };
 
@@ -73,7 +75,7 @@ export function errorText(code: string): string {
 }
 
 export const ERROR_TEXT: Record<RuleErrorCode, string> = {
-  BAD_PLAYER_COUNT: "A game needs 3 or 4 players",
+  BAD_PLAYER_COUNT: "A game needs 3 to 6 players (as the board allows)",
   DUPLICATE_PLAYER: "Player names must differ",
   UNKNOWN_PLAYER: "Unknown player",
   NOT_YOUR_TURN: "Not your turn",
@@ -105,6 +107,7 @@ export const ERROR_TEXT: Record<RuleErrorCode, string> = {
   TRADE_ALREADY_PENDING: "An offer is already open",
   NO_PENDING_TRADE: "There is no open offer",
   BAD_TRADE_RATIO: "You do not have a port for that ratio",
+  INVALID_BOARD: "That board is not valid",
 };
 
 export function describeCost(cost: Hand): string {
@@ -154,6 +157,10 @@ export function bannerText(view: RedactedState, me: string): string {
       return mine ? "Choose who to steal from" : `Waiting for ${name} to steal`;
     case "roadBuilding":
       return `Place ${phase.remaining} free road${phase.remaining === 1 ? "" : "s"}`;
+    case "specialBuild": {
+      const builder = phase.order[phase.index] ?? current;
+      return builder === me ? "Special build: build, buy, or pass" : `Waiting for ${playerName(view, builder)} to build or pass`;
+    }
     case "action":
       if (view.pendingTrade) {
         const from = playerName(view, view.pendingTrade.from);

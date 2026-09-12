@@ -68,9 +68,9 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 * react-three-fiber board in `apps/web/src/board3d` (tiles, seeded props, figurines, camera rig, raycast interaction layer with accessible overlay buttons, in-scene dice and robber animations, quality presets with a frame watchdog); the SVG board moved to `board2d` for thumbnails. Details in `docs/phase7-5.md`.
 
-### Phase 8 — Generalized boards and the editor
+### Phase 8 — Generalized boards and the editor (done)
 
-* `BoardDefinition`, per-board geometry, pools, validation, frames, 5–6 players with the special build phase, boards table and editor. Details in `docs/phase8.md`.
+* `BoardDefinition` + `isBoardDefinition`, `geometryFor`/`boardGeometry` for any hex set, scaled pools, `validateBoard`, built-in frames (Beginner, Random, Large, Long strip, Ring), 3–6 players with the special build phase (`docs/rules.md` §13), `boards` table + `save-board`/`delete-board`/`fork-board`, `/boards`, the editor at `/boards/editor/[id?]`, the shared `BoardPicker` in the hotseat and create-lobby forms. Details in `docs/phase8.md`.
 
 ### Phase 9 — Tides (sea module)
 
@@ -103,12 +103,13 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 * `actions.ts` — `applyActionWithEvents` / `applyAction` (the authoritative transition) and `replay`.
 * `game.ts` — `createGame`.
 * `redact.ts` — `redact(state, playerId)`, the only thing a client should ever receive.
+* `definition.ts` — `BoardDefinition` and its guard. `pools.ts` — terrain/token/harbour pools scaled to any land count. `validation.ts` — `validateBoard` (error/warning codes). `generation.ts` — `resolveBoard` (definition + seed → `Board`). `frames.ts` — built-in boards.
 
 `pnpm lint` enforces engine purity (no host/framework imports, no `Date`, no `Math.random`) via `eslint.config.js`.
 
 ## Web layout (apps/web)
 
-* `app/` — `/` (online home + hotseat form), `/hotseat`, `/play` (hotseat game), `/login`, `/join/[code]`, `/lobby/[code]`, `/play/[gameId]` (online game). All client components.
+* `app/` — `/` (online home + hotseat form), `/hotseat`, `/play` (hotseat game), `/login`, `/join/[code]`, `/lobby/[code]`, `/play/[gameId]` (online game), `/boards` (board list), `/boards/editor/[[...id]]` (board editor). All client components.
 * `src/driver/` — `GameDriver` interface (`types.ts`), `HotseatDriver` (in-memory, device handoff, optional bot seats) and `SupabaseDriver` (server views over Realtime, actions via Edge Functions). Components never import `applyAction`; they only talk to a driver and its optional capabilities.
 * `src/lib/supabase.ts` — browser client, magic-link helpers, Edge Function envelope.
 * `src/game/store.ts` — in-memory holder for the live driver; a reload loses it and `/play` redirects to `/`.
@@ -117,8 +118,9 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 * `src/board/layout.ts` — hex/vertex/edge screen geometry and viewBox (unit tested).
 * `src/board3d/` — the diorama used in play: `Board3D` (Canvas), `layout3d` (world coords = engine geometry, y → z), `Tiles`, `Props` + `props.ts` (seeded layouts), `Pieces`, `Harbor`, `Camera`, `Interaction` (layer-1 raycast targets), `Effects3d` (dice, robber, projector), `quality` (presets, detection, watchdog), `textures` (canvas sprites).
 * `src/board2d/` — the SVG board (`Board`, `parts`, `Thumbnail`), thumbnails only.
+* `src/editor/` — board editor: `model.ts` (pure reducer + undo/redo, unit tested), `storage.ts` (localStorage drafts, `boards` table), `EditorCanvas` (diorama with a cell grid and accessible overlay), `Editor` (tools, validation, save, test play). `src/components/BoardPicker.tsx` is the shared board chooser.
 * `src/components/` — `BottomBar`, `PlayersPanel`, `LogPanel`, `dialogs` (handoff, discard, trade, steal, resource picker, ended), `ui` primitives, `cards` (resource and dev card faces), `Avatar` / `AvatarPicker`, `anim/` (anchors, turn banner, dice tray, flying cards, dev card reveal, confetti), `SettingsMenu`.
-* `e2e/` — Playwright (Chromium on SwiftShader for WebGL): `smoke.spec.ts` (setup by clicking, roll, end turn), `pacing.spec.ts` (bot turns take 2–8 s on Normal, instant on Off), `board3d.spec.ts` (diorama renders, raycast and overlay clicks dispatch), `visual.spec.ts` (screenshot baselines in `e2e/__screenshots__`) and `fullgame.spec.ts` (a whole greedy game through the UI; slow).
+* `e2e/` — Playwright (Chromium on SwiftShader for WebGL): `smoke.spec.ts` (setup by clicking, roll, end turn), `pacing.spec.ts` (bot turns take 2–8 s on Normal, instant on Off), `board3d.spec.ts` (diorama renders, raycast and overlay clicks dispatch), `visual.spec.ts` (screenshot baselines in `e2e/__screenshots__`), `editor.spec.ts` (paint, auto-fill, save a draft, play it) and `fullgame.spec.ts` (a whole greedy game through the UI; slow).
 * Chromium is preinstalled in the dev container; `playwright.config.ts` points at it and never downloads a browser.
 
 ## Commands

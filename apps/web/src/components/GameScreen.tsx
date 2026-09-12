@@ -163,7 +163,7 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
   }, []);
 
   useEffect(() => {
-    if (view.phase.kind !== "action") setMode(null);
+    if (view.phase.kind !== "action" && view.phase.kind !== "specialBuild") setMode(null);
   }, [view.phase.kind]);
 
   useEffect(() => {

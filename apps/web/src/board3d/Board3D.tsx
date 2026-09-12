@@ -120,16 +120,19 @@ export function Board3D(props: Board3DProps) {
 
   const hexIds = useMemo(() => Object.keys(view.board.hexes) as HexId[], [view.board]);
   const tiles: TileInfo[] = useMemo(
-    () =>
-      hexIds.map((id) => {
+    () => [
+      ...hexIds.map((id) => {
         const t = view.board.hexes[id]!;
-        const kind = (t as { kind?: "land" | "sea" }).kind ?? "land";
-        return { id, kind, terrain: kind === "sea" ? null : (t.terrain as Terrain | "gold"), token: t.token };
+        return { id, kind: "land" as const, terrain: t.terrain as Terrain | "gold", token: t.token };
       }),
+      ...view.board.sea.map((id) => ({ id, kind: "sea" as const, terrain: null, token: null })),
+      ...view.board.frame.map((id) => ({ id, kind: "frame" as const, terrain: null, token: null })),
+    ],
     [hexIds, view.board],
   );
   const landHexes = useMemo(() => tiles.filter((t) => t.kind === "land" && t.terrain).map((t) => ({ id: t.id, terrain: t.terrain as Terrain | "gold" })), [tiles]);
-  const bounds = useMemo(() => boardBounds(hexIds), [hexIds]);
+  const landSet = useMemo(() => new Set(hexIds), [hexIds]);
+  const bounds = useMemo(() => boardBounds([...hexIds, ...view.board.sea]), [hexIds, view.board.sea]);
   const centre = useMemo<World>(() => ({ x: bounds.cx, z: bounds.cz }), [bounds]);
   const targets = useMemo(() => computeTargets(legal, view.phase.kind, mode), [legal, view.phase.kind, mode]);
 
@@ -227,7 +230,7 @@ export function Board3D(props: Board3DProps) {
           <Tiles tiles={tiles} robberHex={view.robberHex} rolled={rolled} rollKey={rollKey} blockedHex={blockedHex} shadows={preset.shadows} />
           <Props hexes={landHexes} density={preset.propDensity} idle={preset.idleMotion} shadows={preset.shadows} />
           {view.board.ports.map((port) => (
-            <Harbor key={port.edge} port={port} centre={centre} owned={port.vertices.some((v) => myVertices.has(v))} shadows={preset.shadows} />
+            <Harbor key={port.edge} port={port} centre={centre} owned={port.vertices.some((v) => myVertices.has(v))} shadows={preset.shadows} land={landSet} />
           ))}
           <group name="pieces">
             {view.players.flatMap((p) => [

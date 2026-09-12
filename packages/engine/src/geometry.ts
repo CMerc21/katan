@@ -1,10 +1,11 @@
 /**
- * Hex / vertex / edge geometry (docs/rules.md §3).
+ * Hex / vertex / edge geometry (docs/rules.md §3, docs/phase8.md §1).
  *
- * Axial coordinates (q, r), pointy-top. The board is the radius-2 hexagon
- * of 19 hexes. Vertices and edges are identified by the (real or virtual)
- * hexes that meet there, which gives every vertex and edge a canonical ID
- * without any numbering scheme.
+ * Axial coordinates (q, r), pointy-top. Vertices and edges are identified by
+ * the (real or virtual) hexes that meet there, which gives every vertex and
+ * edge a canonical ID without any numbering scheme, for any set of hexes.
+ * `GEOMETRY` is the standard radius-2 hexagon of 19; `geometryFor(hexes)`
+ * builds the same tables for an arbitrary board.
  */
 
 export interface HexCoord {
@@ -94,6 +95,44 @@ export function parseEdgeId(id: EdgeId): [HexCoord, HexCoord] {
   return [parseHexId(parts[0] as string), parseHexId(parts[1] as string)];
 }
 
+/** The two vertices of an edge, from its ID alone (§3.3): the hexes adjacent to both of its hexes. */
+export function edgeVerticesOf(e: EdgeId): [VertexId, VertexId] {
+  const [a, b] = parseEdgeId(e);
+  const out: VertexId[] = [];
+  for (let k = 0; k < 6; k++) {
+    const c = neighbor(a, k);
+    if (areNeighbors(c, b)) out.push(vertexId(a, b, c));
+  }
+  if (out.length !== 2) throw new Error(`Bad edge id: ${e}`);
+  return out.sort() as [VertexId, VertexId];
+}
+
+/** The three edges meeting at a vertex, from its ID alone. */
+export function vertexEdgesOf(v: VertexId): [EdgeId, EdgeId, EdgeId] {
+  const [a, b, c] = parseVertexId(v);
+  return [edgeId(a, b), edgeId(a, c), edgeId(b, c)].sort() as [EdgeId, EdgeId, EdgeId];
+}
+
+/** The other end of an edge. */
+export function otherVertex(e: EdgeId, v: VertexId): VertexId {
+  const [a, b] = edgeVerticesOf(e);
+  return a === v ? b : a;
+}
+
+/** The six edges around a hex, from its coordinate. */
+export function hexEdgesOf(c: HexCoord): EdgeId[] {
+  const out: EdgeId[] = [];
+  for (let k = 0; k < 6; k++) out.push(hexEdge(c, k));
+  return out;
+}
+
+/** The six corners of a hex, from its coordinate. */
+export function hexVerticesOf(c: HexCoord): VertexId[] {
+  const out: VertexId[] = [];
+  for (let k = 0; k < 6; k++) out.push(hexCorner(c, k));
+  return out;
+}
+
 /** Corner k of hex `c` (§3.2): shared with neighbours k and k+1. */
 export function hexCorner(c: HexCoord, k: number): VertexId {
   return vertexId(c, neighbor(c, k), neighbor(c, k + 1));
@@ -155,9 +194,11 @@ export interface Geometry {
   readonly boundaryEdges: readonly EdgeId[];
 }
 
-function buildGeometry(): Geometry {
-  const hexCoords = allBoardHexes();
-  const hexes = hexCoords.map(hexId);
+/** Build the adjacency tables for any set of hexes (docs/phase8.md §1). */
+export function buildGeometry(hexCoords: readonly HexCoord[]): Geometry {
+  const sorted = hexCoords.slice().sort(compareHex);
+  const hexes = sorted.map(hexId);
+  const onBoard = new Set(hexes);
   const hexVertices: Record<HexId, VertexId[]> = {};
   const hexEdges: Record<HexId, EdgeId[]> = {};
   const hexNeighbors: Record<HexId, HexId[]> = {};
@@ -166,7 +207,7 @@ function buildGeometry(): Geometry {
   const edgeVertices: Record<EdgeId, [VertexId, VertexId]> = {};
   const edgeHexes: Record<EdgeId, HexId[]> = {};
 
-  for (const c of hexCoords) {
+  for (const c of sorted) {
     const id = hexId(c);
     const corners: VertexId[] = [];
     const edges: EdgeId[] = [];
@@ -183,7 +224,7 @@ function buildGeometry(): Geometry {
       edgeVertices[e] = [hexCorner(c, k + 5), v].sort() as [VertexId, VertexId];
 
       const n = neighbor(c, k);
-      if (isOnBoard(n)) neighbors.push(hexId(n));
+      if (onBoard.has(hexId(n))) neighbors.push(hexId(n));
     }
     hexVertices[id] = corners;
     hexEdges[id] = edges;
@@ -227,15 +268,27 @@ function buildGeometry(): Geometry {
   };
 }
 
-/** Precomputed geometry for the fixed radius-2 board. */
-export const GEOMETRY: Geometry = buildGeometry();
+/** Precomputed geometry for the standard radius-2 board (the Standard frame). */
+export const GEOMETRY: Geometry = buildGeometry(allBoardHexes());
 
-export function isBoardVertex(v: VertexId): boolean {
-  return Object.prototype.hasOwnProperty.call(GEOMETRY.vertexHexes, v);
+const geometryCache = new Map<string, Geometry>();
+
+/** Geometry for an arbitrary hex set, memoised by its sorted ID list. */
+export function geometryFor(hexIds: readonly HexId[]): Geometry {
+  const key = hexIds.slice().sort().join(";");
+  const hit = geometryCache.get(key);
+  if (hit) return hit;
+  const geo = buildGeometry(hexIds.map(parseHexId));
+  geometryCache.set(key, geo);
+  return geo;
 }
 
-export function isBoardEdge(e: EdgeId): boolean {
-  return Object.prototype.hasOwnProperty.call(GEOMETRY.edgeVertices, e);
+export function isBoardVertex(v: VertexId, geo: Geometry = GEOMETRY): boolean {
+  return Object.prototype.hasOwnProperty.call(geo.vertexHexes, v);
+}
+
+export function isBoardEdge(e: EdgeId, geo: Geometry = GEOMETRY): boolean {
+  return Object.prototype.hasOwnProperty.call(geo.edgeVertices, e);
 }
 
 // ---------------------------------------------------------------------------

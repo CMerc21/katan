@@ -15,9 +15,9 @@ import { signTexture } from "./textures";
 const TIMBER = "#8a6a44";
 const POST = "#5a3a22";
 
-export function Harbor({ port, centre, owned, shadows }: { port: Port; centre: World; owned: boolean; shadows: boolean }) {
+export function Harbor({ port, centre, owned, shadows, land }: { port: Port; centre: World; owned: boolean; shadows: boolean; land: ReadonlySet<string> }) {
   const { mid } = edgeWorld(port.edge);
-  const out = outwardWorld(port.edge, centre);
+  const out = outwardWorld(port.edge, centre, land);
   const angle = Math.atan2(out.z, out.x);
   const texture = useMemo(() => signTexture(port.kind), [port.kind]);
   return (

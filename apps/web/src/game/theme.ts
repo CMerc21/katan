@@ -27,6 +27,7 @@ export const TERRAIN_FILL: Record<Terrain, string> = {
   farmland: "#d9a642",
   mountain: "#7d8089",
   wasteland: "#cfbd8e",
+  gold: "#e0b43a",
 };
 
 /** A darker mark colour used for the hand-drawn detail on each terrain. */
@@ -37,6 +38,7 @@ export const TERRAIN_MARK: Record<Terrain, string> = {
   farmland: "#b0812c",
   mountain: "#5b5e66",
   wasteland: "#b9a677",
+  gold: "#b98a1d",
 };
 
 export const RESOURCE_COLOR: Record<Resource, string> = {
@@ -53,6 +55,8 @@ export const PLAYER_FILL: Record<PlayerColor, string> = {
   blue: "#2a4d8f",
   orange: "#d9a21b",
   white: "#e8e4d8",
+  green: "#2f6b3a",
+  brown: "#7a4a1f",
 };
 
 /** Text colour that reads on each player colour. */
@@ -61,6 +65,8 @@ export const PLAYER_TEXT: Record<PlayerColor, string> = {
   blue: "#ffffff",
   orange: INK,
   white: INK,
+  green: "#ffffff",
+  brown: "#ffffff",
 };
 
 export const HOT_TOKEN = "#c8412b";

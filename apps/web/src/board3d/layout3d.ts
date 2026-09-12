@@ -4,7 +4,7 @@
  * one point that agrees with the 2D layout (`src/board/layout.ts`).
  */
 
-import { GEOMETRY, edgeMidpoint, hexCenter, parseEdgeId, parseHexId, vertexPosition, type EdgeId, type HexId, type VertexId } from "@katan/engine";
+import { edgeVerticesOf, hexCenter, parseEdgeId, parseHexId, vertexPosition, type EdgeId, type HexId, type VertexId } from "@katan/engine";
 
 export const HEX_RADIUS = 1;
 export const SLAB_HEIGHT = 0.18;
@@ -26,13 +26,7 @@ export function vertexWorld(v: VertexId): World {
 }
 
 export function edgeWorld(e: EdgeId): { a: World; b: World; mid: World; angle: number } {
-  const [va, vb] = GEOMETRY.edgeVertices[e] ?? [];
-  if (!va || !vb) {
-    // An edge outside the precomputed geometry: still well-defined from its ID.
-    const [h1, h2] = parseEdgeId(e).map(hexCenter);
-    const mid = edgeMidpoint(e);
-    return { a: { x: h1!.x, z: h1!.y }, b: { x: h2!.x, z: h2!.y }, mid: { x: mid.x, z: mid.y }, angle: 0 };
-  }
+  const [va, vb] = edgeVerticesOf(e);
   const a = vertexWorld(va);
   const b = vertexWorld(vb);
   return { a, b, mid: { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 }, angle: Math.atan2(b.z - a.z, b.x - a.x) };
@@ -45,10 +39,10 @@ export function hexCornerWorld(hex: HexId, k: number): World {
   return { x: c.x + HEX_RADIUS * Math.cos(angle), z: c.z + HEX_RADIUS * Math.sin(angle) };
 }
 
-/** Unit vector pointing away from the board centre through an edge midpoint (for piers). */
-export function outwardWorld(e: EdgeId, centre: World = { x: 0, z: 0 }): World {
+/** Unit vector pointing away from the land through an edge midpoint (for piers). */
+export function outwardWorld(e: EdgeId, centre: World = { x: 0, z: 0 }, land: ReadonlySet<HexId> | null = null): World {
   const { mid } = edgeWorld(e);
-  const hexes = GEOMETRY.edgeHexes[e] ?? [];
+  const hexes = parseEdgeId(e).map((c) => `${c.q},${c.r}`).filter((h) => (land ? land.has(h) : true));
   const from = hexes.length === 1 ? hexWorld(hexes[0] as HexId) : centre;
   const dx = mid.x - from.x;
   const dz = mid.z - from.z;

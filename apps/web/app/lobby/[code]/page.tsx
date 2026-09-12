@@ -20,7 +20,8 @@ interface Lobby {
   status: "lobby" | "active" | "ended";
   host_user_id: string | null;
   max_players: number;
-  board: "beginner" | "random";
+  board: "beginner" | "random" | "custom";
+  board_name: string | null;
 }
 
 /** The lobby (docs/phase5.md §1). */
@@ -155,7 +156,7 @@ export default function LobbyPage() {
         </div>
       </div>
       <p className="mt-2 text-sm text-ink-soft">
-        {lobby.board === "beginner" ? "Beginner board" : "Random board"} · up to {lobby.max_players} players · {isHost ? "you are the host" : "waiting for the host to start"}
+        <span data-testid="lobby-board">{lobby.board_name ?? (lobby.board === "beginner" ? "Beginner" : "Random")} board</span> · up to {lobby.max_players} players · {isHost ? "you are the host" : "waiting for the host to start"}
       </p>
 
       <section className="mt-6" aria-label="Seats">

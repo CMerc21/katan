@@ -2,9 +2,11 @@
  * `createGame`: a fresh state in the setup phase (§1, §2, §4).
  */
 
-import { makeBoard, wastelandHex } from "./board";
+import { makeBoard, wastelandHex, type Board } from "./board";
+import { isBoardDefinition } from "./definition";
+import { resolveBoard } from "./generation";
 import { RuleError } from "./errors";
-import { RNG_INDEX_DECK, rng } from "./rng";
+import { RNG_INDEX_BOARD, RNG_INDEX_DECK, rng } from "./rng";
 import { emptyHand } from "./state";
 import {
   BANK_PER_RESOURCE,
@@ -21,7 +23,8 @@ import {
 } from "./types";
 
 export const MIN_PLAYERS = 3;
-export const MAX_PLAYERS = 4;
+/** The absolute cap; a board's `seats.max` may be lower (docs/phase8.md §5). */
+export const MAX_PLAYERS = 6;
 
 /** §2.5: the 25-card deck in a seeded order (top = index 0). */
 export function shuffledDevDeck(seed: string): DevCardType[] {
@@ -34,8 +37,20 @@ export function shuffledDevDeck(seed: string): DevCardType[] {
 
 export function createGame(options: CreateGameOptions): GameState {
   const { seed, players } = options;
-  if (players.length < MIN_PLAYERS || players.length > MAX_PLAYERS) {
-    throw new RuleError("BAD_PLAYER_COUNT", `expected ${MIN_PLAYERS}-${MAX_PLAYERS} players, got ${players.length}`);
+  const boardOption = options.board ?? "random";
+  let board: Board;
+  let boardKind: GameState["boardKind"];
+  if (typeof boardOption === "string") {
+    board = makeBoard(boardOption, seed);
+    boardKind = boardOption;
+  } else {
+    if (!isBoardDefinition(boardOption)) throw new RuleError("INVALID_BOARD", "malformed board definition");
+    board = resolveBoard(boardOption, rng(seed, RNG_INDEX_BOARD));
+    boardKind = "custom";
+  }
+  const maxSeats = Math.min(MAX_PLAYERS, board.seats.max);
+  if (players.length < MIN_PLAYERS || players.length > maxSeats) {
+    throw new RuleError("BAD_PLAYER_COUNT", `expected ${MIN_PLAYERS}-${maxSeats} players, got ${players.length}`);
   }
   const ids = new Set<PlayerId>();
   for (const p of players) {
@@ -44,9 +59,6 @@ export function createGame(options: CreateGameOptions): GameState {
   }
   const colors = players.map((p, seat) => p.color ?? (PLAYER_COLORS[seat] as PlayerColor));
   if (new Set(colors).size !== colors.length) throw new RuleError("DUPLICATE_PLAYER", "player colours must differ");
-  const boardKind = options.board ?? "random";
-  const board = makeBoard(boardKind, seed);
-
   const seated: Player[] = players.map((p, seat) => ({
     id: p.id,
     name: p.name,

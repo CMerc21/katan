@@ -17,7 +17,7 @@ import { tokenTexture } from "./textures";
 
 export interface TileInfo {
   readonly id: HexId;
-  readonly kind: "land" | "sea";
+  readonly kind: "land" | "sea" | "frame";
   readonly terrain: Terrain | "gold" | null;
   readonly token: number | null;
 }
@@ -32,11 +32,12 @@ function useSlabGeometry(depth: number): THREE.ExtrudeGeometry {
 
 const TERRAIN_COLORS: Record<Terrain | "gold", string> = { ...TERRAIN_FILL, gold: "#e0b43a" };
 
-function useTerrainMaterials(): Record<Terrain | "gold" | "sea", THREE.MeshStandardMaterial> {
+function useTerrainMaterials(): Record<Terrain | "gold" | "sea" | "frame", THREE.MeshStandardMaterial> {
   return useMemo(() => {
-    const out = {} as Record<Terrain | "gold" | "sea", THREE.MeshStandardMaterial>;
+    const out = {} as Record<Terrain | "gold" | "sea" | "frame", THREE.MeshStandardMaterial>;
     for (const [t, c] of Object.entries(TERRAIN_COLORS)) out[t as Terrain | "gold"] = new THREE.MeshStandardMaterial({ color: c, flatShading: true, roughness: 0.95 });
     out.sea = new THREE.MeshStandardMaterial({ color: WATER, flatShading: true, roughness: 0.4, transparent: true, opacity: 0.85 });
+    out.frame = new THREE.MeshStandardMaterial({ color: "#5a4030", flatShading: true, roughness: 0.95 });
     return out;
   }, []);
 }
@@ -100,7 +101,8 @@ export function Tiles({ tiles, robberHex, rolled, rollKey, blockedHex, shadows }
         const c = hexWorld(tile.id);
         const j = tileJitter(tile.id);
         const isSea = tile.kind === "sea";
-        const mat = isSea ? materials.sea : materials[tile.terrain ?? "wasteland"];
+        const isFrame = tile.kind === "frame";
+        const mat = isSea ? materials.sea : isFrame ? materials.frame : materials[tile.terrain ?? "wasteland"];
         const top = (isSea ? SEA_HEIGHT : SLAB_HEIGHT) * j.height;
         const blocked = blockedHex === tile.id;
         const slab = (

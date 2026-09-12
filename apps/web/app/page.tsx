@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { BoardPicker, choiceDefinition, choiceForLobby, type BoardChoice } from "@/components/BoardPicker";
 import { HotseatStart } from "@/components/HotseatStart";
 import { Button } from "@/components/ui";
 import { errorText } from "@/game/labels";
@@ -20,8 +21,10 @@ interface MyGame {
 export default function HomePage() {
   const router = useRouter();
   const { session, loading, configured } = useSession();
-  const [board, setBoard] = useState<"beginner" | "random">("beginner");
-  const [maxPlayers, setMaxPlayers] = useState<3 | 4>(4);
+  const [board, setBoard] = useState<BoardChoice>({ kind: "builtin", id: "beginner" });
+  const [maxPlayers, setMaxPlayers] = useState<number>(4);
+  const seatCap = choiceDefinition(board).seats.max;
+  const players = Math.min(maxPlayers, seatCap);
   const [code, setCode] = useState("");
   const [games, setGames] = useState<MyGame[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
@@ -41,7 +44,7 @@ export default function HomePage() {
     if (!session) return;
     setBusy(true);
     setProblem(null);
-    const reply = await callFunction<{ gameId: string; joinCode: string }>("create-lobby", { board, maxPlayers, name: displayNameOf(session) });
+    const reply = await callFunction<{ gameId: string; joinCode: string }>("create-lobby", { board: choiceForLobby(board), maxPlayers: players, name: displayNameOf(session) });
     setBusy(false);
     if (!reply.ok) return setProblem(errorText(reply.code));
     router.push(`/lobby/${reply.joinCode}`);
@@ -100,19 +103,13 @@ export default function HomePage() {
                 }}
               >
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-soft">Create a game</h3>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant={board === "beginner" ? "primary" : "secondary"} onClick={() => setBoard("beginner")} size="sm">
-                    Beginner board
-                  </Button>
-                  <Button variant={board === "random" ? "primary" : "secondary"} onClick={() => setBoard("random")} size="sm">
-                    Random board
-                  </Button>
-                  <Button variant={maxPlayers === 3 ? "primary" : "secondary"} onClick={() => setMaxPlayers(3)} size="sm">
-                    3 players
-                  </Button>
-                  <Button variant={maxPlayers === 4 ? "primary" : "secondary"} onClick={() => setMaxPlayers(4)} size="sm">
-                    4 players
-                  </Button>
+                <BoardPicker value={board} onChange={setBoard} signedIn />
+                <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Player count">
+                  {Array.from({ length: seatCap - 2 }, (_, i) => i + 3).map((n) => (
+                    <Button key={n} role="radio" aria-checked={players === n} variant={players === n ? "primary" : "secondary"} onClick={() => setMaxPlayers(n)} size="sm" data-testid={`lobby-count-${n}`}>
+                      {n} players
+                    </Button>
+                  ))}
                 </div>
                 <Button type="submit" variant="primary" disabled={busy} data-testid="create-lobby">
                   Create game

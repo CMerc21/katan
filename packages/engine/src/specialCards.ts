@@ -2,7 +2,8 @@
  * Longest Road (§10.1) and Largest Army (§10.2).
  */
 
-import { GEOMETRY, type EdgeId, type VertexId } from "./geometry";
+import { boardGeometry } from "./board";
+import { type EdgeId, type VertexId } from "./geometry";
 import { buildingsMap, emit } from "./state";
 import type { GameState, PlayerId } from "./types";
 
@@ -18,13 +19,14 @@ export function longestRoadLength(state: GameState, playerId: PlayerId): number 
   const player = state.players.find((p) => p.id === playerId);
   if (!player || player.roads.length === 0) return 0;
 
+  const geo = boardGeometry(state.board);
   const buildings = buildingsMap(state);
   const blocked = new Set<VertexId>();
   for (const [v, b] of buildings) if (b.owner !== playerId) blocked.add(v);
 
   const edgesAt = new Map<VertexId, EdgeId[]>();
   for (const e of player.roads) {
-    for (const v of GEOMETRY.edgeVertices[e] ?? []) {
+    for (const v of geo.edgeVertices[e] ?? []) {
       const list = edgesAt.get(v);
       if (list) list.push(e);
       else edgesAt.set(v, [e]);
@@ -36,7 +38,7 @@ export function longestRoadLength(state: GameState, playerId: PlayerId): number 
     let best = 0;
     for (const e of edgesAt.get(v) ?? []) {
       if (used.has(e)) continue;
-      const [a, b] = GEOMETRY.edgeVertices[e] as readonly [VertexId, VertexId];
+      const [a, b] = geo.edgeVertices[e] as readonly [VertexId, VertexId];
       const next = a === v ? b : a;
       used.add(e);
       const len = 1 + (blocked.has(next) ? 0 : walk(next));

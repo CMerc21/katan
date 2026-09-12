@@ -21,7 +21,9 @@ export type TransportCode =
   | "TOO_FEW_PLAYERS"
   | "NOT_READY"
   | "NOT_ABSENT"
-  | "BOT_CAP";
+  | "BOT_CAP"
+  | "BOARD_NOT_FOUND"
+  | "NOT_OWNER";
 
 export type ServiceCode = RuleErrorCode | TransportCode;
 

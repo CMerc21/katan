@@ -85,6 +85,10 @@ test("a 4-player hotseat game plays from setup to a win with no console errors",
     if (m.type() === "error" && !m.text().includes("404")) errors.push(m.text());
   });
 
+  // Software WebGL in CI: the low preset keeps the main thread free for the game loop.
+  await page.addInitScript(() => {
+    window.localStorage.setItem("katan.settings", JSON.stringify({ animation: "off", sound: false, quality: "low", followTurns: false }));
+  });
   await page.goto("/hotseat");
   await page.waitForLoadState("networkidle");
   await page.getByTestId("count-4").click();

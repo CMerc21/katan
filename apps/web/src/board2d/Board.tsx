@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { GEOMETRY, type Action, type HexId, type PlayerColor } from "@katan/engine";
+import { type Action, type HexId, type PlayerColor } from "@katan/engine";
 import { createLayout, hexPoints, waterPoints } from "@/board/layout";
 import type { RedactedState } from "@/driver/types";
 import type { Step } from "@/game/eventQueue";
@@ -26,7 +26,6 @@ export interface BoardProps {
 }
 
 const R = 50;
-const layout = createLayout(R);
 
 /** The 2D board (docs/phase3.md §4). One <svg>; only legal targets are interactive. */
 export function Board({ view, legal, mode, meColor, onAction, step = null, onSkip }: BoardProps) {
@@ -34,6 +33,7 @@ export function Board({ view, legal, mode, meColor, onAction, step = null, onSki
   const phase = view.phase.kind;
   const svgRef = useRef<SVGSVGElement>(null);
   const anchors = useAnchors();
+  const layout = useMemo(() => createLayout(R, Object.keys(view.board.hexes)), [view.board.hexes]);
 
   // Register the projector so flying cards can start from a hex (docs/phase7.md §2.2).
   useEffect(() => {
@@ -49,7 +49,7 @@ export function Board({ view, legal, mode, meColor, onAction, step = null, onSki
       return { x: rect.left + ((p.x - x0) / w) * rect.width, y: rect.top + ((p.y - y0) / h) * rect.height };
     });
     return () => anchors.setProjector(null);
-  }, [anchors]);
+  }, [anchors, layout]);
 
   const targets = useMemo(() => {
     const vertices = new Map<string, Action>();
@@ -251,12 +251,4 @@ function edgeHitPolygon(a: { x: number; y: number }, b: { x: number; y: number }
     .join(" ");
 }
 
-/** Screen-percentage position of a hex centre inside the board's box (for HTML popovers). */
-export function hexPercent(hex: HexId): { left: string; top: string } {
-  const [x0, y0, w, h] = layout.viewBox.split(" ").map(Number) as [number, number, number, number];
-  const c = layout.hex(hex);
-  return { left: `${((c.x - x0) / w) * 100}%`, top: `${((c.y - y0) / h) * 100}%` };
-}
-
-export { layout as boardLayout, GEOMETRY as boardGeometry };
 export type { PlayerColor };

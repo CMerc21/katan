@@ -6,13 +6,14 @@
 
 import type { AvatarSpec } from "@katan/avatars";
 import type { BotLevel } from "@katan/bots";
-import type { BoardKind } from "@katan/engine";
+import type { BoardDefinition, BoardKind } from "@katan/engine";
 import { HotseatDriver } from "@/driver/hotseat";
 import type { GameDriver } from "@/driver/types";
 
 export interface HotseatConfig {
   readonly players: readonly { id: string; name: string; bot?: BotLevel; avatar?: AvatarSpec }[];
-  readonly board: BoardKind;
+  /** A built-in kind or a full definition from the picker/editor (docs/phase8.md §4). */
+  readonly board: BoardKind | BoardDefinition;
   readonly seed: string;
 }
 

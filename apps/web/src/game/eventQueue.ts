@@ -36,6 +36,7 @@ export const BASE_DURATION: Record<GameEventKind, number> = {
   maritimeTrade: 500,
   specialCardMoved: 600,
   turnEnded: 250,
+  specialBuildTurn: 400,
   setupCompleted: 300,
   gameEnded: 1500,
   note: 300,
@@ -302,6 +303,7 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
       next = { ...next, winner: event.winner, phase: { kind: "ended" } };
       break;
     case "turnEnded":
+    case "specialBuildTurn":
     case "productionBlocked":
     case "bankShort":
     case "setupCompleted":

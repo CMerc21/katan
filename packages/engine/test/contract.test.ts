@@ -45,6 +45,8 @@ function randomAction(state: GameState, rng: Rng): Action {
       return { type, playerId, resources: [resource(), resource()] };
     case "PLAY_MONOPOLY":
       return { type, playerId, resource: resource() };
+    case "SPECIAL_BUILD_DONE":
+      return { type, playerId };
     case "OFFER_TRADE":
       return { type, playerId, give: randomHand(), receive: randomHand() };
     case "MARITIME_TRADE":

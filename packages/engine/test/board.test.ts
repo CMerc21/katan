@@ -18,7 +18,7 @@ import {
 import { GEOMETRY } from "../src/geometry";
 
 function terrainCounts(board: Board): Record<Terrain, number> {
-  const counts = { forest: 0, claypit: 0, meadow: 0, farmland: 0, mountain: 0, wasteland: 0 };
+  const counts = { forest: 0, claypit: 0, meadow: 0, farmland: 0, mountain: 0, wasteland: 0, gold: 0 };
   for (const h of GEOMETRY.hexes) counts[board.hexes[h]!.terrain]++;
   return counts;
 }
@@ -100,12 +100,12 @@ describe("§2 board", () => {
     expect(() => makeBoard("nope" as never, "s")).toThrow();
   });
 
-  it("wastelandHex throws when no wasteland is present", () => {
+  it("wastelandHex falls back to the first land hex when no wasteland is present (docs/phase8.md §3)", () => {
     const board = beginnerBoard();
     const noWaste: Board = {
       ...board,
       hexes: { ...board.hexes, "0,0": { terrain: "forest", token: 2 } },
     };
-    expect(() => wastelandHex(noWaste)).toThrow();
+    expect(wastelandHex(noWaste)).toBe(Object.keys(noWaste.hexes).sort()[0]);
   });
 });

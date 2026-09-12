@@ -4,13 +4,16 @@
  * Never mutates its input. Returns the next state or throws `RuleError`.
  */
 
-import { RESOURCES, TERRAIN_RESOURCE, type Resource } from "./board";
+import { RESOURCES, TERRAIN_RESOURCE, boardGeometry, type Resource } from "./board";
 import { RuleError } from "./errors";
-import { GEOMETRY, isBoardEdge, isBoardVertex, type EdgeId, type HexId, type VertexId } from "./geometry";
+import { isBoardEdge, isBoardVertex, type EdgeId, type HexId, type VertexId } from "./geometry";
 import {
   devCardPlayable,
+  isLandEdge,
+  isLandVertex,
   legalRoadEdges,
   legalSetupRoadEdges,
+  legalSetupSettlementVertices,
   roadConnects,
   satisfiesDistanceRule,
   stealTargets,
@@ -69,6 +72,16 @@ function requireCurrent(state: GameState, playerId: PlayerId): Player {
   return player;
 }
 
+/** The player who may build right now: the current player, or the special builder (docs/phase8.md §5). */
+function requireBuilder(state: GameState, playerId: PlayerId): Player {
+  if (state.phase.kind === "specialBuild") {
+    const player = getPlayer(state, playerId);
+    if (state.phase.order[state.phase.index] !== playerId) throw new RuleError("NOT_YOUR_TURN", `it is not ${playerId}'s special build`);
+    return player;
+  }
+  return requireCurrent(state, playerId);
+}
+
 function pay(state: GameState, player: Player, cost: Hand): void {
   if (!hasResources(player.hand, cost)) throw new RuleError("INSUFFICIENT_RESOURCES", "cannot afford this");
   transfer(player.hand, state.bank, cost);
@@ -88,7 +101,8 @@ function produce(state: GameState, total: number): void {
   // owed[playerIndex][resource], plus per-hex gains for the event stream.
   const owed = state.players.map(() => emptyHand());
   const gains: Gain[] = [];
-  for (const hex of GEOMETRY.hexes) {
+  const geo = boardGeometry(state.board);
+  for (const hex of Object.keys(state.board.hexes)) {
     const tile = state.board.hexes[hex];
     if (!tile || tile.token !== total) continue;
     if (hex === state.robberHex) {
@@ -97,7 +111,7 @@ function produce(state: GameState, total: number): void {
     }
     const resource = TERRAIN_RESOURCE[tile.terrain];
     if (resource === null) continue;
-    for (const v of GEOMETRY.hexVertices[hex] ?? []) {
+    for (const v of geo.hexVertices[hex] ?? []) {
       const b = buildingAt(state, v);
       if (!b) continue;
       const idx = state.players.findIndex((p) => p.id === b.owner);
@@ -193,7 +207,7 @@ function applyDiscard(state: GameState, action: DiscardAction): void {
 function applyMoveRobber(state: GameState, playerId: PlayerId, hex: HexId): void {
   const phase = requirePhase(state, "moveRobber");
   const player = requireCurrent(state, playerId);
-  if (!GEOMETRY.hexes.includes(hex)) throw new RuleError("INVALID_HEX", `no such hex ${hex}`);
+  if (state.board.hexes[hex] === undefined) throw new RuleError("INVALID_HEX", `no such hex ${hex}`);
   if (hex === state.robberHex) throw new RuleError("ROBBER_MUST_MOVE", "robber must move to a different hex");
   void player;
   const from = state.robberHex;
@@ -241,10 +255,11 @@ function advanceSetup(state: GameState): void {
 }
 
 function applyBuildRoad(state: GameState, playerId: PlayerId, edge: EdgeId): void {
-  const phase = requirePhase(state, "setup", "action", "roadBuilding");
-  const player = requireCurrent(state, playerId);
+  const phase = requirePhase(state, "setup", "action", "roadBuilding", "specialBuild");
+  const player = requireBuilder(state, playerId);
+  const geo = boardGeometry(state.board);
   if (phase.kind === "setup" && phase.step !== "road") throw new RuleError("WRONG_PHASE", "place a settlement first");
-  if (!isBoardEdge(edge)) throw new RuleError("INVALID_EDGE", `no such edge ${edge}`);
+  if (!isBoardEdge(edge, geo) || !isLandEdge(state, edge, geo)) throw new RuleError("INVALID_EDGE", `no such edge ${edge}`);
   if (roadOwner(state, edge) !== null) throw new RuleError("EDGE_OCCUPIED", `edge ${edge} is occupied`);
   if (phase.kind === "setup") {
     const at = phase.lastSettlement;
@@ -255,7 +270,7 @@ function applyBuildRoad(state: GameState, playerId: PlayerId, edge: EdgeId): voi
     throw new RuleError("ROAD_NOT_CONNECTED", `edge ${edge} is not connected to your network`);
   }
   if (player.pieces.roads <= 0) throw new RuleError("NO_PIECES_LEFT", "no roads left");
-  if (phase.kind === "action") pay(state, player, COSTS.road);
+  if (phase.kind === "action" || phase.kind === "specialBuild") pay(state, player, COSTS.road);
 
   player.roads.push(edge);
   player.pieces.roads -= 1;
@@ -277,7 +292,7 @@ function applyBuildRoad(state: GameState, playerId: PlayerId, edge: EdgeId): voi
 /** §4.3: one resource per producing hex adjacent to the second settlement. */
 function grantStartingResources(state: GameState, player: Player, vertex: VertexId): void {
   const gains: Gain[] = [];
-  for (const h of GEOMETRY.vertexHexes[vertex] ?? []) {
+  for (const h of boardGeometry(state.board).vertexHexes[vertex] ?? []) {
     const tile = state.board.hexes[h];
     if (!tile) continue;
     const resource = TERRAIN_RESOURCE[tile.terrain];
@@ -290,18 +305,22 @@ function grantStartingResources(state: GameState, player: Player, vertex: Vertex
 }
 
 function applyBuildSettlement(state: GameState, playerId: PlayerId, vertex: VertexId): void {
-  const phase = requirePhase(state, "setup", "action");
-  const player = requireCurrent(state, playerId);
+  const phase = requirePhase(state, "setup", "action", "specialBuild");
+  const player = requireBuilder(state, playerId);
+  const geo = boardGeometry(state.board);
   if (phase.kind === "setup" && phase.step !== "settlement") throw new RuleError("WRONG_PHASE", "place the road first");
-  if (!isBoardVertex(vertex)) throw new RuleError("INVALID_VERTEX", `no such vertex ${vertex}`);
+  if (!isBoardVertex(vertex, geo) || !isLandVertex(state, vertex, geo)) throw new RuleError("INVALID_VERTEX", `no such vertex ${vertex}`);
+  if (phase.kind === "setup" && !legalSetupSettlementVertices(state).includes(vertex)) {
+    throw new RuleError(buildingAt(state, vertex) ? "VERTEX_OCCUPIED" : satisfiesDistanceRule(state, vertex) ? "INVALID_VERTEX" : "DISTANCE_RULE", `cannot start at ${vertex}`);
+  }
   if (buildingAt(state, vertex) !== null) throw new RuleError("VERTEX_OCCUPIED", `vertex ${vertex} is occupied`);
   if (!satisfiesDistanceRule(state, vertex)) throw new RuleError("DISTANCE_RULE", `vertex ${vertex} is too close`);
-  if (phase.kind === "action") {
-    const touchesOwnRoad = (GEOMETRY.vertexEdges[vertex] ?? []).some((e) => roadOwner(state, e) === playerId);
+  if (phase.kind !== "setup") {
+    const touchesOwnRoad = (geo.vertexEdges[vertex] ?? []).some((e) => roadOwner(state, e) === playerId);
     if (!touchesOwnRoad) throw new RuleError("NOT_CONNECTED_TO_ROAD", "settlement must touch one of your roads");
   }
   if (player.pieces.settlements <= 0) throw new RuleError("NO_PIECES_LEFT", "no settlements left");
-  if (phase.kind === "action") pay(state, player, COSTS.settlement);
+  if (phase.kind !== "setup") pay(state, player, COSTS.settlement);
 
   player.settlements.push(vertex);
   player.pieces.settlements -= 1;
@@ -315,8 +334,8 @@ function applyBuildSettlement(state: GameState, playerId: PlayerId, vertex: Vert
 }
 
 function applyBuildCity(state: GameState, playerId: PlayerId, vertex: VertexId): void {
-  requirePhase(state, "action");
-  const player = requireCurrent(state, playerId);
+  requirePhase(state, "action", "specialBuild");
+  const player = requireBuilder(state, playerId);
   const idx = player.settlements.indexOf(vertex);
   if (idx < 0) throw new RuleError("NOT_YOUR_SETTLEMENT", `no settlement of yours at ${vertex}`);
   if (player.pieces.cities <= 0) throw new RuleError("NO_PIECES_LEFT", "no cities left");
@@ -332,8 +351,8 @@ function applyBuildCity(state: GameState, playerId: PlayerId, vertex: VertexId):
 // Development cards (§8)
 
 function applyBuyDevCard(state: GameState, playerId: PlayerId): void {
-  requirePhase(state, "action");
-  const player = requireCurrent(state, playerId);
+  requirePhase(state, "action", "specialBuild");
+  const player = requireBuilder(state, playerId);
   if (state.devDeck.length === 0) throw new RuleError("DECK_EMPTY", "no development cards left");
   pay(state, player, COSTS.devCard);
   const type = state.devDeck.shift() as DevCardType;
@@ -489,12 +508,37 @@ function applyEndTurn(state: GameState, playerId: PlayerId): void {
     state.pendingTrade = null;
     emit(state, { kind: "tradeCancelled", playerId, reason: "turnEnded" });
   }
-  for (const p of state.players) p.devCardPlayedThisTurn = false;
   emit(state, { kind: "turnEnded", playerId });
+  // docs/phase8.md §5: with 5–6 players every other player gets a special build before the next roll.
+  if (state.players.length > 4) {
+    const n = state.players.length;
+    const order: PlayerId[] = [];
+    for (let step = 1; step < n; step++) order.push((state.players[(state.currentPlayer + step) % n] as Player).id);
+    state.phase = { kind: "specialBuild", order, index: 0 };
+    emit(state, { kind: "specialBuildTurn", playerId: order[0] as PlayerId });
+    return;
+  }
+  startNextTurn(state);
+}
+
+function startNextTurn(state: GameState): void {
+  for (const p of state.players) p.devCardPlayedThisTurn = false;
   state.currentPlayer = (state.currentPlayer + 1) % state.players.length;
   state.turn += 1;
   state.phase = { kind: "roll" };
   emit(state, { kind: "turnStarted", playerId: currentPlayerId(state), turn: state.turn });
+}
+
+function applySpecialBuildDone(state: GameState, playerId: PlayerId): void {
+  const phase = requirePhase(state, "specialBuild");
+  requireBuilder(state, playerId);
+  const index = phase.index + 1;
+  if (index >= phase.order.length) {
+    startNextTurn(state);
+    return;
+  }
+  state.phase = { kind: "specialBuild", order: phase.order, index };
+  emit(state, { kind: "specialBuildTurn", playerId: phase.order[index] as PlayerId });
 }
 
 // ---------------------------------------------------------------------------
@@ -595,6 +639,9 @@ function applyCore(state: GameState, action: Action): GameState {
       break;
     case "END_TURN":
       applyEndTurn(next, action.playerId);
+      break;
+    case "SPECIAL_BUILD_DONE":
+      applySpecialBuildDone(next, action.playerId);
       break;
     default: {
       const exhaustive: never = action;

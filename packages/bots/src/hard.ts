@@ -8,7 +8,6 @@
  */
 
 import {
-  GEOMETRY,
   RESOURCES,
   applyAction,
   isRuleError,
@@ -18,8 +17,8 @@ import {
   type EdgeId,
   type VertexId,
 } from "@katan/engine";
-import { afford, handTotal, hexValueFor, myHand, productionOf, publicVP, resourceNeed, scarcity, settlementCandidates, threat, vertexScore } from "./eval";
-import { chooseRobberHex, discardKeepingTarget, longestRoadGain, offeredThisTurn, respondToTrade } from "./medium";
+import { afford, geo, handTotal, hexValueFor, myHand, productionOf, publicVP, resourceNeed, scarcity, settlementCandidates, threat, vertexScore } from "./eval";
+import { chooseRobberHex, chooseSpecialBuild, discardKeepingTarget, longestRoadGain, offeredThisTurn, respondToTrade } from "./medium";
 import { best, ensureLegal, ofType, pick, type BotPolicy, type RedactedState, type Rng } from "./types";
 
 export function hardBot(): BotPolicy {
@@ -63,6 +62,11 @@ export function chooseHard(view: RedactedState, legal: Action[], rng: Rng): Acti
     if (current !== me) return respondToTradeHard(view, legal, rng);
     return chooseByLookahead(view, legal, rng);
   }
+  if (phase === "specialBuild") {
+    // Lookahead over the build candidates; fall back to the medium rule of thumb.
+    const pick1 = chooseByLookahead(view, legal, rng);
+    return pick1.type === "SPECIAL_BUILD_DONE" ? chooseSpecialBuild(view, legal, rng) : pick1;
+  }
   return pick(rng, legal);
 }
 
@@ -77,6 +81,7 @@ interface PlanTarget {
 
 export function plan(view: RedactedState, playerId: string): PlanTarget[] {
   const state = viewToState(view);
+  const g = geo(view);
   const p = view.players.find((x) => x.id === playerId)!;
   const roadsAll = new Set(view.players.flatMap((x) => x.roads));
   const taken = new Set(view.players.flatMap((x) => [...x.settlements, ...x.cities]));
@@ -84,15 +89,15 @@ export function plan(view: RedactedState, playerId: string): PlanTarget[] {
   // BFS over vertices from my network, counting roads needed.
   const dist = new Map<VertexId, number>();
   const queue: VertexId[] = [];
-  for (const e of p.roads) for (const v of GEOMETRY.edgeVertices[e] ?? []) if (!dist.has(v)) { dist.set(v, 0); queue.push(v); }
+  for (const e of p.roads) for (const v of g.edgeVertices[e] ?? []) if (!dist.has(v)) { dist.set(v, 0); queue.push(v); }
   for (const v of [...p.settlements, ...p.cities]) if (!dist.has(v)) { dist.set(v, 0); queue.push(v); }
   while (queue.length) {
     const v = queue.shift()!;
     const d = dist.get(v)!;
     if (d >= 3 || (blocked.has(v) && d > 0)) continue;
-    for (const e of GEOMETRY.vertexEdges[v] ?? []) {
+    for (const e of g.vertexEdges[v] ?? []) {
       if (roadsAll.has(e) && !p.roads.includes(e)) continue;
-      const [a, b] = GEOMETRY.edgeVertices[e] as [VertexId, VertexId];
+      const [a, b] = g.edgeVertices[e] as [VertexId, VertexId];
       const n = a === v ? b : a;
       const nd = p.roads.includes(e) ? d : d + 1;
       if (!dist.has(n) || dist.get(n)! > nd) { dist.set(n, nd); queue.push(n); }
@@ -102,6 +107,7 @@ export function plan(view: RedactedState, playerId: string): PlanTarget[] {
   const { satisfiesDistanceRule } = engineQueries();
   for (const [v, d] of dist) {
     if (taken.has(v) || !satisfiesDistanceRule(state, v)) continue;
+    if (!(g.vertexHexes[v] ?? []).some((h) => view.board.hexes[h] !== undefined)) continue;
     const value = vertexScore(view, v, playerId);
     out.push({ vertex: v, roads: d, value: value / (d + 1) });
   }
@@ -116,9 +122,10 @@ import { satisfiesDistanceRule as satisfiesDistanceRuleImpl } from "@katan/engin
 
 function planValueFrom(view: RedactedState, vertex: VertexId, playerId: string): number {
   // Value of the best neighbouring-neighbour spot (what a first road could reach).
+  const g = geo(view);
   let bestV = 0;
-  for (const n of GEOMETRY.vertexNeighbors[vertex] ?? []) {
-    for (const nn of GEOMETRY.vertexNeighbors[n] ?? []) {
+  for (const n of g.vertexNeighbors[vertex] ?? []) {
+    for (const nn of g.vertexNeighbors[n] ?? []) {
       if (nn === vertex) continue;
       bestV = Math.max(bestV, vertexScore(view, nn, playerId));
     }
@@ -128,11 +135,12 @@ function planValueFrom(view: RedactedState, vertex: VertexId, playerId: string):
 
 function scoreEdgeForPlan(view: RedactedState, edge: EdgeId, playerId: string): number {
   const targets = plan(view, playerId);
-  const [a, b] = GEOMETRY.edgeVertices[edge] as [VertexId, VertexId];
+  const g = geo(view);
+  const [a, b] = g.edgeVertices[edge] as [VertexId, VertexId];
   let s = 0;
   for (const t of targets) {
     const touches = t.vertex === a || t.vertex === b;
-    const near = (GEOMETRY.vertexNeighbors[t.vertex] ?? []).some((n) => n === a || n === b);
+    const near = (g.vertexNeighbors[t.vertex] ?? []).some((n) => n === a || n === b);
     if (touches) s = Math.max(s, t.value * 2);
     else if (near) s = Math.max(s, t.value);
   }
@@ -220,7 +228,7 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
       if (offer) return offer;
     }
   }
-  return legal.find((a) => a.type === "END_TURN") ?? pick(rng, legal);
+  return legal.find((a) => a.type === "END_TURN") ?? legal.find((a) => a.type === "SPECIAL_BUILD_DONE") ?? pick(rng, legal);
 }
 
 /** Score gain from applying `action` to the local copy; cards with hidden outcomes get a fixed estimate. */

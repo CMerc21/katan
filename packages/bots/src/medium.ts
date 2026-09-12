@@ -2,11 +2,12 @@
  * Medium bot (docs/phase5.md §6.5): a competent opponent.
  */
 
-import { GEOMETRY, RESOURCES, TERRAIN_RESOURCE, type Action, type Hand, type Resource } from "@katan/engine";
+import { RESOURCES, TERRAIN_RESOURCE, type Action, type Hand, type Resource } from "@katan/engine";
 import {
   afford,
   cardCount,
   edgeTowardScore,
+  geo,
   handTotal,
   hexValueFor,
   hexValueForOpponents,
@@ -69,7 +70,28 @@ export function chooseMedium(view: RedactedState, legal: Action[], rng: Rng): Ac
     return chooseTurnAction(view, legal, rng);
   }
 
+  if (phase === "specialBuild") return chooseSpecialBuild(view, legal, rng);
+
   return pick(rng, legal);
+}
+
+/** docs/phase8.md §5: the special build is a build-or-pass decision with the turn priorities. */
+export function chooseSpecialBuild(view: RedactedState, legal: Action[], rng: Rng): Action {
+  const me = view.viewer;
+  const need = resourceNeed(view, me);
+  const cities = ofType(legal, "BUILD_CITY");
+  if (cities.length) return best(rng, cities, (a) => handTotal(vertexPipsFor(view, a.vertex)));
+  const settlements = ofType(legal, "BUILD_SETTLEMENT");
+  if (settlements.length) return best(rng, settlements, (a) => vertexScore(view, a.vertex, me));
+  const roads = ofType(legal, "BUILD_ROAD");
+  if (roads.length) {
+    const scored = roads.map((a) => ({ a, s: edgeTowardScore(view, a.edge, me) + longestRoadGain(view, a.edge, me) }));
+    const top = scored.reduce((b, x) => (x.s > b.s ? x : b), scored[0]!);
+    if (top.s > 0.5) return top.a;
+  }
+  const buy = legal.find((a) => a.type === "BUY_DEV_CARD");
+  if (buy && need.target === "devCard") return buy;
+  return legal.find((a) => a.type === "SPECIAL_BUILD_DONE") ?? pick(rng, legal);
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +236,7 @@ export function chooseTurnAction(view: RedactedState, legal: Action[], rng: Rng)
 
 function vertexPipsFor(view: RedactedState, vertex: string): Hand {
   const out: Hand = { wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 };
-  for (const h of GEOMETRY.vertexHexes[vertex] ?? []) {
+  for (const h of geo(view).vertexHexes[vertex] ?? []) {
     const tile = view.board.hexes[h];
     if (!tile || tile.token === null) continue;
     const r = TERRAIN_RESOURCE[tile.terrain];

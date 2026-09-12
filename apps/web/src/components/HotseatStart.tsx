@@ -4,12 +4,15 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { avatarFromSeed, type AvatarSpec } from "@katan/avatars";
 import { generateBotNames, type BotLevel } from "@katan/bots";
-import { PLAYER_COLORS, createRng, type BoardKind } from "@katan/engine";
+import { PLAYER_COLORS, createRng } from "@katan/engine";
 import { AvatarPicker } from "@/components/AvatarPicker";
+import { BoardPicker, choiceDefinition, choiceForGame, type BoardChoice } from "@/components/BoardPicker";
 import { Button } from "@/components/ui";
 import { startHotseat } from "@/game/store";
+import { useSession } from "@/hooks/useSession";
 
-const DEFAULT_NAMES = ["Ada", "Bo", "Cy", "Di"];
+const DEFAULT_NAMES = ["Ada", "Bo", "Cy", "Di", "Eve", "Fay"];
+const MAX_SEATS = DEFAULT_NAMES.length;
 type SeatKind = "human" | BotLevel;
 
 function randomSeed(): string {
@@ -22,23 +25,27 @@ function randomSeed(): string {
 /** Start a hotseat game on this device (docs/phase3.md §3.1); seats may be bots with medieval names and portraits (docs/phase7.md §4–§5). */
 export function HotseatStart() {
   const router = useRouter();
-  const [count, setCount] = useState<3 | 4>(4);
+  const { session } = useSession();
+  const [count, setCount] = useState<number>(4);
   const [seed, setSeed] = useState<string>(() => randomSeed());
   const botNames = useMemo(() => {
     const r = createRng(seed, "bot-names");
-    return generateBotNames(() => r.next(), 4, DEFAULT_NAMES);
+    return generateBotNames(() => r.next(), MAX_SEATS, DEFAULT_NAMES);
   }, [seed]);
   const [names, setNames] = useState<string[]>(DEFAULT_NAMES);
-  const [touched, setTouched] = useState<boolean[]>([false, false, false, false]);
-  const [kinds, setKinds] = useState<SeatKind[]>(["human", "human", "human", "human"]);
+  const [touched, setTouched] = useState<boolean[]>(() => DEFAULT_NAMES.map(() => false));
+  const [kinds, setKinds] = useState<SeatKind[]>(() => DEFAULT_NAMES.map(() => "human" as const));
   const [avatars, setAvatars] = useState<AvatarSpec[]>(() => DEFAULT_NAMES.map((n, i) => avatarFromSeed(`hotseat:${n}:${i}`)));
-  const [board, setBoard] = useState<BoardKind>("beginner");
+  const [board, setBoard] = useState<BoardChoice>({ kind: "builtin", id: "beginner" });
   const [problem, setProblem] = useState<string | null>(null);
+  const seatCap = Math.min(MAX_SEATS, choiceDefinition(board).seats.max);
+  const seats = Math.min(count, seatCap);
+  const isBeginner = board.kind === "builtin" && board.id === "beginner";
 
   const shownName = (i: number) => (kinds[i] !== "human" && !touched[i] ? (botNames[i] ?? names[i] ?? "") : (names[i] ?? ""));
 
   const start = () => {
-    const chosen = Array.from({ length: count }, (_, i) => shownName(i).trim());
+    const chosen = Array.from({ length: seats }, (_, i) => shownName(i).trim());
     if (chosen.some((n) => n.length === 0)) return setProblem("Every player needs a name.");
     if (new Set(chosen.map((n) => n.toLowerCase())).size !== chosen.length) return setProblem("Player names must differ.");
     setProblem(null);
@@ -48,7 +55,7 @@ export function HotseatStart() {
       const avatar = avatars[i]!;
       return kind === "human" ? { id, name, avatar } : { id, name, bot: kind, avatar };
     });
-    startHotseat({ players, board, seed: board === "random" ? seed.trim() || randomSeed() : "beginner" });
+    startHotseat({ players, board: choiceForGame(board), seed: isBeginner ? "beginner" : seed.trim() || randomSeed() });
     router.push("/play");
   };
 
@@ -63,14 +70,14 @@ export function HotseatStart() {
       <fieldset>
         <legend className="font-display text-base font-semibold">Players</legend>
         <div className="mt-2 flex gap-2" role="radiogroup" aria-label="Player count">
-          {([3, 4] as const).map((n) => (
-            <Button key={n} variant={count === n ? "primary" : "secondary"} role="radio" aria-checked={count === n} onClick={() => setCount(n)} data-testid={`count-${n}`}>
+          {Array.from({ length: seatCap - 2 }, (_, i) => i + 3).map((n) => (
+            <Button key={n} variant={seats === n ? "primary" : "secondary"} role="radio" aria-checked={seats === n} onClick={() => setCount(n)} data-testid={`count-${n}`}>
               {n} players
             </Button>
           ))}
         </div>
         <ol className="mt-3 space-y-3">
-          {Array.from({ length: count }, (_, i) => (
+          {Array.from({ length: seats }, (_, i) => (
             <li key={i} className="flex flex-wrap items-center gap-3">
               <AvatarPicker spec={avatars[i]!} color={PLAYER_COLORS[i]!} name={shownName(i)} compact onChange={(spec) => setAvatars(avatars.map((a, j) => (j === i ? spec : a)))} size={44} />
               <label className="sr-only" htmlFor={`name-${i}`}>
@@ -109,15 +116,10 @@ export function HotseatStart() {
 
       <fieldset>
         <legend className="font-display text-base font-semibold">Board</legend>
-        <div className="mt-2 flex gap-2" role="radiogroup" aria-label="Board">
-          <Button variant={board === "beginner" ? "primary" : "secondary"} role="radio" aria-checked={board === "beginner"} onClick={() => setBoard("beginner")} data-testid="board-beginner">
-            Beginner
-          </Button>
-          <Button variant={board === "random" ? "primary" : "secondary"} role="radio" aria-checked={board === "random"} onClick={() => setBoard("random")} data-testid="board-random">
-            Random
-          </Button>
+        <div className="mt-2">
+          <BoardPicker value={board} onChange={setBoard} signedIn={session !== null} />
         </div>
-        {board === "random" && (
+        {!isBeginner && (
           <div className="mt-3 flex items-center gap-3">
             <label htmlFor="seed" className="text-sm">
               Seed

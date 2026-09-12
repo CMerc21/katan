@@ -43,14 +43,20 @@ export interface CameraRigProps {
   /** A world point to frame closely at the end of the game. */
   hero: World | null;
   onMoved?: () => void;
+  /** Editor mode (docs/phase7-5.md §8): straight down, elevation locked, orbit disabled. */
+  topDown?: boolean;
 }
 
-export function CameraRig({ bounds, resetToken, focus, hero, onMoved }: CameraRigProps) {
+export function CameraRig({ bounds, resetToken, focus, hero, onMoved, topDown = false }: CameraRigProps) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
   const { camera, size } = useThree();
   const move = useRef<Move | null>(null);
   const aspect = size.width / Math.max(1, size.height);
-  const defaultPos = useMemo(() => defaultCameraPosition(bounds, aspect), [bounds, aspect]);
+  const defaultPos = useMemo(() => {
+    if (!topDown) return defaultCameraPosition(bounds, aspect);
+    const d = framingDistance(bounds.radius, FOV, aspect, 0.15);
+    return new THREE.Vector3(bounds.cx, d, bounds.cz + 0.001);
+  }, [bounds, aspect, topDown]);
   const defaultDistance = useMemo(() => framingDistance(bounds.radius, FOV, aspect, 0.1), [bounds, aspect]);
   const target = useMemo(() => new THREE.Vector3(bounds.cx, 0, bounds.cz), [bounds]);
 
@@ -65,6 +71,7 @@ export function CameraRig({ bounds, resetToken, focus, hero, onMoved }: CameraRi
 
   // Reset (initial and on demand).
   const lastReset = useRef<number | null>(null);
+  const lastTopDown = useRef(topDown);
   useEffect(() => {
     if (lastReset.current === null) {
       lastReset.current = resetToken;
@@ -73,11 +80,12 @@ export function CameraRig({ bounds, resetToken, focus, hero, onMoved }: CameraRi
       controls.current?.update();
       return;
     }
-    if (lastReset.current !== resetToken) {
+    if (lastReset.current !== resetToken || lastTopDown.current !== topDown) {
       lastReset.current = resetToken;
+      lastTopDown.current = topDown;
       startMove(defaultPos.clone(), target.clone(), 400);
     }
-  }, [resetToken, defaultPos, target]);
+  }, [resetToken, defaultPos, target, topDown]);
 
   // Follow turns: move the orbit target 35% toward the player's side, keeping the offset.
   const lastFocus = useRef<World | null>(null);
@@ -123,9 +131,10 @@ export function CameraRig({ bounds, resetToken, focus, hero, onMoved }: CameraRi
         makeDefault
         enableDamping
         dampingFactor={0.08}
-        minPolarAngle={Math.PI / 2 - MAX_ELEVATION}
-        maxPolarAngle={Math.PI / 2 - MIN_ELEVATION}
-        minDistance={defaultDistance * 0.6}
+        minPolarAngle={topDown ? 0 : Math.PI / 2 - MAX_ELEVATION}
+        maxPolarAngle={topDown ? 0.001 : Math.PI / 2 - MIN_ELEVATION}
+        enableRotate={!topDown}
+        minDistance={defaultDistance * 0.4}
         maxDistance={defaultDistance * 2.2}
         target={target}
         enablePan

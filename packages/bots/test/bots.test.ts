@@ -86,6 +86,31 @@ describe("§6.7 bots", () => {
   });
 });
 
+describe("docs/phase8.md §6 bots on arbitrary boards", () => {
+  const SIX = ["a", "b", "c", "d", "e", "f"].map((id) => ({ id, name: id.toUpperCase() }));
+  for (const [name, board, count] of [
+    ["Standard", "random", 4],
+    ["Large (6 players)", "large", 6],
+    ["Long strip", "longStrip", 4],
+  ] as const) {
+    it(`tournament on ${name}: 30 mixed games finish with no illegal action and no stall`, async () => {
+      const { builtInBoard } = await import("@katan/engine");
+      const levels: BotLevel[] = (["hard", "medium", "easy", "easy", "medium", "easy"] as BotLevel[]).slice(0, count);
+      const def = board === "random" ? "random" : builtInBoard(board);
+      let wins = 0;
+      for (let i = 0; i < 30; i++) {
+        if (i % 5 === 0) await new Promise((r) => setTimeout(r, 0));
+        const rotated = levels.map((_, j) => levels[(j + i) % count]!);
+        const g = playBotGame({ seed: `${board}-${i}`, players: SIX.slice(0, count), board: def, levels: rotated });
+        expect(g.final.phase.kind, `${name} seed ${i} stalled at turn ${g.turns}`).toBe("ended");
+        if (g.final.winner) wins += 1;
+        if (count > 4) expect(g.actions.some((a) => a.type === "SPECIAL_BUILD_DONE")).toBe(true);
+      }
+      expect(wins).toBe(30);
+    }, 240_000);
+  }
+});
+
 describe("docs/phase7.md §5 bot names", () => {
   it("is deterministic and never repeats a name within a game", async () => {
     const { generateBotNames, isGeneratedBotName, FIRST_NAMES, EPITHETS, PLACES } = await import("../src/names");

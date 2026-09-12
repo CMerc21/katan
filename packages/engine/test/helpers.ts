@@ -171,6 +171,7 @@ const WEIGHTS: Record<Action["type"], number> = {
   CANCEL_TRADE: 1,
   MARITIME_TRADE: 1,
   END_TURN: 2,
+  SPECIAL_BUILD_DONE: 2,
 };
 
 /** All legal actions for every player, current player first. */
