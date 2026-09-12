@@ -1,18 +1,21 @@
 # Katan
 
-An online hex settlement-building game for 3 to 4 friends. Original rules
-(`docs/rules.md`), original art, seeded randomness, server-authoritative
-state, and computer players for empty seats.
+An online hex settlement-building game for 3 to 6 friends. Original rules
+(`docs/rules.md`), original art, a 3D diorama board, seeded randomness,
+server-authoritative state, computer players for empty seats, a board
+editor, and the Tides module (ships, gold fields, islands, the pirate).
 
 ## How to play with friends
 
 1. Open the site and sign in with your email (we send a link and a code; no password).
-2. **Create game**, pick the board and player count.
+2. **Create game**, pick a board or a Tides scenario and the player count (3 to 6, as the board allows).
 3. Share the **invite link** (or the 6-letter code) from the lobby. Friends sign in the same way and land in your lobby.
 4. Short a player? **Add bot** (easy, medium or hard). Everyone presses **I'm ready**; the host presses **Start game**.
 5. Play. The screen always says who the game is waiting for. If someone has to leave, they can press **Let a bot play for me** and take the seat back later; the host can hand an absent player's seat to a bot after 10 minutes.
 
 Prefer one screen? **Hotseat** plays on a single device, passing it around, with optional bot seats.
+
+Want your own map? **Boards** opens the editor: paint land and sea, auto-fill tokens and harbours, save a draft (no account needed) or share it publicly, and turn it into a scenario with ships, gold fields, islands and a custom goal. Saved boards and scenarios appear in the picker when you create a game.
 
 ## Run it locally
 
@@ -64,11 +67,12 @@ local development and tests only. Never put the service role key in the web app.
 
 | Path | What |
 |---|---|
-| `packages/engine` | Pure rules engine, seeded RNG, redaction. 100+ tests including 200 random full games. |
-| `packages/bots` | Easy / medium / hard policies over redacted views. |
+| `packages/engine` | Pure rules engine (any board shape, 5–6 players, Tides), seeded RNG, event stream, redaction. 150+ tests including random full games. |
+| `packages/bots` | Easy / medium / hard policies over redacted views, at home on any board and scenario. |
+| `packages/avatars` | Seeded SVG portraits for every seat. |
 | `packages/server` | Transactional game and lobby logic over Postgres, shared by the Edge Functions and tests. |
 | `supabase/` | Migrations (RLS: clients read only their own view), config, Edge Functions. |
-| `apps/web` | Next.js client: SVG board, hotseat driver, Supabase driver, lobby. |
+| `apps/web` | Next.js client: 3D diorama board, animation queue, hotseat driver, Supabase driver, lobby, board and scenario editor. |
 | `docs/` | `rules.md` (source of truth) and the phase documents. |
 
 See `CLAUDE.md` for conventions and the phase plan.
