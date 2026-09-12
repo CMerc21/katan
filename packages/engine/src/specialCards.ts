@@ -10,22 +10,33 @@ import type { GameState, PlayerId } from "./types";
 export const LONGEST_ROAD_MIN = 5;
 export const LARGEST_ARMY_MIN = 3;
 
+type Link = "road" | "ship";
+
 /**
- * Length of the longest trail through `playerId`'s roads: no edge reused,
- * vertices may repeat, and a vertex holding an opponent's building cannot
- * be passed through (a trail may still end there or start from it).
+ * Length of the longest trail through `playerId`'s roads and ships (§10.1,
+ * §14.2 longest route): no edge reused, vertices may repeat, a vertex
+ * holding an opponent's building cannot be passed through (a trail may
+ * still end there or start from it), and a road continues into a ship (or
+ * back) only through one of the player's own settlements or cities.
  */
 export function longestRoadLength(state: GameState, playerId: PlayerId): number {
   const player = state.players.find((p) => p.id === playerId);
-  if (!player || player.roads.length === 0) return 0;
+  if (!player || (player.roads.length === 0 && player.ships.length === 0)) return 0;
 
   const geo = boardGeometry(state.board);
   const buildings = buildingsMap(state);
   const blocked = new Set<VertexId>();
-  for (const [v, b] of buildings) if (b.owner !== playerId) blocked.add(v);
+  const own = new Set<VertexId>();
+  for (const [v, b] of buildings) {
+    if (b.owner !== playerId) blocked.add(v);
+    else own.add(v);
+  }
 
+  const kindOf = new Map<EdgeId, Link>();
+  for (const e of player.roads) kindOf.set(e, "road");
+  for (const e of player.ships) kindOf.set(e, "ship");
   const edgesAt = new Map<VertexId, EdgeId[]>();
-  for (const e of player.roads) {
+  for (const e of kindOf.keys()) {
     for (const v of geo.edgeVertices[e] ?? []) {
       const list = edgesAt.get(v);
       if (list) list.push(e);
@@ -34,14 +45,16 @@ export function longestRoadLength(state: GameState, playerId: PlayerId): number 
   }
 
   const used = new Set<EdgeId>();
-  const walk = (v: VertexId): number => {
+  const walk = (v: VertexId, via: Link | null): number => {
     let best = 0;
     for (const e of edgesAt.get(v) ?? []) {
       if (used.has(e)) continue;
+      const kind = kindOf.get(e) as Link;
+      if (via !== null && kind !== via && !own.has(v)) continue; // road ↔ ship only at an own building
       const [a, b] = geo.edgeVertices[e] as readonly [VertexId, VertexId];
       const next = a === v ? b : a;
       used.add(e);
-      const len = 1 + (blocked.has(next) ? 0 : walk(next));
+      const len = 1 + (blocked.has(next) ? 0 : walk(next, kind));
       used.delete(e);
       if (len > best) best = len;
     }
@@ -50,7 +63,7 @@ export function longestRoadLength(state: GameState, playerId: PlayerId): number 
 
   let best = 0;
   for (const v of edgesAt.keys()) {
-    const len = walk(v);
+    const len = walk(v, null);
     if (len > best) best = len;
   }
   return best;

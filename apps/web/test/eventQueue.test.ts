@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyActionWithEvents, createGame, legalActions, nextActor, redact, type GameEvent, type GameState } from "@katan/engine";
+import { applyActionWithEvents, builtInScenario, createGame, legalActions, nextActor, redact, type GameEvent, type GameState } from "@katan/engine";
 import type { RedactedState } from "@/driver/types";
 import { EventQueue, applyEventToView, planSteps, scaleDuration, totalDuration, type QueueState, type Step } from "@/game/eventQueue";
 import type { AnimationSpeed } from "@/game/settings";
@@ -42,8 +42,8 @@ function clock() {
 }
 
 /** Play `n` actions and return each emitted view (as a driver would emit them), all for viewer `a`. */
-function play(n: number, seed = "queue"): { views: RedactedState[]; events: GameEvent[] } {
-  let state: GameState = createGame({ seed, players: PLAYERS, board: "beginner" });
+function play(n: number, seed = "queue", tides = false): { views: RedactedState[]; events: GameEvent[] } {
+  let state: GameState = tides ? createGame({ seed, players: PLAYERS, scenario: builtInScenario("goldCoast") }) : createGame({ seed, players: PLAYERS, board: "beginner" });
   const views: RedactedState[] = [redact(state, "a")];
   const events: GameEvent[] = [];
   for (let i = 0; i < n; i++) {
@@ -85,6 +85,38 @@ describe("docs/phase7.md §2 event queue", () => {
     for (let i = 1; i < seqs.length; i++) expect(seqs[i]!).toBeGreaterThanOrEqual(seqs[i - 1]!);
     expect(q.state().rendered).toEqual(views.at(-1));
     expect(q.state().draining).toBe(false);
+  });
+
+  it("docs/phase9.md §8: ships, the pirate, gold and island pennants apply event by event on a Tides scenario", () => {
+    // Prefer ships, gold choices and pirate moves so the Tides events actually occur.
+    let state: GameState = createGame({ seed: "tides-queue", players: PLAYERS, scenario: builtInScenario("goldCoast") });
+    let view = redact(state, "a");
+    const kinds = new Set<string>();
+    for (let i = 0; i < 260 && state.phase.kind !== "ended"; i++) {
+      const actor = nextActor(state);
+      const legal = legalActions(state, actor);
+      const preferred = legal.find((a) => a.type === "BUILD_SHIP") ?? legal.find((a) => a.type === "MOVE_SHIP") ?? legal.find((a) => a.type === "MOVE_ROBBER" && a.target === "pirate") ?? legal.find((a) => a.type === "CHOOSE_GOLD") ?? legal.find((a) => a.type === "BUILD_SETTLEMENT") ?? legal.find((a) => a.type === "ROLL") ?? legal.find((a) => a.type === "END_TURN") ?? legal[0]!;
+      const r = applyActionWithEvents(state, preferred);
+      state = r.state;
+      for (const e of r.events) {
+        kinds.add(e.kind);
+        view = applyEventToView(view, e);
+      }
+    }
+    expect(kinds.has("shipBuilt")).toBe(true);
+    const final = redact(state, "a");
+    for (const p of final.players) {
+      const r = view.players.find((x) => x.id === p.id)!;
+      expect(r.ships).toEqual(p.ships);
+      expect(r.roads).toEqual(p.roads);
+      expect(r.pieces).toEqual(p.pieces);
+      expect(r.islandChips).toEqual(p.islandChips);
+      expect(r.publicVP).toBe(p.publicVP);
+      expect(r.hand).toEqual(p.hand);
+    }
+    expect(view.pirateHex).toBe(final.pirateHex);
+    expect(view.robberHex).toBe(final.robberHex);
+    expect(view.bank).toEqual(final.bank);
   });
 
   it("the rendered view between events matches what the engine produced (pieces, counts, robber)", () => {

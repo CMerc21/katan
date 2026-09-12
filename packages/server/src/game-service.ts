@@ -15,6 +15,7 @@ import {
   createGame as engineCreateGame,
   isBoardDefinition,
   isRuleError,
+  isScenario,
   nextActor,
   redact,
   replay,
@@ -25,6 +26,7 @@ import {
   type GameState,
   type PlayerColor,
   type PlayerId,
+  type Scenario,
 } from "@katan/engine";
 import { createBot } from "@katan/bots";
 import type { JSONValue, Sql, TransactionSql } from "postgres";
@@ -64,6 +66,8 @@ export interface GameRow {
   board: BoardKind | "custom";
   /** The chosen definition when `board = 'custom'` (docs/phase8.md §4.3). */
   board_definition: BoardDefinition | null;
+  /** The scenario snapshot when the game was made from one (docs/phase9.md §5); its board is also in `board_definition`. */
+  scenario: Scenario | null;
 }
 
 /** What `createGame` should be given for a game row. */
@@ -73,6 +77,15 @@ export function boardOptionOf(game: Pick<GameRow, "board" | "board_definition">)
     return game.board_definition;
   }
   return game.board;
+}
+
+/** The `createGame` options for a game row: a scenario when there is one, else the board. */
+export function gameOptionsOf(game: Pick<GameRow, "board" | "board_definition" | "scenario">): { board: BoardKind | BoardDefinition } | { scenario: Scenario } {
+  if (game.scenario !== null && game.scenario !== undefined) {
+    if (!isScenario(game.scenario)) throw new ServiceError("BAD_REQUEST", "game has no valid scenario", 500);
+    return { scenario: game.scenario };
+  }
+  return { board: boardOptionOf(game) };
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +281,8 @@ export interface CreateGameInput {
   createdBy: string;
   players: CreatePlayer[];
   board: BoardKind | BoardDefinition;
+  /** A scenario overrides `board` (docs/phase9.md §5). */
+  scenario?: Scenario;
   seed?: string;
 }
 
@@ -284,12 +299,13 @@ export async function createGameForUsers(sql: Db, input: CreateGameInput): Promi
   const seed = input.seed ?? randomSeed();
   return sql.begin(async (tx) => {
     const players = input.players.map((p, seat) => ({ id: playerIdForSeat(seat), name: p.name, color: p.color }));
-    const initial = engineCreateGame({ seed, players, board: input.board });
-    const boardKind = typeof input.board === "string" ? input.board : "custom";
-    const definition = typeof input.board === "string" ? null : input.board;
+    const scenario = input.scenario ?? null;
+    const initial = scenario ? engineCreateGame({ seed, players, scenario }) : engineCreateGame({ seed, players, board: input.board });
+    const boardKind = scenario || typeof input.board !== "string" ? "custom" : input.board;
+    const definition = scenario ? scenario.board : typeof input.board === "string" ? null : input.board;
     const [row] = await tx<{ id: string }[]>`
-      insert into games (seed, state, version, status, created_by, board, board_definition, max_players)
-      values (${seed}, ${tx.json(initial as unknown as JSONValue)}, 0, 'active', ${input.createdBy}, ${boardKind}, ${definition ? tx.json(definition as unknown as JSONValue) : null}, ${input.players.length})
+      insert into games (seed, state, version, status, created_by, board, board_definition, scenario, max_players)
+      values (${seed}, ${tx.json(initial as unknown as JSONValue)}, 0, 'active', ${input.createdBy}, ${boardKind}, ${definition ? tx.json(definition as unknown as JSONValue) : null}, ${scenario ? tx.json(scenario as unknown as JSONValue) : null}, ${input.players.length})
       returning id`;
     const gameId = row!.id;
     await tx`insert into lobbies (game_id, join_code, status, host_user_id, max_players, board, board_name)
@@ -302,7 +318,7 @@ export async function createGameForUsers(sql: Db, input: CreateGameInput): Promi
     }
     const seats = await seatsOf(tx as Tx, gameId);
     const loop = runBotLoop(initial, seats);
-    const game: GameRow = { id: gameId, seed, state: initial, version: 0, status: "active", created_by: input.createdBy, join_code: null, host_user_id: input.createdBy, max_players: input.players.length, board: boardKind, board_definition: definition };
+    const game: GameRow = { id: gameId, seed, state: initial, version: 0, status: "active", created_by: input.createdBy, join_code: null, host_user_id: input.createdBy, max_players: input.players.length, board: boardKind, board_definition: definition, scenario };
     const version = await persist(tx as Tx, game, seats, loop.state, loop.actions, loop.events);
     return { gameId, version };
   });
@@ -311,7 +327,7 @@ export async function createGameForUsers(sql: Db, input: CreateGameInput): Promi
 /** Start an active game from an existing lobby's seats (Phase 5 start-game). */
 export async function activateGame(tx: Tx, game: GameRow, seats: SeatRow[]): Promise<number> {
   const players = seats.map((s) => ({ id: s.player_id, name: s.name, color: s.color }));
-  const initial = engineCreateGame({ seed: game.seed, players, board: boardOptionOf(game) });
+  const initial = engineCreateGame({ seed: game.seed, players, ...gameOptionsOf(game) });
   await tx`update games set state = ${tx.json(initial as unknown as JSONValue)}, status = 'active', updated_at = now() where id = ${game.id}`;
   await tx`update lobbies set status = 'active', updated_at = now() where game_id = ${game.id}`;
   const loop = runBotLoop(initial, seats);
@@ -334,7 +350,7 @@ export async function replayCheck(sql: Db, gameId: string): Promise<ReplayResult
   const rows = await sql<{ index: number; action: Action }[]>`select index, action from game_actions where game_id = ${gameId} order by index`;
   const seats = await sql<SeatRow[]>`select * from game_players where game_id = ${gameId} order by seat`;
   const players = seats.map((s) => ({ id: s.player_id, name: s.name, color: s.color }));
-  const initial = engineCreateGame({ seed: game.seed, players, board: boardOptionOf(game) });
+  const initial = engineCreateGame({ seed: game.seed, players, ...gameOptionsOf(game) });
   const rebuilt = replay(initial, rows.map((r) => r.action));
   // jsonb does not preserve key order, so compare canonical encodings.
   const a = canonicalJson(rebuilt);

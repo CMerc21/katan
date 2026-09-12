@@ -66,7 +66,8 @@ export const TRANSPORT_TEXT: Record<string, string> = {
   NOT_ABSENT: "That player has not been away long enough, or is not being waited on",
   BOT_CAP: "The bots stopped early; try again",
   BOARD_NOT_FOUND: "That board no longer exists",
-  NOT_OWNER: "You do not own that board",
+  SCENARIO_NOT_FOUND: "That scenario no longer exists",
+  NOT_OWNER: "You do not own that",
   NETWORK: "Couldn't reach the game server. Retrying…",
 };
 
@@ -108,6 +109,16 @@ export const ERROR_TEXT: Record<RuleErrorCode, string> = {
   NO_PENDING_TRADE: "There is no open offer",
   BAD_TRADE_RATIO: "You do not have a port for that ratio",
   INVALID_BOARD: "That board is not valid",
+  TIDES_OFF: "Ships and the pirate need the Tides module",
+  PIRATE_BLOCKS: "The pirate blocks that edge",
+  SHIP_NOT_CONNECTED: "Ships must connect to your settlements or ships",
+  NOT_YOUR_SHIP: "That is not your ship",
+  NOT_OPEN_END: "Only the ship at the open end of a route can move",
+  SHIP_TOO_NEW: "A ship built this turn cannot move yet",
+  SHIP_ALREADY_MOVED: "Only one ship may move per turn",
+  NO_GOLD_OWED: "You are owed no gold",
+  WRONG_GOLD_COUNT: "Choose exactly the number owed",
+  INVALID_SCENARIO: "That scenario is not valid",
 };
 
 export function describeCost(cost: Hand): string {
@@ -118,6 +129,7 @@ export function describeCost(cost: Hand): string {
 
 export const COST_TEXT = {
   road: describeCost(COSTS.road),
+  ship: describeCost(COSTS.ship),
   settlement: describeCost(COSTS.settlement),
   city: describeCost(COSTS.city),
   devCard: describeCost(COSTS.devCard),
@@ -143,7 +155,7 @@ export function bannerText(view: RedactedState, me: string): string {
   const mine = current === me;
   switch (phase.kind) {
     case "setup":
-      return phase.step === "settlement" ? `${name}: place a settlement` : `${name}: place a road`;
+      return phase.step === "settlement" ? `${name}: place a settlement` : view.scenario?.tides ? `${name}: place a road or a ship` : `${name}: place a road`;
     case "roll":
       return mine ? "Roll the dice" : `Waiting for ${name} to roll`;
     case "discard": {
@@ -152,11 +164,17 @@ export function bannerText(view: RedactedState, me: string): string {
       return `Waiting for ${owing.map((id) => playerName(view, id)).join(", ")} to discard`;
     }
     case "moveRobber":
+      if (view.pirateHex !== null) return mine ? "Move the robber or the pirate" : `Waiting for ${name} to move the robber or the pirate`;
       return mine ? "Move the robber" : `Waiting for ${name} to move the robber`;
+    case "chooseGold": {
+      const owing = Object.keys(phase.owed);
+      if (owing.includes(me)) return `Gold: choose ${phase.owed[me]} resource${phase.owed[me] === 1 ? "" : "s"}`;
+      return `Waiting for ${owing.map((id) => playerName(view, id)).join(", ")} to choose gold`;
+    }
     case "steal":
       return mine ? "Choose who to steal from" : `Waiting for ${name} to steal`;
     case "roadBuilding":
-      return `Place ${phase.remaining} free road${phase.remaining === 1 ? "" : "s"}`;
+      return view.scenario?.tides ? `Place ${phase.remaining} free road${phase.remaining === 1 ? "" : "s"} or ship${phase.remaining === 1 ? "" : "s"}` : `Place ${phase.remaining} free road${phase.remaining === 1 ? "" : "s"}`;
     case "specialBuild": {
       const builder = phase.order[phase.index] ?? current;
       return builder === me ? "Special build: build, buy, or pass" : `Waiting for ${playerName(view, builder)} to build or pass`;
@@ -184,6 +202,10 @@ export function actionLabel(action: Action): string {
       return "Build settlement";
     case "BUILD_CITY":
       return "Build city";
+    case "BUILD_SHIP":
+      return "Build ship";
+    case "MOVE_SHIP":
+      return "Move ship";
     default:
       return action.type;
   }

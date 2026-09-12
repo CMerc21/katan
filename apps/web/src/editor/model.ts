@@ -31,9 +31,26 @@ import {
   type Terrain,
   type TerrainGeneration,
   type TokenGeneration,
+  landComponents,
+  type Scenario,
+  type ScenarioSetup,
 } from "@katan/engine";
 
-export type Tool = "frame" | "terrain" | "token" | "harbor";
+export type Tool = "frame" | "terrain" | "token" | "harbor" | "island";
+
+/** Scenario settings kept next to the board while editing (docs/phase9.md §5); null means a plain board. */
+export interface ScenarioSettings {
+  readonly tides: boolean;
+  readonly pirate: boolean;
+  readonly islandBonus: number;
+  readonly setup: ScenarioSetup;
+  readonly mainIsland: number | null;
+  readonly victoryPoints: number;
+  /** One rule per line. */
+  readonly specialRules: string;
+}
+
+export const DEFAULT_SCENARIO: ScenarioSettings = { tides: true, pirate: true, islandBonus: 2, setup: "standard", mainIsland: null, victoryPoints: 10, specialRules: "" };
 export type Symmetry = "none" | "mirror" | "rotate";
 
 export interface EditorState {
@@ -45,8 +62,9 @@ export interface EditorState {
   /** Radius of the extended grid drawn around the board (empty cells). */
   readonly gridRadius: number;
   readonly dirty: boolean;
-  /** A saved board's id, or null for a new board / draft. */
+  /** A saved board's (or scenario's) id, or null for a new board / draft. */
   readonly boardId: string | null;
+  readonly scenario: ScenarioSettings | null;
 }
 
 export type EditorAction =
@@ -69,15 +87,63 @@ export type EditorAction =
   | { type: "autoPlaceHarbors"; seed: string }
   | { type: "clearLayer"; layer: "terrain" | "tokens" | "harbors" }
   | { type: "loadTemplate"; id: BuiltInBoardId }
-  | { type: "load"; def: BoardDefinition; boardId: string | null }
-  | { type: "markSaved"; boardId: string | null };
+  | { type: "load"; def: BoardDefinition; boardId: string | null; scenario?: ScenarioSettings | null }
+  | { type: "markSaved"; boardId: string | null }
+  /** Scenario tab: null turns the scenario off, a partial updates its settings. */
+  | { type: "setScenario"; scenario: Partial<ScenarioSettings> | null };
 
 export function emptyDefinition(name = "New board"): BoardDefinition {
   return { name, hexes: [], harbors: [], seats: { min: 3, max: 4 }, generation: { terrain: "shuffle", tokens: "balanced", harbors: "shuffle" } };
 }
 
-export function initialEditorState(def: BoardDefinition = builtInBoard("random"), boardId: string | null = null): EditorState {
-  return { def: { ...def, name: def.name }, tool: "frame", terrain: "forest", symmetry: "none", selected: null, gridRadius: gridRadiusFor(def), dirty: false, boardId };
+export function initialEditorState(def: BoardDefinition = builtInBoard("random"), boardId: string | null = null, scenario: ScenarioSettings | null = null): EditorState {
+  return { def: { ...def, name: def.name }, tool: "frame", terrain: "forest", symmetry: "none", selected: null, gridRadius: gridRadiusFor(def), dirty: false, boardId, scenario };
+}
+
+/** Editor settings from a stored scenario. */
+export function settingsOf(s: Scenario): ScenarioSettings {
+  return {
+    tides: s.modules.tides === true,
+    pirate: s.pirate !== false,
+    islandBonus: s.islandBonus ?? 0,
+    setup: s.setup ?? "standard",
+    mainIsland: s.mainIsland ?? null,
+    victoryPoints: s.victoryPoints,
+    specialRules: (s.specialRules ?? []).join("\n"),
+  };
+}
+
+/** The scenario the editor would save, or null for a plain board. */
+export function toScenario(state: EditorState, id = state.boardId ?? "draft"): Scenario | null {
+  const sc = state.scenario;
+  if (!sc) return null;
+  const rules = sc.specialRules
+    .split("\n")
+    .map((x) => x.trim())
+    .filter((x) => x.length > 0);
+  return {
+    id,
+    name: state.def.name,
+    board: state.def,
+    modules: { tides: sc.tides },
+    pirate: sc.pirate,
+    islandBonus: sc.islandBonus,
+    setup: sc.setup,
+    ...(sc.setup === "mainIslandOnly" ? { mainIsland: sc.mainIsland ?? 0 } : {}),
+    victoryPoints: sc.victoryPoints,
+    specialRules: rules,
+  };
+}
+
+/** Islands of the current definition in engine order (largest first), so the index is the island id. */
+export function islandsOf(def: BoardDefinition): HexId[][] {
+  return landComponents(def);
+}
+
+export function islandIndexOf(def: BoardDefinition, at: HexCoord): number | null {
+  const id = hexId(at);
+  const i = islandsOf(def).findIndex((comp) => comp.includes(id));
+  return i < 0 ? null : i;
 }
 
 export function gridRadiusFor(def: BoardDefinition): number {
@@ -261,9 +327,15 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
       return { ...state, def: { ...t, name: state.def.name || t.name }, selected: null, dirty: true, gridRadius: gridRadiusFor(t) };
     }
     case "load":
-      return { ...state, def: action.def, boardId: action.boardId, selected: null, dirty: false, gridRadius: gridRadiusFor(action.def) };
+      return { ...state, def: action.def, boardId: action.boardId, selected: null, dirty: false, gridRadius: gridRadiusFor(action.def), scenario: action.scenario === undefined ? state.scenario : action.scenario };
     case "markSaved":
       return { ...state, dirty: false, boardId: action.boardId };
+    case "setScenario": {
+      if (action.scenario === null) return { ...state, scenario: null, dirty: true, tool: state.tool === "island" ? "frame" : state.tool };
+      const base = state.scenario ?? DEFAULT_SCENARIO;
+      const next: ScenarioSettings = { ...base, ...action.scenario };
+      return { ...state, scenario: { ...next, victoryPoints: Math.max(3, Math.min(30, Math.round(next.victoryPoints))), islandBonus: Math.max(0, Math.min(5, Math.round(next.islandBonus))) }, dirty: true };
+    }
     default: {
       const exhaustive: never = action;
       throw new Error(String(exhaustive));
@@ -281,7 +353,7 @@ function stripKeys(h: HexDef, keys: ("terrain" | "token")[]): HexDef {
 
 /** Actions that change the definition are recorded in history; view state is not. */
 export function isUndoable(action: EditorAction): boolean {
-  return !["setTool", "setTerrain", "setSymmetry", "select", "load", "markSaved"].includes(action.type);
+  return !["setTool", "setTerrain", "setSymmetry", "select", "load", "markSaved", "setScenario"].includes(action.type);
 }
 
 export interface History {

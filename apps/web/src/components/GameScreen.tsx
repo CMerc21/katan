@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { BotLevel } from "@katan/bots";
-import { isHiddenCount, nextActor, viewToState, type Action } from "@katan/engine";
+import { isHiddenCount, nextActor, viewToState, type Action, type EdgeId } from "@katan/engine";
 import type { ConnectionState, GameDriver, SeatInfo } from "@/driver/types";
 import type { Step } from "@/game/eventQueue";
 import { clearDriver } from "@/game/store";
@@ -18,7 +18,7 @@ import { useGame } from "@/hooks/useGame";
 import { AnchorsProvider } from "./anim/anchors";
 import { Confetti, DevCardReveal, DiceTray, FlightLayer, TurnBanner, thinkingPlayer } from "./anim/effects";
 import { BottomBar } from "./BottomBar";
-import { DiscardDialog, EndedOverlay, HandoffOverlay, ResourcePicker, StealPopover, TradeDialog } from "./dialogs";
+import { DiscardDialog, EndedOverlay, GoldDialog, HandoffOverlay, ResourcePicker, StealPopover, TradeDialog } from "./dialogs";
 import { LogPanel } from "./LogPanel";
 import { PlayersPanel } from "./PlayersPanel";
 import { Button } from "./ui";
@@ -67,10 +67,16 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
           playSound("card");
           break;
         case "built":
+        case "shipBuilt":
+        case "shipMoved":
           playSound("piece");
           break;
         case "robberMoved":
+        case "pirateMoved":
           playSound("robber");
+          break;
+        case "goldChosen":
+          playSound("card");
           break;
         case "turnStarted":
           playSound("turn");
@@ -105,7 +111,12 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
     return () => clearTimeout(t);
   }, [toast]);
 
-  const [mode, setMode] = useState<TargetMode>(null);
+  const [mode, setModeRaw] = useState<TargetMode>(null);
+  const [moveFrom, setMoveFrom] = useState<EdgeId | null>(null);
+  const setMode = useCallback((m: TargetMode) => {
+    setModeRaw(m);
+    setMoveFrom(null);
+  }, []);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState<ReadonlySet<string> | undefined>(undefined);
@@ -164,7 +175,14 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
 
   useEffect(() => {
     if (view.phase.kind !== "action" && view.phase.kind !== "specialBuild") setMode(null);
-  }, [view.phase.kind]);
+  }, [view.phase.kind, setMode]);
+
+  // docs/phase9.md §8: a toast when someone earns an island pennant.
+  useEffect(() => {
+    if (current?.kind === "event" && current.event.kind === "islandSettled") {
+      setToast(`${playerName(view, current.event.playerId)} settled a new island (+${current.event.bonus})`);
+    }
+  }, [current, view]);
 
   useEffect(() => {
     if (!error) return;
@@ -187,6 +205,8 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
   const meView = view.players.find((p) => p.id === me)!;
   const myHand = isHiddenCount(meView.hand) ? null : meView.hand;
   const owed = view.phase.kind === "discard" ? (view.pendingDiscards[me] ?? 0) : 0;
+  const goldOwed = view.phase.kind === "chooseGold" ? (view.phase.owed[me] ?? 0) : 0;
+  const goldChoice = legal.find((a): a is Extract<Action, { type: "CHOOSE_GOLD" }> => a.type === "CHOOSE_GOLD");
   // Input is disabled while the queue drains (docs/phase7.md §2.1); legal actions come from the latest server view.
   const interactive = !handoff && !seatIsBot && !draining;
   const activeLegal = interactive ? legal : [];
@@ -220,6 +240,8 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
             view={view}
             legal={activeLegal}
             mode={mode}
+            moveFrom={moveFrom}
+            onPickShip={setMoveFrom}
             meColor={meView.color}
             onAction={run}
             step={current}
@@ -310,6 +332,8 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
       {handoff && handoffFor && <HandoffOverlay name={playerName(view, handoffFor)} onReady={() => driver.acknowledgeHandoff?.()} />}
 
       {interactive && owed > 0 && myHand && <DiscardDialog hand={myHand} owed={owed} onDiscard={(cards) => run({ type: "DISCARD", playerId: me, cards })} />}
+
+      {interactive && goldOwed > 0 && goldChoice && <GoldDialog owed={goldChoice.resources.length} legal={legal} onChoose={run} />}
 
       {interactive && dialog?.kind === "trade" && myHand && <TradeDialog view={view} me={me} hand={myHand} legal={legal} onDispatch={run} onClose={() => setDialog(null)} seats={seats} />}
 

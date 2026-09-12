@@ -74,6 +74,42 @@ function Token({ n, x, z, y, bounceKey, dim }: { n: number; x: number; z: number
   );
 }
 
+/** Gold fields glitter (docs/phase9.md §8): three tiny specks that twinkle out of phase. */
+function GoldGlitter({ x, z, y }: { x: number; z: number; y: number }) {
+  const specks = useRef<THREE.Mesh[]>([]);
+  specks.current = [];
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime();
+    specks.current.forEach((m, i) => {
+      const k = 0.5 + 0.5 * Math.sin(t * 2.3 + i * 2.1 + x);
+      m.scale.setScalar(0.5 + k);
+      (m.material as THREE.MeshBasicMaterial).opacity = 0.35 + k * 0.6;
+    });
+  });
+  const spots: [number, number][] = [
+    [0.45, 0.2],
+    [-0.5, 0.35],
+    [0.1, -0.55],
+  ];
+  return (
+    <group position={[x, y, z]}>
+      {spots.map(([dx, dz], i) => (
+        <mesh
+          key={i}
+          ref={(el) => {
+            if (el) specks.current.push(el);
+          }}
+          position={[dx, 0.02, dz]}
+          rotation={[-Math.PI / 2, 0, 0]}
+        >
+          <circleGeometry args={[0.035, 5]} />
+          <meshBasicMaterial color="#fff2b0" transparent opacity={0.6} depthWrite={false} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 export function Tiles({ tiles, robberHex, rolled, rollKey, blockedHex, shadows }: { tiles: TileInfo[]; robberHex: HexId; rolled: number | null; rollKey: number | null; blockedHex: HexId | null; shadows: boolean }) {
   const land = useSlabGeometry(SLAB_HEIGHT);
   const sea = useSlabGeometry(SEA_HEIGHT);
@@ -109,15 +145,18 @@ export function Tiles({ tiles, robberHex, rolled, rollKey, blockedHex, shadows }
           <mesh geometry={isSea ? sea : land} material={mat} position={[c.x, isSea ? -0.04 : 0, c.z]} rotation={[j.tiltX, 0, j.tiltZ]} scale={[1, j.height, 1]} receiveShadow={shadows} castShadow={shadows} />
         );
         const token = tile.token !== null && !isSea ? <Token n={tile.token} x={c.x} z={c.z} y={top + 0.02} bounceKey={rolled === tile.token && tile.id !== robberHex ? rollKey : null} dim={blocked} /> : null;
+        const glitter = tile.terrain === "gold" ? <GoldGlitter x={c.x} z={c.z} y={top} /> : null;
         return blocked ? (
           <group key={tile.id} ref={shaking}>
             {slab}
             {token}
+            {glitter}
           </group>
         ) : (
           <group key={tile.id}>
             {slab}
             {token}
+            {glitter}
           </group>
         );
       })}

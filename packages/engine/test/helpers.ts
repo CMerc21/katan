@@ -8,6 +8,7 @@ import { legalActions } from "../src/legal";
 import { createRng, rng, type Rng } from "../src/rng";
 import { buildingAt, cloneJson, currentPlayerId, getPlayer, hand } from "../src/state";
 import { updateLongestRoad } from "../src/specialCards";
+import type { Scenario } from "../src/scenario";
 import type { Action, GameState, Hand, PlayerId } from "../src/types";
 
 export const FOUR = [
@@ -172,6 +173,9 @@ const WEIGHTS: Record<Action["type"], number> = {
   MARITIME_TRADE: 1,
   END_TURN: 2,
   SPECIAL_BUILD_DONE: 2,
+  BUILD_SHIP: 6,
+  MOVE_SHIP: 1,
+  CHOOSE_GOLD: 1,
 };
 
 /** All legal actions for every player, current player first. */
@@ -183,7 +187,7 @@ export function allLegalActions(state: GameState): Action[] {
   return out;
 }
 
-const BUILD_TYPES: ReadonlySet<Action["type"]> = new Set(["BUILD_ROAD", "BUILD_SETTLEMENT", "BUILD_CITY", "BUY_DEV_CARD"]);
+const BUILD_TYPES: ReadonlySet<Action["type"]> = new Set(["BUILD_ROAD", "BUILD_SHIP", "BUILD_SETTLEMENT", "BUILD_CITY", "BUY_DEV_CARD"]);
 
 /**
  * Greedy-random policy: build or buy whenever possible; otherwise pick an
@@ -232,10 +236,10 @@ export interface RandomGame {
 
 export function playRandomGame(
   seed: string,
-  options: { maxTurns?: number; onStep?: (state: GameState, action: Action) => void; players?: typeof FOUR } = {},
+  options: { maxTurns?: number; onStep?: (state: GameState, action: Action) => void; players?: typeof FOUR; scenario?: Scenario } = {},
 ): RandomGame {
   const maxTurns = options.maxTurns ?? 400;
-  const initial = createGame({ seed, players: options.players ?? FOUR, board: "random" });
+  const initial = options.scenario ? createGame({ seed, players: options.players ?? FOUR, scenario: options.scenario }) : createGame({ seed, players: options.players ?? FOUR, board: "random" });
   const rng = createRng(seed, "random-play");
   let state = initial;
   const actions: Action[] = [];

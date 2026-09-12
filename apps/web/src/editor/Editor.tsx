@@ -13,23 +13,24 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { BUILT_IN_BOARD_IDS, RESOURCES, TERRAINS, builtInBoard, hasErrors, landComponents, validateBoard, type BoardDefinition, type EdgeId, type HexCoord, type Terrain } from "@katan/engine";
 import { Button } from "@/components/ui";
 import { errorText } from "@/game/labels";
+import { validateScenario, type Scenario } from "@katan/engine";
 import { startHotseat } from "@/game/store";
 import { TERRAIN_FILL } from "@/game/theme";
 import { useSettings } from "@/game/settings";
 import { useSession } from "@/hooks/useSession";
-import { harborKindOf, historyReduce, initialEditorState, rectangleCells, tokenTray, type EditorAction, type History, type Symmetry, type Tool } from "./model";
-import { deleteDraft, isDraftId, saveBoardRemote, saveDraft, type StoredBoard } from "./storage";
+import { DEFAULT_SCENARIO, harborKindOf, historyReduce, initialEditorState, islandIndexOf, islandsOf, rectangleCells, tokenTray, toScenario, type EditorAction, type History, type ScenarioSettings, type Symmetry, type Tool } from "./model";
+import { deleteDraft, deleteScenarioDraft, isDraftId, isScenarioDraftId, saveBoardRemote, saveDraft, saveScenarioDraft, saveScenarioRemote, type StoredBoard, type StoredScenario } from "./storage";
 
 const EditorCanvas = dynamic(() => import("./EditorCanvas").then((m) => m.EditorCanvas), { ssr: false, loading: () => <div className="grid h-full place-items-center text-parchment/70">Laying out the table…</div> });
 
 const TERRAIN_LABEL: Record<Terrain, string> = { forest: "Forest", claypit: "Clay pit", meadow: "Meadow", farmland: "Farmland", mountain: "Mountain", wasteland: "Wasteland", gold: "Gold" };
 const TEMPLATE_LABEL: Record<string, string> = { beginner: "Beginner", random: "Standard", large: "Large", longStrip: "Long strip", ring: "Ring" };
 
-export function Editor({ initial, initialId }: { initial: BoardDefinition; initialId: string | null }) {
+export function Editor({ initial, initialId, initialScenario = null }: { initial: BoardDefinition; initialId: string | null; initialScenario?: ScenarioSettings | null }) {
   const router = useRouter();
   const { session } = useSession();
   const [settings] = useSettings();
-  const [history, dispatchRaw] = useReducer(historyReduce, null, (): History => ({ past: [], present: initialEditorState(initial, initialId), future: [] }));
+  const [history, dispatchRaw] = useReducer(historyReduce, null, (): History => ({ past: [], present: initialEditorState(initial, initialId, initialScenario), future: [] }));
   const state = history.present;
   const dispatch = useCallback((a: EditorAction | { type: "undo" } | { type: "redo" }) => dispatchRaw(a), []);
   const [topDown, setTopDown] = useState(true);
@@ -39,7 +40,9 @@ export function Editor({ initial, initialId }: { initial: BoardDefinition; initi
   const dragStart = useRef<{ at: HexCoord; shift: boolean; button: number } | null>(null);
   const quality = settings.quality === "auto" ? "medium" : settings.quality;
 
-  const issues = useMemo(() => validateBoard(state.def, { allowIslands: true }), [state.def]);
+  const scenario = useMemo(() => toScenario(state), [state]);
+  const issues = useMemo(() => (scenario ? validateScenario(scenario) : validateBoard(state.def, { allowIslands: true })), [scenario, state.def]);
+  const islandList = useMemo(() => islandsOf(state.def), [state.def]);
   const errors = issues.filter((i) => i.severity === "error");
   const warnings = issues.filter((i) => i.severity === "warning");
   const islands = useMemo(() => landComponents(state.def).length, [state.def]);
@@ -73,11 +76,16 @@ export function Editor({ initial, initialId }: { initial: BoardDefinition; initi
         case "harbor":
           dispatch({ type: "select", id: `${at.q},${at.r}` });
           break;
+        case "island": {
+          const island = islandIndexOf(state.def, at);
+          if (island !== null) dispatch({ type: "setScenario", scenario: { setup: "mainIslandOnly", mainIsland: island } });
+          break;
+        }
         default:
           break;
       }
     },
-    [dispatch, state.tool, state.terrain],
+    [dispatch, state.tool, state.terrain, state.def],
   );
   const onCellDown = useCallback(
     (at: HexCoord, shift: boolean, button: number) => {
@@ -149,6 +157,7 @@ export function Editor({ initial, initialId }: { initial: BoardDefinition; initi
 
   const save = async (asCopy: boolean) => {
     if (hasErrors(issues)) return setToast("Fix the errors before saving");
+    if (scenario) return saveScenario(asCopy, scenario);
     if (session) {
       const keepId = !asCopy && state.boardId && !isDraftId(state.boardId) ? state.boardId : undefined;
       const r = await saveBoardRemote(state.def, keepId ? { boardId: keepId, isPublic } : { isPublic });
@@ -165,6 +174,23 @@ export function Editor({ initial, initialId }: { initial: BoardDefinition; initi
     router.replace(`/boards/editor/${draft.id}`);
   };
 
+  const saveScenario = async (asCopy: boolean, sc: Scenario) => {
+    if (session) {
+      const keepId = !asCopy && state.boardId && !isScenarioDraftId(state.boardId) && !isDraftId(state.boardId) ? state.boardId : undefined;
+      const r = await saveScenarioRemote(sc, keepId ? { scenarioId: keepId, isPublic } : { isPublic });
+      if (!r.ok) return setToast(errorText(r.code));
+      if (state.boardId && isScenarioDraftId(state.boardId)) deleteScenarioDraft(state.boardId);
+      dispatch({ type: "markSaved", boardId: r.scenarioId });
+      setToast("Scenario saved");
+      router.replace(`/boards/editor/${r.scenarioId}`);
+      return;
+    }
+    const draft: StoredScenario = saveScenarioDraft(sc, asCopy ? undefined : (state.boardId ?? undefined));
+    dispatch({ type: "markSaved", boardId: draft.id });
+    setToast("Scenario saved on this device");
+    router.replace(`/boards/editor/${draft.id}`);
+  };
+
   const testPlay = () => {
     if (hasErrors(issues)) return setToast("Fix the errors before playing");
     const seats = Math.min(4, state.def.seats.max);
@@ -172,10 +198,13 @@ export function Editor({ initial, initialId }: { initial: BoardDefinition; initi
     startHotseat({
       players: names.slice(0, seats).map((name, i) => (i === 0 ? { id: `p${i + 1}-${name.toLowerCase()}`, name } : { id: `p${i + 1}-${name.toLowerCase()}`, name, bot: "medium" as const })),
       board: state.def,
+      ...(scenario ? { scenario } : {}),
       seed: `test-${Date.now().toString(36)}`,
     });
     router.push("/play");
   };
+
+  const setScenario = (patch: Partial<ScenarioSettings> | null) => dispatch({ type: "setScenario", scenario: patch });
 
   const modeButton = <T extends string>(current: T, value: T, label: string, onPick: () => void, testId: string) => (
     <Button size="sm" variant={current === value ? "primary" : "secondary"} onClick={onPick} data-testid={testId}>
@@ -253,6 +282,7 @@ export function Editor({ initial, initialId }: { initial: BoardDefinition; initi
                   ["terrain", "Terrain"],
                   ["token", "Token (T)"],
                   ["harbor", "Harbour (H)"],
+                  ...(state.scenario ? [["island", "Main island"]] : []),
                 ] as [Tool, string][]
               ).map(([t, label]) => (
                 <Button key={t} size="sm" variant={state.tool === t ? "primary" : "secondary"} onClick={() => dispatch({ type: "setTool", tool: t })} data-testid={`tool-${t}`}>
@@ -265,6 +295,7 @@ export function Editor({ initial, initialId }: { initial: BoardDefinition; initi
               {state.tool === "terrain" && "Paint land hexes. Right-click clears to unassigned."}
               {state.tool === "token" && "Click a hex, then type its number in the inspector."}
               {state.tool === "harbor" && "Click a coastal edge to cycle 3:1 → 2:1 …"}
+              {state.tool === "island" && "Click a hex to make its island the starting island."}
             </p>
           </div>
           <div>
@@ -413,6 +444,61 @@ export function Editor({ initial, initialId }: { initial: BoardDefinition; initi
               </div>
             ) : (
               <p className="mt-1 text-xs text-ink-soft">Click a cell or, with the harbour tool, a coastal edge.</p>
+            )}
+          </div>
+          <div data-testid="scenario-tab">
+            <h2 className="font-display text-sm font-semibold text-ink-soft">Scenario</h2>
+            {!state.scenario ? (
+              <div className="mt-1 space-y-1">
+                <p className="text-xs text-ink-soft">A plain board. Turn it into a scenario for ships, gold, islands and a custom goal (docs/phase9.md).</p>
+                <Button size="sm" onClick={() => setScenario({ ...DEFAULT_SCENARIO })} data-testid="scenario-on">
+                  Make it a scenario
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-1 space-y-1.5 text-xs">
+                <label className="flex items-center gap-1">
+                  <input type="checkbox" checked={state.scenario.tides} onChange={(e) => setScenario({ tides: e.target.checked })} data-testid="scenario-tides" /> Tides: ships, sea play, gold fields
+                </label>
+                <label className="flex items-center gap-1">
+                  <input type="checkbox" checked={state.scenario.pirate} disabled={!state.scenario.tides} onChange={(e) => setScenario({ pirate: e.target.checked })} data-testid="scenario-pirate" /> Pirate
+                </label>
+                <label className="flex items-center gap-1">
+                  Island bonus
+                  <input type="number" min={0} max={5} className="w-12 rounded-md border border-line bg-white/60 px-1 py-0.5" value={state.scenario.islandBonus} disabled={!state.scenario.tides} onChange={(e) => setScenario({ islandBonus: Number(e.target.value) })} data-testid="scenario-island-bonus" /> points per new island
+                </label>
+                <label className="flex items-center gap-1">
+                  Points to win
+                  <input type="number" min={3} max={30} className="w-12 rounded-md border border-line bg-white/60 px-1 py-0.5" value={state.scenario.victoryPoints} onChange={(e) => setScenario({ victoryPoints: Number(e.target.value) })} data-testid="scenario-vp" />
+                </label>
+                <label className="flex items-center gap-1">
+                  Setup
+                  <select className="rounded-md border border-line bg-white/60 px-1 py-0.5" value={state.scenario.setup} onChange={(e) => setScenario({ setup: e.target.value as ScenarioSettings["setup"], ...(e.target.value === "mainIslandOnly" && state.scenario?.mainIsland === null ? { mainIsland: 0 } : {}) })} data-testid="scenario-setup">
+                    <option value="standard">Anywhere</option>
+                    <option value="mainIslandOnly">Main island only</option>
+                  </select>
+                </label>
+                {state.scenario.setup === "mainIslandOnly" && (
+                  <div className="flex flex-wrap items-center gap-1" data-testid="scenario-islands">
+                    Main island:
+                    {islandList.map((comp, i) => (
+                      <Button key={i} size="sm" variant={state.scenario?.mainIsland === i ? "primary" : "secondary"} onClick={() => setScenario({ mainIsland: i })} data-testid={`scenario-island-${i}`}>
+                        {i + 1} ({comp.length})
+                      </Button>
+                    ))}
+                    <Button size="sm" variant="quiet" onClick={() => dispatch({ type: "setTool", tool: "island" })}>
+                      Pick on board
+                    </Button>
+                  </div>
+                )}
+                <label className="block">
+                  Special rules (one per line)
+                  <textarea className="mt-0.5 w-full rounded-md border border-line bg-white/60 px-1 py-0.5" rows={2} value={state.scenario.specialRules} onChange={(e) => setScenario({ specialRules: e.target.value })} data-testid="scenario-rules" />
+                </label>
+                <Button size="sm" variant="quiet" onClick={() => setScenario(null)} data-testid="scenario-off">
+                  Back to a plain board
+                </Button>
+              </div>
             )}
           </div>
           <div>

@@ -36,7 +36,17 @@ export type RuleErrorCode =
   | "TRADE_ALREADY_PENDING"
   | "NO_PENDING_TRADE"
   | "BAD_TRADE_RATIO"
-  | "INVALID_BOARD";
+  | "INVALID_BOARD"
+  | "TIDES_OFF"
+  | "PIRATE_BLOCKS"
+  | "SHIP_NOT_CONNECTED"
+  | "NOT_YOUR_SHIP"
+  | "NOT_OPEN_END"
+  | "SHIP_TOO_NEW"
+  | "SHIP_ALREADY_MOVED"
+  | "NO_GOLD_OWED"
+  | "WRONG_GOLD_COUNT"
+  | "INVALID_SCENARIO";
 
 export class RuleError extends Error {
   readonly code: RuleErrorCode;

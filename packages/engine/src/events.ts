@@ -40,6 +40,12 @@ export type EventBody =
   | { kind: "specialBuildTurn"; playerId: PlayerId }
   | { kind: "setupCompleted" }
   | { kind: "gameEnded"; winner: PlayerId; scores: Record<PlayerId, number> }
+  /** Tides (docs/phase9.md §6). */
+  | { kind: "shipBuilt"; playerId: PlayerId; at: EdgeId }
+  | { kind: "shipMoved"; playerId: PlayerId; from: EdgeId; to: EdgeId }
+  | { kind: "pirateMoved"; from: HexId | null; to: HexId; by: PlayerId }
+  | { kind: "goldChosen"; playerId: PlayerId; resources: Resource[] }
+  | { kind: "islandSettled"; playerId: PlayerId; island: number; bonus: number }
   /** Free text from outside the rules (a seat handed to a bot, the host ending the game). */
   | { kind: "note"; playerId: PlayerId | null; text: string };
 
@@ -63,8 +69,13 @@ export function eventPlayer(event: GameEvent): PlayerId | null {
     case "maritimeTrade":
     case "turnEnded":
     case "specialBuildTurn":
+    case "shipBuilt":
+    case "shipMoved":
+    case "goldChosen":
+    case "islandSettled":
       return event.playerId;
     case "robberMoved":
+    case "pirateMoved":
       return event.by;
     case "stole":
       return event.to;
@@ -181,6 +192,19 @@ export function describeEvent(event: GameEvent, nameOf: (id: PlayerId) => string
       return "setup complete";
     case "gameEnded":
       return `${nameOf(event.winner)} wins`;
+    case "shipBuilt":
+      return `${nameOf(event.playerId)} built a ship`;
+    case "shipMoved":
+      return `${nameOf(event.playerId)} moved a ship`;
+    case "pirateMoved":
+      return `${nameOf(event.by)} moved the pirate`;
+    case "goldChosen": {
+      const h: Hand = { wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 };
+      for (const r of event.resources) h[r] += 1;
+      return `${nameOf(event.playerId)} took ${handText(h)} from the gold field`;
+    }
+    case "islandSettled":
+      return `${nameOf(event.playerId)} settled a new island (+${event.bonus})`;
     case "note":
       return event.text;
     default: {

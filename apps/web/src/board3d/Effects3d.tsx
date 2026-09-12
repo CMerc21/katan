@@ -14,7 +14,7 @@ import type { HexId } from "@katan/engine";
 import { LEATHER } from "@/game/theme";
 import { easeInOut, easeOutCubic } from "./geo";
 import { SLAB_HEIGHT, hexWorld, type Bounds, type World } from "./layout3d";
-import { RobberFigure, robberOffset } from "./Pieces";
+import { PirateFigure, RobberFigure, pirateOffset, robberOffset } from "./Pieces";
 import { dieFaceTexture } from "./textures";
 
 // ---------------------------------------------------------------------------
@@ -61,6 +61,52 @@ export function AnimatedRobber({ hex, shadows }: { hex: HexId; shadows: boolean 
   return (
     <group ref={group}>
       <RobberFigure shadows={shadows} />
+    </group>
+  );
+}
+
+/** The pirate sails between sea hexes (docs/phase9.md §8): same hop as the robber, lower arc. */
+export function AnimatedPirate({ hex, shadows }: { hex: HexId; shadows: boolean }) {
+  const group = useRef<THREE.Group>(null);
+  const from = useRef<World | null>(null);
+  const to = useRef<HexId>(hex);
+  const start = useRef(0);
+  const o = pirateOffset();
+  const dest = (h: HexId): World => {
+    const c = hexWorld(h);
+    return { x: c.x + o.dx, z: c.z + o.dz };
+  };
+  useEffect(() => {
+    if (to.current !== hex) {
+      from.current = dest(to.current);
+      to.current = hex;
+      start.current = performance.now();
+    }
+  }, [hex]);
+  useFrame(() => {
+    const g = group.current;
+    if (!g) return;
+    const end = dest(to.current);
+    const f = from.current;
+    if (!f) {
+      g.position.set(end.x, SLAB_HEIGHT, end.z);
+      return;
+    }
+    const t = Math.min(1, (performance.now() - start.current) / 450);
+    const k = easeInOut(t);
+    const arc = Math.sin(t * Math.PI) * 0.25;
+    g.position.set(f.x + (end.x - f.x) * k, SLAB_HEIGHT + arc, f.z + (end.z - f.z) * k);
+    // Squash on take-off and landing, stretch mid-air.
+    const stretch = 1 + Math.sin(t * Math.PI) * 0.25;
+    g.scale.set(1 / Math.sqrt(stretch), stretch, 1 / Math.sqrt(stretch));
+    if (t >= 1) {
+      from.current = null;
+      g.scale.set(1, 1, 1);
+    }
+  });
+  return (
+    <group ref={group}>
+      <PirateFigure shadows={shadows} />
     </group>
   );
 }

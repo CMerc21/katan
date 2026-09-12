@@ -6,7 +6,9 @@ import { makeBoard, wastelandHex, type Board } from "./board";
 import { isBoardDefinition } from "./definition";
 import { resolveBoard } from "./generation";
 import { RuleError } from "./errors";
+import { geometryFor, type HexId } from "./geometry";
 import { RNG_INDEX_BOARD, RNG_INDEX_DECK, rng } from "./rng";
+import { isScenario, scenarioHasErrors, scenarioRules, type ScenarioRules } from "./scenario";
 import { emptyHand } from "./state";
 import {
   BANK_PER_RESOURCE,
@@ -35,12 +37,39 @@ export function shuffledDevDeck(seed: string): DevCardType[] {
   return rng(seed, RNG_INDEX_DECK).shuffle(cards);
 }
 
+/** Where the pirate starts (docs/rules.md §14.5): the sea hex with the fewest land neighbours, lowest id first. */
+export function initialPirateHex(board: Board): HexId | null {
+  if (board.sea.length === 0) return null;
+  const geo = geometryFor([...Object.keys(board.hexes), ...board.sea]);
+  let bestHex: HexId | null = null;
+  let bestLand = Infinity;
+  for (const h of [...board.sea].sort()) {
+    const land = (geo.hexNeighbors[h] ?? []).filter((n) => board.hexes[n] !== undefined).length;
+    if (land < bestLand) {
+      bestLand = land;
+      bestHex = h;
+    }
+  }
+  return bestHex;
+}
+
 export function createGame(options: CreateGameOptions): GameState {
   const { seed, players } = options;
   const boardOption = options.board ?? "random";
   let board: Board;
   let boardKind: GameState["boardKind"];
-  if (typeof boardOption === "string") {
+  let rules: ScenarioRules | null = null;
+  if (options.scenario !== undefined) {
+    if (!isScenario(options.scenario)) throw new RuleError("INVALID_SCENARIO", "malformed scenario");
+    if (scenarioHasErrors(options.scenario)) throw new RuleError("INVALID_SCENARIO", "the scenario has errors");
+    rules = scenarioRules(options.scenario);
+    const resolved = resolveBoard(options.scenario.board, rng(seed, RNG_INDEX_BOARD), { allowIslands: rules.tides });
+    board = { ...resolved, seaPlayable: rules.tides };
+    boardKind = "custom";
+    if (rules.setup === "mainIslandOnly" && !board.islands.some((i) => i.id === rules?.mainIsland)) {
+      throw new RuleError("INVALID_SCENARIO", "main island does not exist");
+    }
+  } else if (typeof boardOption === "string") {
     board = makeBoard(boardOption, seed);
     boardKind = boardOption;
   } else {
@@ -71,6 +100,11 @@ export function createGame(options: CreateGameOptions): GameState {
     roads: [],
     settlements: [],
     cities: [],
+    ships: [],
+    shipsBuiltThisTurn: [],
+    shipMovedThisTurn: false,
+    startIslands: [],
+    islandChips: [],
   }));
 
   return {
@@ -87,6 +121,8 @@ export function createGame(options: CreateGameOptions): GameState {
     bank: { wood: BANK_PER_RESOURCE, clay: BANK_PER_RESOURCE, wool: BANK_PER_RESOURCE, grain: BANK_PER_RESOURCE, ore: BANK_PER_RESOURCE },
     devDeck: shuffledDevDeck(seed),
     robberHex: wastelandHex(board),
+    pirateHex: rules?.tides && rules.pirate ? initialPirateHex(board) : null,
+    scenario: rules,
     lastRoll: null,
     longestRoad: { playerId: null, length: 0 },
     largestArmy: { playerId: null, count: 0 },

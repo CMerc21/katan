@@ -41,7 +41,7 @@ describe("§1 §2 createGame", () => {
     const state = newGame();
     for (const r of RESOURCES) expect(state.bank[r]).toBe(BANK_PER_RESOURCE);
     for (const p of state.players) {
-      expect(p.pieces).toEqual({ roads: 15, settlements: 5, cities: 4 });
+      expect(p.pieces).toEqual({ roads: 15, settlements: 5, cities: 4, ships: 15 });
       expect(p.hand).toEqual(hand({}));
       expect(p.devCards).toEqual([]);
     }

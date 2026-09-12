@@ -254,3 +254,31 @@ A game may be played on any board built in the editor: a set of land hexes (any 
 ### §13.2 Five and six players
 
 Up to six players may sit at a board whose seat cap allows it. Piece counts per player are unchanged. With five or six players, after a player ends their turn every other player, in seat order, gets a **special build**: they may build roads, settlements and cities and buy development cards at the usual prices. They may not trade or play development cards. When the last special builder is done, the next turn begins with its roll. Winning (§11) is checked after every build, including special builds.
+
+## §14 Tides (sea module)
+
+Tides is on when a scenario enables it. Without it nothing in this section applies.
+
+### §14.1 Sea, islands and scenarios
+
+Sea hexes become playable: ships may be built on edges that touch at least one sea hex. Frame hexes never are. Land need not be connected; each connected group of land hexes is an **island**. A scenario bundles a board with the module switches, the pirate switch, the island bonus, a setup restriction (start on the main island only) and the number of victory points needed to win (§11 uses that number instead of 10).
+
+### §14.2 Ships
+
+A ship costs 1 wood and 1 wool; each player has 15. A ship is placed on a sea edge connected to one of the player's settlements or cities or to one of their ships, never directly to a road: roads and ships meet only at a settlement or city. A chain of a player's ships is a **shipping route**; it is **open** when one end has neither a settlement, a city nor another ship of theirs. Once per turn, in the action phase, the player may move the ship at the open end of a route to another legal position connected to any of their routes, provided that ship was not built this turn and is not on an edge of the pirate's hex. A settlement may be built at the end of a shipping route (subject to the distance rule); in setup a coastal settlement's free road may be a ship instead. Road Building may place ships as well as roads. **Longest route** replaces Longest Road: the longest continuous trail of roads and/or ships, where a road and a ship join only through the player's own settlement or city; the same threshold and transfer rules as §10.1 apply.
+
+### §14.3 Gold fields
+
+A gold field is a producing terrain with a number token. When its number is rolled, each adjacent settlement owes its owner one resource of the owner's choice and each city two. Owing players choose in seat order from the current player, one player at a time, before play continues; a choice must be paid by the bank (a player owed more than the bank holds takes what is left). A second setup settlement beside a gold field is owed one resource the same way.
+
+### §14.4 Island bonus
+
+When the scenario sets an island bonus, the first time a player builds a settlement on an island that none of their setup settlements touched, they receive a permanent victory point chip worth the bonus. Each island pays at most once per player.
+
+### §14.5 The pirate
+
+The pirate is a second blocker that lives on sea hexes; a scenario may leave it out. On a seven or a knight the player moves either the robber to a land hex or the pirate to a different sea hex. No ship may be built on or moved to an edge of the pirate's hex, and ships on those edges may not move. After moving the pirate the player steals one random card from a player who has a ship on an edge of the pirate's hex, as in §7.3.
+
+### §14.6 Setup on the main island
+
+When the scenario restricts setup to the main island, both setup settlements must touch a hex of that island. Later settlements may go anywhere the rules allow.

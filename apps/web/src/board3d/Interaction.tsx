@@ -13,36 +13,46 @@ import * as THREE from "three";
 import type { Action, EdgeId, HexId, PlayerColor, VertexId } from "@katan/engine";
 import { PLAYER_FILL } from "@/game/theme";
 import { SLAB_HEIGHT, edgeWorld, hexWorld, vertexWorld } from "./layout3d";
-import { CityFigure, RobberFigure, SettlementFigure, robberOffset } from "./Pieces";
+import { CityFigure, PirateFigure, RobberFigure, SettlementFigure, ShipFigure, pirateOffset, robberOffset } from "./Pieces";
+
+export type TargetMode = "road" | "settlement" | "city" | "ship" | "moveShip" | null;
 
 export interface Targets {
   readonly vertices: ReadonlyMap<VertexId, Action>;
   readonly edges: ReadonlyMap<EdgeId, Action>;
   readonly hexes: ReadonlyMap<HexId, Action>;
+  /** Move-ship mode, first step: the player's movable ships (docs/phase9.md §8). */
+  readonly ships: ReadonlySet<EdgeId>;
 }
 
 export const INTERACTION_LAYER = 1;
 
-/** Which legal actions become targets, given the targeting mode (same rule as the 2D board). */
-export function computeTargets(legal: readonly Action[], phase: string, mode: "road" | "settlement" | "city" | null): Targets {
+/** Which legal actions become targets, given the targeting mode (and, in move-ship mode, the ship picked so far). */
+export function computeTargets(legal: readonly Action[], phase: string, mode: TargetMode, moveFrom: EdgeId | null = null): Targets {
   const vertices = new Map<VertexId, Action>();
   const edges = new Map<EdgeId, Action>();
   const hexes = new Map<HexId, Action>();
+  const ships = new Set<EdgeId>();
   const wantSettlement = phase === "setup" || mode === "settlement";
   const wantCity = mode === "city";
   const wantRoad = phase === "setup" || phase === "roadBuilding" || mode === "road";
+  const wantShip = phase === "setup" || phase === "roadBuilding" || mode === "ship";
   for (const a of legal) {
     if (a.type === "BUILD_SETTLEMENT" && wantSettlement) vertices.set(a.vertex, a);
     else if (a.type === "BUILD_CITY" && wantCity) vertices.set(a.vertex, a);
     else if (a.type === "BUILD_ROAD" && wantRoad) edges.set(a.edge, a);
-    else if (a.type === "MOVE_ROBBER") hexes.set(a.hex, a);
+    else if (a.type === "BUILD_SHIP" && wantShip) edges.set(a.edge, a);
+    else if (a.type === "MOVE_SHIP" && mode === "moveShip") {
+      if (moveFrom === null) ships.add(a.from);
+      else if (a.from === moveFrom) edges.set(a.to, a);
+    } else if (a.type === "MOVE_ROBBER") hexes.set(a.hex, a);
   }
-  return { vertices, edges, hexes };
+  return { vertices, edges, hexes, ships };
 }
 
-type Hover = { kind: "vertex"; id: VertexId } | { kind: "edge"; id: EdgeId } | { kind: "hex"; id: HexId } | null;
+type Hover = { kind: "vertex"; id: VertexId } | { kind: "edge"; id: EdgeId } | { kind: "hex"; id: HexId } | { kind: "ship"; id: EdgeId } | null;
 
-export function InteractionLayer({ targets, color, onAction, onHover }: { targets: Targets; color: PlayerColor; onAction: (a: Action) => void; onHover?: (h: Hover) => void }) {
+export function InteractionLayer({ targets, color, onAction, onHover, onPickShip }: { targets: Targets; color: PlayerColor; onAction: (a: Action) => void; onHover?: (h: Hover) => void; onPickShip?: (edge: EdgeId) => void }) {
   const accent = PLAYER_FILL[color];
   const [hover, setHover] = useState<Hover>(null);
   const rings = useRef<THREE.Object3D[]>([]);
@@ -66,6 +76,11 @@ export function InteractionLayer({ targets, color, onAction, onHover }: { target
   const release = (key: string, action: Action) => (e: ThreeEvent<PointerEvent>) => {
     stop(e);
     if (pressed.current === key) onAction(action);
+    pressed.current = null;
+  };
+  const releaseShip = (key: string, edge: EdgeId) => (e: ThreeEvent<PointerEvent>) => {
+    stop(e);
+    if (pressed.current === key) onPickShip?.(edge);
     pressed.current = null;
   };
   const invisible = <meshBasicMaterial transparent opacity={0} depthWrite={false} />;
@@ -110,6 +125,30 @@ export function InteractionLayer({ targets, color, onAction, onHover }: { target
               <boxGeometry args={[0.78, 0.07, 0.16]} />
               <meshStandardMaterial color={accent} transparent opacity={hovered ? 0.85 : 0.45} emissive={accent} emissiveIntensity={hovered ? 0.6 : 0.25} depthWrite={false} />
             </mesh>
+            {hovered && (action.type === "BUILD_SHIP" || action.type === "MOVE_SHIP") && <ShipFigure edge={e} color={color} ghost centred />}
+          </group>
+        );
+      })}
+      {[...targets.ships].map((e) => {
+        const { mid, angle } = edgeWorld(e);
+        const key = `s:${e}`;
+        const hovered = hover?.kind === "ship" && hover.id === e;
+        return (
+          <group key={key} position={[mid.x, SLAB_HEIGHT, mid.z]} rotation={[0, -angle, 0]}>
+            <mesh layers={INTERACTION_LAYER} onPointerDown={press(key)} onPointerUp={releaseShip(key, e)} onClick={stop} onPointerOver={(ev) => (stop(ev), set({ kind: "ship", id: e }))} onPointerOut={() => set(null)} position={[0, 0.2, 0]} userData={{ target: key }}>
+              <boxGeometry args={[0.8, 0.5, 0.4]} />
+              {invisible}
+            </mesh>
+            <mesh
+              ref={(el) => {
+                if (el) rings.current.push(el);
+              }}
+              position={[0, 0.01, 0]}
+              rotation={[-Math.PI / 2, 0, 0]}
+            >
+              <ringGeometry args={[0.32, 0.42, 28]} />
+              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.7} depthWrite={false} />
+            </mesh>
           </group>
         );
       })}
@@ -117,7 +156,8 @@ export function InteractionLayer({ targets, color, onAction, onHover }: { target
         const c = hexWorld(h);
         const key = `h:${h}`;
         const hovered = hover?.kind === "hex" && hover.id === h;
-        const o = robberOffset();
+        const pirate = action.type === "MOVE_ROBBER" && action.target === "pirate";
+        const o = pirate ? pirateOffset() : robberOffset();
         return (
           <group key={key} position={[c.x, SLAB_HEIGHT + 0.005, c.z]}>
             <mesh layers={INTERACTION_LAYER} onPointerDown={press(key)} onPointerUp={release(key, action)} onClick={stop} onPointerOver={(ev) => (stop(ev), set({ kind: "hex", id: h }))} onPointerOut={() => set(null)} rotation={[-Math.PI / 2, 0, 0]} userData={{ target: key }}>
@@ -130,7 +170,7 @@ export function InteractionLayer({ targets, color, onAction, onHover }: { target
             </mesh>
             {hovered && (
               <group position={[o.dx, 0, o.dz]}>
-                <RobberFigure ghost />
+                {pirate ? <PirateFigure ghost /> : <RobberFigure ghost />}
               </group>
             )}
           </group>

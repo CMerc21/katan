@@ -47,6 +47,8 @@ export function chooseEasy(view: RedactedState, legal: Action[], rng: Rng): Acti
 
   if (phase === "steal") return pick(rng, ofType(legal, "STEAL"));
 
+  if (phase === "chooseGold") return pick(rng, ofType(legal, "CHOOSE_GOLD"));
+
   if (phase === "roll") {
     // Roll immediately (a knight before the roll is a medium+ idea).
     return legal.find((a) => a.type === "ROLL") ?? pick(rng, legal);
@@ -72,14 +74,15 @@ export function chooseEasy(view: RedactedState, legal: Action[], rng: Rng): Acti
     const handSize = RESOURCES.reduce((n, r) => n + hand[r], 0);
     // Weighting: roads listed twice per edge but settlements are far fewer
     // instances, so weight by type instead of instance.
-    const byType: Record<"road" | "settlement" | "city", Action[]> = {
+    const byType: Record<"road" | "ship" | "settlement" | "city", Action[]> = {
       road: ofType(legal, "BUILD_ROAD"),
+      ship: ofType(legal, "BUILD_SHIP"),
       settlement: ofType(legal, "BUILD_SETTLEMENT"),
       city: ofType(legal, "BUILD_CITY"),
     };
-    const available = (["road", "settlement", "city"] as const).filter((k) => byType[k].length > 0);
+    const available = (["road", "ship", "settlement", "city"] as const).filter((k) => byType[k].length > 0);
     if (available.length && (roll < 0.6 || handSize >= 7)) {
-      const weights = { road: 3, settlement: 2, city: 1 };
+      const weights = { road: 3, ship: 2, settlement: 2, city: 1 };
       const total = available.reduce((n, k) => n + weights[k], 0);
       let t = rng() * total;
       let kind = available[available.length - 1]!;

@@ -8,14 +8,22 @@ import { RESOURCES, TERRAIN_RESOURCE, boardGeometry, type Resource } from "./boa
 import { RuleError } from "./errors";
 import { isBoardEdge, isBoardVertex, type EdgeId, type HexId, type VertexId } from "./geometry";
 import {
+  canPlaceRoadOrShip,
   devCardPlayable,
+  goldOwedNow,
   isLandEdge,
   isLandVertex,
-  legalRoadEdges,
+  isOpenEndShip,
+  isSeaEdge,
   legalSetupRoadEdges,
   legalSetupSettlementVertices,
+  legalSetupShipEdges,
+  pirateEdges,
+  pirateEnabled,
+  pirateStealTargets,
   roadConnects,
   satisfiesDistanceRule,
+  shipConnects,
   stealTargets,
   discardOwed,
 } from "./legal";
@@ -29,6 +37,7 @@ import {
   cloneJson,
   collectEvents,
   currentPlayerId,
+  edgeOwner,
   emit,
   emptyHand,
   expandHand,
@@ -36,19 +45,24 @@ import {
   handSize,
   hasResources,
   hasWon,
+  islandOfVertex,
   isValidHand,
   ratioAllowed,
-  roadOwner,
+  shipOwner,
+  tidesOn,
   transfer,
   victoryPoints,
 } from "./state";
 import type {
   Action,
+  ChooseGoldAction,
   DevCardType,
   DiscardAction,
   GameState,
   Hand,
   MaritimeTradeAction,
+  MoveRobberAction,
+  MoveShipAction,
   OfferTradeAction,
   Phase,
   PlayInventionAction,
@@ -97,10 +111,12 @@ function requireHand(value: unknown, what: string): Hand {
 
 type Gain = { playerId: PlayerId; hex: HexId; resource: Resource; count: number };
 
-function produce(state: GameState, total: number): void {
+/** Roll production; returns what gold fields owe each player (§14.3), to be chosen before play continues. */
+function produce(state: GameState, total: number): Record<PlayerId, number> {
   // owed[playerIndex][resource], plus per-hex gains for the event stream.
   const owed = state.players.map(() => emptyHand());
   const gains: Gain[] = [];
+  const gold: Record<PlayerId, number> = {};
   const geo = boardGeometry(state.board);
   for (const hex of Object.keys(state.board.hexes)) {
     const tile = state.board.hexes[hex];
@@ -110,12 +126,16 @@ function produce(state: GameState, total: number): void {
       continue;
     }
     const resource = TERRAIN_RESOURCE[tile.terrain];
-    if (resource === null) continue;
+    if (resource === null && tile.terrain !== "gold") continue;
     for (const v of geo.hexVertices[hex] ?? []) {
       const b = buildingAt(state, v);
       if (!b) continue;
       const idx = state.players.findIndex((p) => p.id === b.owner);
       const count = b.kind === "city" ? 2 : 1;
+      if (resource === null) {
+        gold[b.owner] = (gold[b.owner] ?? 0) + count;
+        continue;
+      }
       (owed[idx] as Hand)[resource] += count;
       gains.push({ playerId: b.owner, hex, resource, count });
     }
@@ -154,6 +174,38 @@ function produce(state: GameState, total: number): void {
   }
   if (paidGains.length > 0) emit(state, { kind: "produced", gains: paidGains });
   for (const short of shortfalls) emit(state, { kind: "bankShort", ...short });
+  return gold;
+}
+
+/** §14.3: park the game in `chooseGold` when anyone is owed gold and the bank has cards; otherwise go straight on. */
+function resolveGold(state: GameState, gold: Record<PlayerId, number>, returnTo: Phase): void {
+  const owed: Record<PlayerId, number> = {};
+  for (const [id, n] of Object.entries(gold)) if (n > 0) owed[id] = n;
+  if (Object.keys(owed).length === 0 || handSize(state.bank) === 0) {
+    state.phase = returnTo;
+    return;
+  }
+  state.phase = { kind: "chooseGold", owed, returnTo };
+}
+
+function applyChooseGold(state: GameState, action: ChooseGoldAction): void {
+  const phase = requirePhase(state, "chooseGold");
+  const player = getPlayer(state, action.playerId);
+  if (phase.owed[action.playerId] === undefined) throw new RuleError("NO_GOLD_OWED", `${action.playerId} is owed no gold`);
+  const raw: unknown = action.resources;
+  if (!Array.isArray(raw) || !raw.every((r: unknown) => (RESOURCES as readonly unknown[]).includes(r))) throw new RuleError("INVALID_TRADE", "unknown resource");
+  const resources = raw as Resource[];
+  const want = emptyHand();
+  for (const r of resources) want[r] += 1;
+  const allowed = goldOwedNow(state, action.playerId);
+  if (resources.length !== allowed) throw new RuleError("WRONG_GOLD_COUNT", `choose exactly ${allowed} resources`);
+  if (!hasResources(state.bank, want)) throw new RuleError("BANK_EMPTY", "bank cannot supply those resources");
+  transfer(state.bank, player.hand, want);
+  emit(state, { kind: "goldChosen", playerId: action.playerId, resources: [...resources] });
+  const owed = { ...phase.owed };
+  delete owed[action.playerId];
+  if (Object.keys(owed).length === 0 || handSize(state.bank) === 0) state.phase = phase.returnTo;
+  else state.phase = { kind: "chooseGold", owed, returnTo: phase.returnTo };
 }
 
 function applyRoll(state: GameState, playerId: PlayerId): void {
@@ -181,8 +233,8 @@ function applyRoll(state: GameState, playerId: PlayerId): void {
     return;
   }
 
-  produce(state, total);
-  state.phase = { kind: "action" };
+  const gold = produce(state, total);
+  resolveGold(state, gold, { kind: "action" });
 }
 
 // ---------------------------------------------------------------------------
@@ -204,16 +256,30 @@ function applyDiscard(state: GameState, action: DiscardAction): void {
   }
 }
 
-function applyMoveRobber(state: GameState, playerId: PlayerId, hex: HexId): void {
+function applyMoveRobber(state: GameState, action: MoveRobberAction): void {
   const phase = requirePhase(state, "moveRobber");
-  const player = requireCurrent(state, playerId);
-  if (state.board.hexes[hex] === undefined) throw new RuleError("INVALID_HEX", `no such hex ${hex}`);
-  if (hex === state.robberHex) throw new RuleError("ROBBER_MUST_MOVE", "robber must move to a different hex");
-  void player;
-  const from = state.robberHex;
-  state.robberHex = hex;
-  emit(state, { kind: "robberMoved", from, to: hex, by: playerId });
-  const targets = stealTargets(state, hex, playerId);
+  const playerId = action.playerId;
+  requireCurrent(state, playerId);
+  const hex = action.hex;
+  let targets: PlayerId[];
+  if (action.target === "pirate") {
+    // §14.5: the pirate sails to another sea hex and robs the ships around it.
+    if (!pirateEnabled(state)) throw new RuleError("TIDES_OFF", "there is no pirate in this game");
+    if (!state.board.sea.includes(hex)) throw new RuleError("INVALID_HEX", `no such sea hex ${hex}`);
+    if (hex === state.pirateHex) throw new RuleError("ROBBER_MUST_MOVE", "pirate must move to a different hex");
+    const from = state.pirateHex;
+    state.pirateHex = hex;
+    emit(state, { kind: "pirateMoved", from, to: hex, by: playerId });
+    targets = pirateStealTargets(state, hex, playerId);
+  } else {
+    if (action.target !== undefined && action.target !== "robber") throw new RuleError("INVALID_HEX", "target must be robber or pirate");
+    if (state.board.hexes[hex] === undefined) throw new RuleError("INVALID_HEX", `no such hex ${hex}`);
+    if (hex === state.robberHex) throw new RuleError("ROBBER_MUST_MOVE", "robber must move to a different hex");
+    const from = state.robberHex;
+    state.robberHex = hex;
+    emit(state, { kind: "robberMoved", from, to: hex, by: playerId });
+    targets = stealTargets(state, hex, playerId);
+  }
   state.phase =
     targets.length === 0 ? { kind: phase.returnTo } : { kind: "steal", hex, targets, returnTo: phase.returnTo };
 }
@@ -260,7 +326,7 @@ function applyBuildRoad(state: GameState, playerId: PlayerId, edge: EdgeId): voi
   const geo = boardGeometry(state.board);
   if (phase.kind === "setup" && phase.step !== "road") throw new RuleError("WRONG_PHASE", "place a settlement first");
   if (!isBoardEdge(edge, geo) || !isLandEdge(state, edge, geo)) throw new RuleError("INVALID_EDGE", `no such edge ${edge}`);
-  if (roadOwner(state, edge) !== null) throw new RuleError("EDGE_OCCUPIED", `edge ${edge} is occupied`);
+  if (edgeOwner(state, edge) !== null) throw new RuleError("EDGE_OCCUPIED", `edge ${edge} is occupied`);
   if (phase.kind === "setup") {
     const at = phase.lastSettlement;
     if (at === null || !legalSetupRoadEdges(state, at).includes(edge)) {
@@ -280,21 +346,88 @@ function applyBuildRoad(state: GameState, playerId: PlayerId, edge: EdgeId): voi
   if (phase.kind === "setup") {
     advanceSetup(state);
   } else if (phase.kind === "roadBuilding") {
-    const remaining = phase.remaining - 1;
-    if (remaining === 0 || player.pieces.roads === 0 || legalRoadEdges(state, playerId).length === 0) {
-      state.phase = { kind: "action" };
-    } else {
-      state.phase = { kind: "roadBuilding", remaining: 1 };
-    }
+    continueRoadBuilding(state, player, phase.remaining);
   }
 }
 
-/** §4.3: one resource per producing hex adjacent to the second settlement. */
-function grantStartingResources(state: GameState, player: Player, vertex: VertexId): void {
+/** Road Building (§8.2, §14.2): one piece placed; stop when done or nothing else can be placed. */
+function continueRoadBuilding(state: GameState, player: Player, remaining: number): void {
+  const left = remaining - 1;
+  if (left === 0 || !canPlaceRoadOrShip(state, player)) state.phase = { kind: "action" };
+  else state.phase = { kind: "roadBuilding", remaining: 1 };
+}
+
+/** §14.2: build a ship on a sea edge connected to an own building or ship (never straight to a road). */
+function applyBuildShip(state: GameState, playerId: PlayerId, edge: EdgeId): void {
+  const phase = requirePhase(state, "setup", "action", "roadBuilding", "specialBuild");
+  const player = requireBuilder(state, playerId);
+  if (!tidesOn(state)) throw new RuleError("TIDES_OFF", "ships need the Tides module");
+  const geo = boardGeometry(state.board);
+  if (phase.kind === "setup" && phase.step !== "road") throw new RuleError("WRONG_PHASE", "place a settlement first");
+  if (!isBoardEdge(edge, geo) || !isSeaEdge(state, edge, geo)) throw new RuleError("INVALID_EDGE", `no sea at edge ${edge}`);
+  if (edgeOwner(state, edge) !== null) throw new RuleError("EDGE_OCCUPIED", `edge ${edge} is occupied`);
+  if (pirateEdges(state, geo).has(edge)) throw new RuleError("PIRATE_BLOCKS", "the pirate blocks that edge");
+  if (phase.kind === "setup") {
+    const at = phase.lastSettlement;
+    if (at === null || !legalSetupShipEdges(state, at).includes(edge)) {
+      throw new RuleError("SHIP_NOT_CONNECTED", "setup ship must touch the new settlement");
+    }
+  } else if (!shipConnects(state, playerId, edge)) {
+    throw new RuleError("SHIP_NOT_CONNECTED", `edge ${edge} is not connected to your ships or buildings`);
+  }
+  if (player.pieces.ships <= 0) throw new RuleError("NO_PIECES_LEFT", "no ships left");
+  if (phase.kind === "action" || phase.kind === "specialBuild") pay(state, player, COSTS.ship);
+
+  player.ships.push(edge);
+  player.shipsBuiltThisTurn.push(edge);
+  player.pieces.ships -= 1;
+  emit(state, { kind: "shipBuilt", playerId, at: edge });
+  updateLongestRoad(state);
+
+  if (phase.kind === "setup") {
+    advanceSetup(state);
+  } else if (phase.kind === "roadBuilding") {
+    continueRoadBuilding(state, player, phase.remaining);
+  }
+}
+
+/** §14.2: once per turn, move the ship at the open end of a route. */
+function applyMoveShip(state: GameState, action: MoveShipAction): void {
+  requirePhase(state, "action");
+  const player = requireCurrent(state, action.playerId);
+  if (!tidesOn(state)) throw new RuleError("TIDES_OFF", "ships need the Tides module");
+  const { from, to } = action;
+  const geo = boardGeometry(state.board);
+  if (shipOwner(state, from) !== player.id) throw new RuleError("NOT_YOUR_SHIP", `no ship of yours at ${from}`);
+  if (player.shipMovedThisTurn) throw new RuleError("SHIP_ALREADY_MOVED", "only one ship may move per turn");
+  if (player.shipsBuiltThisTurn.includes(from)) throw new RuleError("SHIP_TOO_NEW", "a ship built this turn cannot move");
+  const pirate = pirateEdges(state, geo);
+  if (pirate.has(from)) throw new RuleError("PIRATE_BLOCKS", "the pirate holds that ship in place");
+  if (!isOpenEndShip(state, player.id, from)) throw new RuleError("NOT_OPEN_END", "only the ship at the open end of a route may move");
+  if (to === from) throw new RuleError("INVALID_EDGE", "the ship must move somewhere else");
+  if (!isBoardEdge(to, geo) || !isSeaEdge(state, to, geo)) throw new RuleError("INVALID_EDGE", `no sea at edge ${to}`);
+  if (edgeOwner(state, to) !== null) throw new RuleError("EDGE_OCCUPIED", `edge ${to} is occupied`);
+  if (pirate.has(to)) throw new RuleError("PIRATE_BLOCKS", "the pirate blocks that edge");
+  if (!shipConnects(state, player.id, to, from)) throw new RuleError("SHIP_NOT_CONNECTED", `edge ${to} is not connected to your ships or buildings`);
+
+  player.ships.splice(player.ships.indexOf(from), 1);
+  player.ships.push(to);
+  player.shipMovedThisTurn = true;
+  emit(state, { kind: "shipMoved", playerId: player.id, from, to });
+  updateLongestRoad(state);
+}
+
+/** §4.3: one resource per producing hex adjacent to the second settlement; gold fields owe a choice (§14.3). */
+function grantStartingResources(state: GameState, player: Player, vertex: VertexId): number {
   const gains: Gain[] = [];
+  let gold = 0;
   for (const h of boardGeometry(state.board).vertexHexes[vertex] ?? []) {
     const tile = state.board.hexes[h];
     if (!tile) continue;
+    if (tile.terrain === "gold") {
+      gold += 1;
+      continue;
+    }
     const resource = TERRAIN_RESOURCE[tile.terrain];
     if (resource === null || state.bank[resource] <= 0) continue;
     state.bank[resource] -= 1;
@@ -302,6 +435,7 @@ function grantStartingResources(state: GameState, player: Player, vertex: Vertex
     gains.push({ playerId: player.id, hex: h, resource, count: 1 });
   }
   if (gains.length > 0) emit(state, { kind: "produced", gains });
+  return gold;
 }
 
 function applyBuildSettlement(state: GameState, playerId: PlayerId, vertex: VertexId): void {
@@ -316,8 +450,8 @@ function applyBuildSettlement(state: GameState, playerId: PlayerId, vertex: Vert
   if (buildingAt(state, vertex) !== null) throw new RuleError("VERTEX_OCCUPIED", `vertex ${vertex} is occupied`);
   if (!satisfiesDistanceRule(state, vertex)) throw new RuleError("DISTANCE_RULE", `vertex ${vertex} is too close`);
   if (phase.kind !== "setup") {
-    const touchesOwnRoad = (geo.vertexEdges[vertex] ?? []).some((e) => roadOwner(state, e) === playerId);
-    if (!touchesOwnRoad) throw new RuleError("NOT_CONNECTED_TO_ROAD", "settlement must touch one of your roads");
+    const touchesOwn = (geo.vertexEdges[vertex] ?? []).some((e) => edgeOwner(state, e) === playerId);
+    if (!touchesOwn) throw new RuleError("NOT_CONNECTED_TO_ROAD", "settlement must touch one of your roads or ships");
   }
   if (player.pieces.settlements <= 0) throw new RuleError("NO_PIECES_LEFT", "no settlements left");
   if (phase.kind !== "setup") pay(state, player, COSTS.settlement);
@@ -327,9 +461,19 @@ function applyBuildSettlement(state: GameState, playerId: PlayerId, vertex: Vert
   emit(state, { kind: "built", playerId, piece: "settlement", at: vertex });
   updateLongestRoad(state); // an opponent's road may have been cut
 
+  const island = islandOfVertex(state, vertex);
   if (phase.kind === "setup") {
-    if (phase.round === 2) grantStartingResources(state, player, vertex);
-    state.phase = { kind: "setup", round: phase.round, step: "road", lastSettlement: vertex };
+    if (island !== null && !player.startIslands.includes(island)) player.startIslands.push(island);
+    const next: Phase = { kind: "setup", round: phase.round, step: "road", lastSettlement: vertex };
+    const gold = phase.round === 2 ? grantStartingResources(state, player, vertex) : 0;
+    resolveGold(state, { [playerId]: gold }, next);
+    return;
+  }
+  // §14.4: first settlement on an island the player did not start on.
+  const bonus = state.scenario?.islandBonus ?? 0;
+  if (bonus > 0 && island !== null && !player.startIslands.includes(island) && !player.islandChips.includes(island)) {
+    player.islandChips.push(island);
+    emit(state, { kind: "islandSettled", playerId, island, bonus });
   }
 }
 
@@ -383,10 +527,13 @@ function applyPlayRoadBuilding(state: GameState, playerId: PlayerId): void {
   const player = requireCurrent(state, playerId);
   const check = devCardPlayable(state, player, "roadBuilding");
   if (check !== "ok") throw new RuleError(check, `cannot play roadBuilding: ${check}`);
-  if (player.pieces.roads <= 0) throw new RuleError("NO_PIECES_LEFT", "no roads left");
-  if (legalRoadEdges(state, playerId).length === 0) throw new RuleError("NO_LEGAL_ROAD", "nowhere to build a road");
+  if (!canPlaceRoadOrShip(state, player)) {
+    if (player.pieces.roads <= 0 && (!tidesOn(state) || player.pieces.ships <= 0)) throw new RuleError("NO_PIECES_LEFT", "no roads left");
+    throw new RuleError("NO_LEGAL_ROAD", "nowhere to build a road");
+  }
   playDevCard(state, player, "roadBuilding");
-  state.phase = { kind: "roadBuilding", remaining: player.pieces.roads >= 2 ? 2 : 1 };
+  const pieces = player.pieces.roads + (tidesOn(state) ? player.pieces.ships : 0);
+  state.phase = { kind: "roadBuilding", remaining: pieces >= 2 ? 2 : 1 };
 }
 
 function applyPlayInvention(state: GameState, action: PlayInventionAction): void {
@@ -522,7 +669,11 @@ function applyEndTurn(state: GameState, playerId: PlayerId): void {
 }
 
 function startNextTurn(state: GameState): void {
-  for (const p of state.players) p.devCardPlayedThisTurn = false;
+  for (const p of state.players) {
+    p.devCardPlayedThisTurn = false;
+    p.shipsBuiltThisTurn = [];
+    p.shipMovedThisTurn = false;
+  }
   state.currentPlayer = (state.currentPlayer + 1) % state.players.length;
   state.turn += 1;
   state.phase = { kind: "roll" };
@@ -593,7 +744,7 @@ function applyCore(state: GameState, action: Action): GameState {
       applyDiscard(next, action);
       break;
     case "MOVE_ROBBER":
-      applyMoveRobber(next, action.playerId, action.hex);
+      applyMoveRobber(next, action);
       break;
     case "STEAL":
       applySteal(next, action.playerId, action.targetPlayerId);
@@ -642,6 +793,15 @@ function applyCore(state: GameState, action: Action): GameState {
       break;
     case "SPECIAL_BUILD_DONE":
       applySpecialBuildDone(next, action.playerId);
+      break;
+    case "BUILD_SHIP":
+      applyBuildShip(next, action.playerId, action.edge);
+      break;
+    case "MOVE_SHIP":
+      applyMoveShip(next, action);
+      break;
+    case "CHOOSE_GOLD":
+      applyChooseGold(next, action);
       break;
     default: {
       const exhaustive: never = action;

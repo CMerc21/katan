@@ -158,6 +158,39 @@ export function ResourcePicker({
   );
 }
 
+/** Gold field choice (docs/phase9.md §8): the same stepper as invention, for `owed` cards. */
+export function GoldDialog({ owed, legal, onChoose }: { owed: number; legal: Action[]; onChoose: (action: Action) => void }) {
+  const [picked, setPicked] = useState<Resource[]>([]);
+  const choices = legal.filter((a): a is Extract<Action, { type: "CHOOSE_GOLD" }> => a.type === "CHOOSE_GOLD");
+  const key = (rs: readonly Resource[]) => [...rs].sort().join();
+  const action = picked.length === owed ? choices.find((a) => key(a.resources) === key(picked)) : undefined;
+  const available = (r: Resource) => choices.some((a) => a.resources.includes(r));
+  return (
+    <Modal title={`Gold field: take ${owed} resource${owed === 1 ? "" : "s"}`} onClose={() => undefined}>
+      <div className="flex flex-wrap gap-2">
+        {RESOURCES.map((r) => (
+          <Button key={r} size="sm" variant={picked.includes(r) ? "primary" : "secondary"} disabled={!available(r)} reason="The bank has none" onClick={() => setPicked(picked.length < owed ? [...picked, r] : [r])} data-testid={`gold-${r}`}>
+            {RESOURCE_LABEL[r]}
+            {picked.filter((x) => x === r).length > 1 ? ` ×${picked.filter((x) => x === r).length}` : ""}
+          </Button>
+        ))}
+      </div>
+      <p className="mt-3 text-sm text-ink-soft" aria-live="polite">
+        {picked.length === 0 ? `Choose ${owed}.` : `Chosen: ${picked.map((r) => RESOURCE_LABEL[r]).join(", ")}`}
+        {picked.length === owed && !action && " — the bank cannot supply that."}
+      </p>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="quiet" onClick={() => setPicked([])}>
+          Clear
+        </Button>
+        <Button variant="primary" disabled={!action} reason="Choose resources the bank holds" onClick={() => action && onChoose(action)} data-testid="gold-confirm">
+          Take
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 // ---------------------------------------------------------------------------
 
 export function TradeDialog({

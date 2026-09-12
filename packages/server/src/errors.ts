@@ -23,6 +23,7 @@ export type TransportCode =
   | "NOT_ABSENT"
   | "BOT_CAP"
   | "BOARD_NOT_FOUND"
+  | "SCENARIO_NOT_FOUND"
   | "NOT_OWNER";
 
 export type ServiceCode = RuleErrorCode | TransportCode;

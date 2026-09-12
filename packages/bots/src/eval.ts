@@ -10,7 +10,10 @@ import {
   boardGeometry,
   hexCenter,
   isHiddenCount,
+  isSeaEdge,
+  legalRoadEdges,
   legalSettlementVertices,
+  legalShipEdges,
   parseHexId,
   satisfiesDistanceRule,
   viewToState,
@@ -66,6 +69,11 @@ export function geo(view: RedactedState): Geometry {
   return boardGeometry(view.board);
 }
 
+/** Gold fields (docs/phase9.md §1) count as the resource the player produces least of. */
+function goldAs(out: Hand): Resource {
+  return RESOURCES.reduce((b, r) => (out[r] < out[b] ? r : b), RESOURCES[0]);
+}
+
 export function productionOf(view: RedactedState, playerId: string): Hand {
   const p = player(view, playerId);
   const out = emptyHand();
@@ -74,7 +82,7 @@ export function productionOf(view: RedactedState, playerId: string): Hand {
     for (const h of g.vertexHexes[v] ?? []) {
       const tile = view.board.hexes[h];
       if (!tile || tile.token === null) continue;
-      const r = TERRAIN_RESOURCE[tile.terrain];
+      const r = tile.terrain === "gold" ? goldAs(out) : TERRAIN_RESOURCE[tile.terrain];
       if (r) out[r] += (PIPS[tile.token] ?? 0) * mult;
     }
   };
@@ -102,10 +110,29 @@ export function vertexPips(view: RedactedState, vertex: VertexId): Hand {
   for (const h of geo(view).vertexHexes[vertex] ?? []) {
     const tile = view.board.hexes[h];
     if (!tile || tile.token === null) continue;
-    const r = TERRAIN_RESOURCE[tile.terrain];
-    if (r) out[r] += PIPS[tile.token] ?? 0;
+    const r = tile.terrain === "gold" ? goldAs(out) : TERRAIN_RESOURCE[tile.terrain];
+    if (r) out[r] += (PIPS[tile.token] ?? 0) * (tile.terrain === "gold" ? 1.3 : 1);
   }
   return out;
+}
+
+/** The island a vertex is on (docs/phase9.md §4), or null at sea. */
+export function islandOf(view: RedactedState, vertex: VertexId): number | null {
+  for (const h of geo(view).vertexHexes[vertex] ?? []) {
+    const island = view.board.islands.find((i) => i.hexes.includes(h));
+    if (island) return island.id;
+  }
+  return null;
+}
+
+/** docs/phase9.md §7: a settlement on an island the player has not started on or settled yet earns the bonus. */
+export function newIslandBonus(view: RedactedState, vertex: VertexId, playerId: string): number {
+  const bonus = view.scenario?.islandBonus ?? 0;
+  if (bonus <= 0) return 0;
+  const island = islandOf(view, vertex);
+  if (island === null) return 0;
+  const p = player(view, playerId);
+  return p.startIslands.includes(island) || p.islandChips.includes(island) ? 0 : bonus;
 }
 
 export function rawPipCount(view: RedactedState, vertex: VertexId): number {
@@ -153,6 +180,7 @@ export function vertexScore(view: RedactedState, vertex: VertexId, playerId: str
     else if (port.kind === most) score += 2.5 * early;
     else score += 0.5 * early;
   }
+  score += newIslandBonus(view, vertex, playerId) * 3;
   // Long and ring boards reward spreading out: distance from the player's nearest building.
   if (shape === "long" || shape === "ring") {
     const p = player(view, playerId);
@@ -180,29 +208,32 @@ function occupied(view: RedactedState): Set<VertexId> {
 export const EDGE_BFS_DEPTH = 4;
 
 /**
- * §6.3 edgeTowardScore (docs/phase8.md §6): how much a road on `edge`
- * improves access to settlement spots not reachable yet, by BFS over the
- * hex graph's vertices from the road's far end up to depth 4 (each step is
- * one more road), discounted by distance and blocked by opponents' pieces.
+ * §6.3 edgeTowardScore (docs/phase8.md §6, docs/phase9.md §7): how much a
+ * road (or a ship, when `kind` is "ship") on `edge` improves access to
+ * settlement spots not reachable yet, by BFS over the hex graph's vertices
+ * from the piece's far end up to depth 4 (each step is one more piece of
+ * the same kind), discounted by distance and blocked by opponents' pieces.
  */
-export function edgeTowardScore(view: RedactedState, edge: EdgeId, playerId: string): number {
+export function edgeTowardScore(view: RedactedState, edge: EdgeId, playerId: string, kind: "road" | "ship" = "road"): number {
   const state = viewToState(view);
   const g = geo(view);
   const p = player(view, playerId);
-  const mine = new Set(p.roads);
+  const network = kind === "road" ? p.roads : p.ships;
+  const mine = new Set(network);
   const myVerts = new Set<VertexId>();
-  for (const e of p.roads) for (const v of g.edgeVertices[e] ?? []) myVerts.add(v);
+  for (const e of network) for (const v of g.edgeVertices[e] ?? []) myVerts.add(v);
   for (const v of [...p.settlements, ...p.cities]) myVerts.add(v);
   const taken = occupied(view);
   const blocked = new Set(view.players.filter((x) => x.id !== playerId).flatMap((x) => [...x.settlements, ...x.cities]));
-  const roads = new Set(view.players.flatMap((x) => x.roads));
+  const pieces = new Set(view.players.flatMap((x) => [...x.roads, ...x.ships]));
   const [a, b] = g.edgeVertices[edge] as [VertexId, VertexId];
   const far = myVerts.has(a) && !myVerts.has(b) ? b : myVerts.has(b) && !myVerts.has(a) ? a : null;
   if (far === null) return 0.2; // fills a gap in the network; low value
   if (blocked.has(far)) return 0;
   const reachable = new Set(settlementCandidates(view, playerId));
   const landOk = (v: VertexId) => (g.vertexHexes[v] ?? []).some((h) => view.board.hexes[h] !== undefined);
-  // BFS: depth 0 = the far end (one road: this one), each edge = one more road.
+  const usable = (e: EdgeId) => (kind === "ship" ? isSeaEdge(state, e, g) : (g.edgeHexes[e] ?? []).some((h) => view.board.hexes[h] !== undefined));
+  // BFS: depth 0 = the far end (one piece: this one), each edge = one more piece.
   const dist = new Map<VertexId, number>([[far, 0]]);
   const queue: VertexId[] = [far];
   let score = 0;
@@ -214,7 +245,7 @@ export function edgeTowardScore(view: RedactedState, edge: EdgeId, playerId: str
     }
     if (d >= EDGE_BFS_DEPTH - 1 || (blocked.has(v) && v !== far)) continue;
     for (const e2 of g.vertexEdges[v] ?? []) {
-      if (e2 === edge || (roads.has(e2) && !mine.has(e2))) continue;
+      if (e2 === edge || (pieces.has(e2) && !mine.has(e2)) || !usable(e2)) continue;
       const [x, y] = g.edgeVertices[e2] as [VertexId, VertexId];
       const next = x === v ? y : x;
       if (myVerts.has(next) || dist.has(next)) continue;
@@ -225,7 +256,54 @@ export function edgeTowardScore(view: RedactedState, edge: EdgeId, playerId: str
   return score;
 }
 
-export type BuildTarget = "city" | "settlement" | "road" | "devCard";
+/** docs/phase9.md §7: the best-scoring ship edge, or none when ships lead nowhere. */
+export function bestShipEdge(view: RedactedState, playerId: string): { edge: EdgeId; score: number } | null {
+  let best: { edge: EdgeId; score: number } | null = null;
+  for (const edge of legalShipEdges(viewToState(view), playerId)) {
+    const score = edgeTowardScore(view, edge, playerId, "ship");
+    if (!best || score > best.score) best = { edge, score };
+  }
+  return best;
+}
+
+/** docs/phase9.md §7: pirate placement value: opposing ships beside the hex, minus a lot if any own ship is there. */
+export function pirateHexScore(view: RedactedState, hex: HexId, playerId: string): number {
+  const edges = new Set(geo(view).hexEdges[hex] ?? []);
+  let score = 0;
+  for (const p of view.players) {
+    const n = p.ships.filter((e) => edges.has(e)).length;
+    if (p.id === playerId) score -= n * 100;
+    else score += n * (2 + publicVP(p) * 0.3);
+  }
+  return score;
+}
+
+/** docs/phase9.md §7: a gold choice that fills what the next build needs, then the scarcest resource. */
+export function goldPick(view: RedactedState, playerId: string, count: number): Resource[] {
+  const need = resourceNeed(view, playerId);
+  const missing = { ...need.missing };
+  const weights = scarcity(view);
+  const out: Resource[] = [];
+  for (let i = 0; i < count; i++) {
+    let choice: Resource | null = null;
+    for (const r of RESOURCES) {
+      if (missing[r] > 0 && view.bank[r] > out.filter((x) => x === r).length) {
+        choice = r;
+        break;
+      }
+    }
+    if (choice === null) {
+      const options = RESOURCES.filter((r) => view.bank[r] > out.filter((x) => x === r).length);
+      if (options.length === 0) break;
+      choice = options.reduce((b, r) => (weights[r] > weights[b] ? r : b), options[0] as Resource);
+    }
+    missing[choice] = Math.max(0, missing[choice] - 1);
+    out.push(choice);
+  }
+  return out;
+}
+
+export type BuildTarget = "city" | "settlement" | "road" | "ship" | "devCard";
 
 export interface Need {
   readonly target: BuildTarget;
@@ -240,14 +318,20 @@ export function resourceNeed(view: RedactedState, playerId: string): Need {
   const h = playerId === view.viewer ? myHand(view) : emptyHand();
   const spots = settlementCandidates(view, playerId);
   let target: BuildTarget;
+  const seaOnly = view.scenario?.tides === true && p.pieces.ships > 0 && (p.pieces.roads === 0 || legalRoadEdgesCount(view, playerId) === 0);
   if (p.settlements.length > 0 && p.pieces.cities > 0 && (spots.length === 0 || handTotal(h) >= 4)) target = "city";
   else if (spots.length > 0 && p.pieces.settlements > 0) target = "settlement";
+  else if (seaOnly) target = "ship";
   else if (p.pieces.roads > 0) target = "road";
   else target = "devCard";
   const cost = COSTS[target];
   const missing = emptyHand();
   for (const r of RESOURCES) missing[r] = Math.max(0, cost[r] - h[r]);
   return { target, cost, missing };
+}
+
+function legalRoadEdgesCount(view: RedactedState, playerId: string): number {
+  return legalRoadEdges(viewToState(view), playerId).length;
 }
 
 export function publicVP(p: RedactedPlayer): number {

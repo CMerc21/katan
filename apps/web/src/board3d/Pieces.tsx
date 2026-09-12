@@ -184,14 +184,25 @@ export function RoadFigure({ edge, color, fresh = false, seq = null, ghost = fal
   );
 }
 
-export function ShipFigure({ edge, color, ghost = false, shadows = true, black = false }: { edge: EdgeId; color: PlayerColor; ghost?: boolean; shadows?: boolean; black?: boolean }) {
+/** A hull with a sail on an edge (docs/phase9.md §8). `centred` draws it relative to a parent already at the edge; `fresh` bobs it in. */
+export function ShipFigure({ edge, color, ghost = false, shadows = true, black = false, centred = false, fresh = false, seq = null }: { edge: EdgeId; color: PlayerColor; ghost?: boolean; shadows?: boolean; black?: boolean; centred?: boolean; fresh?: boolean; seq?: number | null }) {
   const { mid, angle } = edgeWorld(edge);
+  const group = useRef<THREE.Group>(null);
+  const t = useEntrance(fresh, seq, 450);
+  useFrame(({ clock }) => {
+    const g = group.current;
+    if (!g) return;
+    const k = fresh && t.current < 1 ? easeOutCubic(t.current) : 1;
+    const bob = Math.sin(clock.getElapsedTime() * 1.6 + mid.x) * 0.012;
+    g.position.y = SLAB_HEIGHT - 0.06 + bob - (1 - k) * 0.3;
+    g.rotation.z = Math.sin(clock.getElapsedTime() * 1.1 + mid.z) * 0.04;
+  });
   const opacity = ghost ? 0.5 : 1;
   const sail = black ? "#1f1a17" : colorOf(color);
   const hull = black ? "#2a2622" : TIMBER;
   const mat = (color: string, side: THREE.Side = THREE.FrontSide) => <meshStandardMaterial color={color} flatShading transparent={ghost} opacity={opacity} depthWrite={!ghost} side={side} />;
   return (
-    <group position={[mid.x, SLAB_HEIGHT - 0.06, mid.z]} rotation={[0, -angle, 0]} scale={PIECE_SCALE * 0.8} name={`ship:${edge}`}>
+    <group ref={group} position={centred ? [0, SLAB_HEIGHT - 0.06, 0] : [mid.x, SLAB_HEIGHT - 0.06, mid.z]} rotation={[0, centred ? 0 : -angle, 0]} scale={PIECE_SCALE * 0.8} name={`ship:${edge}`}>
       <mesh position={[0, 0.04, 0]} castShadow={shadows && !ghost}>
         <boxGeometry args={[0.44, 0.08, 0.16]} />
         {mat(hull)}
@@ -253,6 +264,41 @@ export function RobberFigure({ ghost = false, shadows = true }: { ghost?: boolea
 /** Where the robber stands on a hex: offset from the token, like the 2D board. */
 export function robberOffset(): { dx: number; dz: number } {
   return { dx: 0.42, dz: 0.22 };
+}
+
+/** The pirate: a black-sailed hull, positioned by the caller (docs/phase9.md §8). */
+export function PirateFigure({ ghost = false, shadows = true }: { ghost?: boolean; shadows?: boolean }) {
+  const opacity = ghost ? 0.5 : 1;
+  const mat = (color: string, side: THREE.Side = THREE.FrontSide) => <meshStandardMaterial color={color} flatShading transparent={ghost} opacity={opacity} depthWrite={!ghost} side={side} />;
+  return (
+    <group scale={PIECE_SCALE * 0.95} rotation={[0, 0.6, 0]} name="pirate">
+      <mesh position={[0, 0.04, 0]} castShadow={shadows && !ghost}>
+        <boxGeometry args={[0.5, 0.09, 0.18]} />
+        {mat("#2a2622")}
+      </mesh>
+      <mesh position={[0.25, 0.07, 0]} rotation={[0, 0, -0.5]}>
+        <boxGeometry args={[0.1, 0.12, 0.16]} />
+        {mat("#2a2622")}
+      </mesh>
+      <mesh position={[0, 0.3, 0]}>
+        <cylinderGeometry args={[0.012, 0.012, 0.44, 5]} />
+        {mat(INK)}
+      </mesh>
+      <mesh position={[0.08, 0.3, 0]} rotation={[0, Math.PI / 2, 0]} scale={1.3}>
+        <shapeGeometry args={[TRIANGLE]} />
+        {mat("#1f1a17", THREE.DoubleSide)}
+      </mesh>
+      <mesh position={[0.02, 0.5, 0]}>
+        <boxGeometry args={[0.1, 0.05, 0.01]} />
+        {mat("#efe2c4")}
+      </mesh>
+    </group>
+  );
+}
+
+/** Where the pirate floats on a sea hex. */
+export function pirateOffset(): { dx: number; dz: number } {
+  return { dx: -0.3, dz: -0.15 };
 }
 
 export const pieceMaterialCache = new Map<string, THREE.Material>();

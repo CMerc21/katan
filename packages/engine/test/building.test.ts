@@ -47,7 +47,7 @@ describe("§5 building", () => {
     expect(a.hand).toEqual(hand({}));
     expect(a.settlements).toEqual([]);
     expect(a.cities).toEqual([v0]);
-    expect(a.pieces).toEqual({ roads: 14, settlements: 5, cities: 3 });
+    expect(a.pieces).toEqual({ roads: 14, settlements: 5, cities: 3, ships: 15 });
   });
 
   it("§5.1 development card costs ore + wool + grain", () => {

@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BUILT_IN_BOARD_IDS, builtInBoard, resolveBoard, rng } from "@katan/engine";
+import { BUILT_IN_BOARD_IDS, BUILT_IN_SCENARIO_IDS, builtInBoard, builtInScenario, resolveBoard, rng } from "@katan/engine";
 import { BoardThumbnail } from "@/board2d/Thumbnail";
 import { Button } from "@/components/ui";
-import { deleteBoardRemote, deleteDraft, forkBoardRemote, loadDrafts, loadSavedBoards, type StoredBoard } from "@/editor/storage";
+import { deleteBoardRemote, deleteDraft, deleteScenarioDraft, deleteScenarioRemote, forkBoardRemote, forkScenarioRemote, loadDrafts, loadSavedBoards, loadSavedScenarios, loadScenarioDrafts, type StoredBoard, type StoredScenario } from "@/editor/storage";
 import { errorText } from "@/game/labels";
 import { useSession } from "@/hooks/useSession";
 
@@ -31,13 +31,17 @@ export default function BoardsPage() {
   const { session, configured } = useSession();
   const [drafts, setDrafts] = useState<StoredBoard[]>([]);
   const [saved, setSaved] = useState<StoredBoard[]>([]);
+  const [scenarioDrafts, setScenarioDrafts] = useState<StoredScenario[]>([]);
+  const [savedScenarios, setSavedScenarios] = useState<StoredScenario[]>([]);
   const [toast, setToast] = useState<string | null>(null);
 
   const refresh = async () => {
     setDrafts(loadDrafts());
+    setScenarioDrafts(loadScenarioDrafts());
     if (configured && session) {
       try {
         setSaved(await loadSavedBoards());
+        setSavedScenarios(await loadSavedScenarios());
       } catch (err) {
         setToast(err instanceof Error ? err.message : String(err));
       }
@@ -49,6 +53,16 @@ export default function BoardsPage() {
 
   const mine = saved.filter((b) => b.ownerId === session?.user.id);
   const publicBoards = saved.filter((b) => b.isPublic && b.ownerId !== session?.user.id);
+  const myScenarios = savedScenarios.filter((b) => b.ownerId === session?.user.id);
+  const publicScenarios = savedScenarios.filter((b) => b.isPublic && b.ownerId !== session?.user.id);
+  const scenarioThumb = (sc: StoredScenario) => {
+    try {
+      return <BoardThumbnail board={resolveBoard(sc.scenario.board, rng(sc.id, -2), { allowIslands: true })} size={200} showTokens={sc.scenario.board.generation.tokens === "fixed"} />;
+    } catch {
+      return <div className="grid h-[200px] w-[200px] place-items-center text-xs text-clay">Invalid board</div>;
+    }
+  };
+  const scenarioMeta = (sc: StoredScenario, extra = "") => `${sc.scenario.modules.tides ? "Tides · " : ""}${sc.scenario.victoryPoints} points · up to ${sc.scenario.board.seats.max} seats${extra}`;
   const thumb = (b: StoredBoard) => {
     try {
       return <BoardThumbnail board={resolveBoard(b.definition, rng(b.id, -2), { allowIslands: true })} size={200} showTokens={b.definition.generation.tokens === "fixed"} />;
@@ -103,6 +117,112 @@ export default function BoardsPage() {
           })}
         </ul>
       </section>
+
+      <section className="mt-6" aria-label="Built-in scenarios">
+        <h2 className="font-display mb-2 text-xl font-semibold text-parchment">Built-in scenarios (Tides)</h2>
+        <ul className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+          {BUILT_IN_SCENARIO_IDS.map((id) => {
+            const sc = builtInScenario(id);
+            return (
+              <Card
+                key={id}
+                testId={`builtin-scenario-${id}`}
+                name={sc.name}
+                meta={`${sc.victoryPoints} points · ${sc.board.hexes.filter((h) => h.kind === "land").length} land on ${sc.board.hexes.filter((h) => h.kind === "sea").length} sea`}
+                thumb={<BoardThumbnail board={resolveBoard(sc.board, rng(id, -2), { allowIslands: true })} size={200} showTokens={false} />}
+                actions={
+                  <Button size="sm" onClick={() => router.push(`/boards/editor/${id}`)} data-testid={`edit-scenario-${id}`}>
+                    Open as template
+                  </Button>
+                }
+              />
+            );
+          })}
+        </ul>
+      </section>
+
+      {scenarioDrafts.length > 0 && (
+        <section className="mt-6" aria-label="Scenario drafts on this device">
+          <h2 className="font-display mb-2 text-xl font-semibold text-parchment">Scenario drafts on this device</h2>
+          <ul className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+            {scenarioDrafts.map((sc) => (
+              <Card
+                key={sc.id}
+                testId={`scenario-draft-${sc.id}`}
+                name={sc.name}
+                meta={scenarioMeta(sc, " · not synced")}
+                thumb={scenarioThumb(sc)}
+                actions={
+                  <>
+                    <Button size="sm" onClick={() => router.push(`/boards/editor/${sc.id}`)}>
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="quiet"
+                      onClick={() => {
+                        deleteScenarioDraft(sc.id);
+                        void refresh();
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </>
+                }
+              />
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {session && myScenarios.length > 0 && (
+        <section className="mt-6" aria-label="My scenarios">
+          <h2 className="font-display mb-2 text-xl font-semibold text-parchment">My scenarios</h2>
+          <ul className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+            {myScenarios.map((sc) => (
+              <Card
+                key={sc.id}
+                testId={`my-scenario-${sc.id}`}
+                name={sc.name}
+                meta={scenarioMeta(sc, sc.isPublic ? " · public" : "")}
+                thumb={scenarioThumb(sc)}
+                actions={
+                  <>
+                    <Button size="sm" onClick={() => router.push(`/boards/editor/${sc.id}`)}>
+                      Edit
+                    </Button>
+                    <Button size="sm" variant="quiet" onClick={() => void deleteScenarioRemote(sc.id).then((r) => (r.ok ? refresh() : setToast(errorText(r.code ?? "BAD_REQUEST"))))}>
+                      Delete
+                    </Button>
+                  </>
+                }
+              />
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {session && publicScenarios.length > 0 && (
+        <section className="mt-6" aria-label="Public scenarios">
+          <h2 className="font-display mb-2 text-xl font-semibold text-parchment">Public scenarios</h2>
+          <ul className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+            {publicScenarios.map((sc) => (
+              <Card
+                key={sc.id}
+                testId={`public-scenario-${sc.id}`}
+                name={sc.name}
+                meta={scenarioMeta(sc)}
+                thumb={scenarioThumb(sc)}
+                actions={
+                  <Button size="sm" onClick={() => void forkScenarioRemote(sc.id).then((r) => (r.ok ? router.push(`/boards/editor/${r.scenarioId}`) : setToast(errorText(r.code))))}>
+                    Fork
+                  </Button>
+                }
+              />
+            ))}
+          </ul>
+        </section>
+      )}
 
       {drafts.length > 0 && (
         <section className="mt-6" aria-label="Drafts on this device">

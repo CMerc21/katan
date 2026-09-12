@@ -37,7 +37,12 @@ function randomAction(state: GameState, rng: Rng): Action {
     case "STEAL":
       return { type, playerId, targetPlayerId: pick(state.players).id };
     case "BUILD_ROAD":
+    case "BUILD_SHIP":
       return { type, playerId, edge: pick(GEOMETRY.edges) };
+    case "MOVE_SHIP":
+      return { type, playerId, from: pick(GEOMETRY.edges), to: pick(GEOMETRY.edges) };
+    case "CHOOSE_GOLD":
+      return { type, playerId, resources: [resource()] };
     case "BUILD_SETTLEMENT":
     case "BUILD_CITY":
       return { type, playerId, vertex: pick(GEOMETRY.vertices) };

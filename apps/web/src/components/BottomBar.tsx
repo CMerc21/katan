@@ -135,6 +135,7 @@ export function BottomBar(props: BottomBarProps) {
             {phase.kind === "specialBuild" && phase.order[phase.index] === me && hand && (
               <>
                 <BuildButton label="Build road" active={mode === "road"} reason={buildReason(view, player, hand, legal, "road")} onClick={() => onMode(mode === "road" ? null : "road")} testId="build-road" />
+                {view.scenario?.tides && <BuildButton label="Build ship" active={mode === "ship"} reason={buildReason(view, player, hand, legal, "ship")} onClick={() => onMode(mode === "ship" ? null : "ship")} testId="build-ship" />}
                 <BuildButton label="Build settlement" active={mode === "settlement"} reason={buildReason(view, player, hand, legal, "settlement")} onClick={() => onMode(mode === "settlement" ? null : "settlement")} testId="build-settlement" />
                 <BuildButton label="Build city" active={mode === "city"} reason={buildReason(view, player, hand, legal, "city")} onClick={() => onMode(mode === "city" ? null : "city")} testId="build-city" />
                 <Button disabled={!has("BUY_DEV_CARD")} reason={buyReason(view, hand)} onClick={() => onDispatch({ type: "BUY_DEV_CARD", playerId: me })} data-testid="buy-dev">
@@ -149,6 +150,8 @@ export function BottomBar(props: BottomBarProps) {
             {phase.kind === "action" && isCurrent && hand && (
               <>
                 <BuildButton label="Build road" active={mode === "road"} reason={buildReason(view, player, hand, legal, "road")} onClick={() => onMode(mode === "road" ? null : "road")} testId="build-road" />
+                {view.scenario?.tides && <BuildButton label="Build ship" active={mode === "ship"} reason={buildReason(view, player, hand, legal, "ship")} onClick={() => onMode(mode === "ship" ? null : "ship")} testId="build-ship" />}
+                {view.scenario?.tides && <BuildButton label="Move ship" active={mode === "moveShip"} reason={has("MOVE_SHIP") ? null : moveShipReason(player)} onClick={() => onMode(mode === "moveShip" ? null : "moveShip")} testId="move-ship" />}
                 <BuildButton label="Build settlement" active={mode === "settlement"} reason={buildReason(view, player, hand, legal, "settlement")} onClick={() => onMode(mode === "settlement" ? null : "settlement")} testId="build-settlement" />
                 <BuildButton label="Build city" active={mode === "city"} reason={buildReason(view, player, hand, legal, "city")} onClick={() => onMode(mode === "city" ? null : "city")} testId="build-city" />
                 <Button disabled={!has("BUY_DEV_CARD")} reason={buyReason(view, hand)} onClick={() => onDispatch({ type: "BUY_DEV_CARD", playerId: me })} data-testid="buy-dev">
@@ -166,7 +169,7 @@ export function BottomBar(props: BottomBarProps) {
 
             {mode !== null && (
               <span className="text-sm text-ink-soft">
-                Choose a spot on the board · <kbd className="rounded border border-line px-1">Esc</kbd> cancels
+                {mode === "moveShip" ? "Pick the ship, then where it sails" : "Choose a spot on the board"} · <kbd className="rounded border border-line px-1">Esc</kbd> cancels
               </span>
             )}
           </>
@@ -191,9 +194,11 @@ export function waitingText(view: RedactedState, me: string, waitingOn: string |
     case "discard":
       return `Waiting for ${Object.keys(view.pendingDiscards).map((id) => view.players.find((p) => p.id === id)?.name ?? id).join(", ")} to discard`;
     case "moveRobber":
-      return `Waiting for ${who} to move the robber`;
+      return view.pirateHex !== null ? `Waiting for ${who} to move the robber or the pirate` : `Waiting for ${who} to move the robber`;
     case "steal":
       return `Waiting for ${who} to steal`;
+    case "chooseGold":
+      return `Waiting for ${Object.keys(view.phase.owed).map((id) => view.players.find((p) => p.id === id)?.name ?? id).join(", ")} to choose gold`;
     case "roadBuilding":
       return `Waiting for ${who} to place free roads`;
     case "specialBuild":
@@ -220,15 +225,23 @@ function afford(hand: Hand, cost: Hand): boolean {
 }
 
 /** Why a build button is disabled, or null when it is enabled (docs/phase3.md §5). */
-export function buildReason(view: RedactedState, player: RedactedState["players"][number], hand: Hand, legal: Action[], kind: "road" | "settlement" | "city"): string | null {
-  const type = kind === "road" ? "BUILD_ROAD" : kind === "settlement" ? "BUILD_SETTLEMENT" : "BUILD_CITY";
+export function buildReason(view: RedactedState, player: RedactedState["players"][number], hand: Hand, legal: Action[], kind: "road" | "settlement" | "city" | "ship"): string | null {
+  const type = kind === "road" ? "BUILD_ROAD" : kind === "settlement" ? "BUILD_SETTLEMENT" : kind === "ship" ? "BUILD_SHIP" : "BUILD_CITY";
   if (legal.some((a) => a.type === type)) return null;
   if (view.phase.kind !== "action" && view.phase.kind !== "specialBuild") return "Only after rolling";
-  const pieces = kind === "road" ? player.pieces.roads : kind === "settlement" ? player.pieces.settlements : player.pieces.cities;
+  const pieces = kind === "road" ? player.pieces.roads : kind === "settlement" ? player.pieces.settlements : kind === "ship" ? player.pieces.ships : player.pieces.cities;
   if (pieces <= 0) return "No pieces of that kind left";
   if (!afford(hand, COSTS[kind])) return `Needs ${COST_TEXT[kind]}`;
   if (kind === "city") return "No settlement to upgrade";
+  if (kind === "ship") return "No sea edge joins your ships or settlements";
   return "No legal spot";
+}
+
+/** docs/phase9.md §2: why no ship may move right now. */
+export function moveShipReason(player: RedactedState["players"][number]): string {
+  if (player.ships.length === 0) return "You have no ships";
+  if (player.shipMovedThisTurn) return "Only one ship may move per turn";
+  return "No ship at an open end can move";
 }
 
 function buyReason(view: RedactedState, hand: Hand): string {

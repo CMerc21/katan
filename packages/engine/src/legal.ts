@@ -21,6 +21,8 @@ import {
   hasResources,
   ratioAllowed,
   roadsMap,
+  shipsMap,
+  tidesOn,
 } from "./state";
 import type { Action, DevCardType, GameState, Hand, Player, PlayerId } from "./types";
 
@@ -40,32 +42,64 @@ export function satisfiesDistanceRule(state: GameState, vertex: VertexId): boole
   return (geo.vertexNeighbors[vertex] ?? []).every((n) => !buildings.has(n));
 }
 
-/** §4.2: vertices where a setup settlement may go. */
+/** §4.2 (and §14.6 for restricted scenarios): vertices where a setup settlement may go. */
 export function legalSetupSettlementVertices(state: GameState): VertexId[] {
   const geo = boardGeometry(state.board);
   const buildings = buildingsMap(state);
-  const allowed = setupVertexFilter(state);
   return geo.vertices.filter(
-    (v) => isLandVertex(state, v, geo) && allowed(v) && !buildings.has(v) && (geo.vertexNeighbors[v] ?? []).every((n) => !buildings.has(n)),
+    (v) => isLandVertex(state, v, geo) && setupAllowed(state, v, geo) && !buildings.has(v) && (geo.vertexNeighbors[v] ?? []).every((n) => !buildings.has(n)),
   );
 }
 
-/** Hook for scenario setup restrictions (docs/phase9.md §5); the base game allows every land vertex. */
-export let setupVertexFilter: (state: GameState) => (v: VertexId) => boolean = () => () => true;
-export function installSetupVertexFilter(fn: typeof setupVertexFilter): void {
-  setupVertexFilter = fn;
+/** Scenario setup restriction (docs/phase9.md §5): `mainIslandOnly` keeps starting settlements on the main island. */
+export function setupAllowed(state: GameState, vertex: VertexId, geo: Geometry = boardGeometry(state.board)): boolean {
+  const rules = state.scenario;
+  if (!rules || rules.setup !== "mainIslandOnly" || rules.mainIsland === null) return true;
+  const island = state.board.islands.find((i) => i.id === rules.mainIsland);
+  if (!island) return true;
+  return (geo.vertexHexes[vertex] ?? []).some((h) => island.hexes.includes(h));
 }
 
 /** §4.2: empty edges touching the just-placed settlement. */
 export function legalSetupRoadEdges(state: GameState, settlement: VertexId): EdgeId[] {
   const geo = boardGeometry(state.board);
-  const roads = roadsMap(state);
-  return (geo.vertexEdges[settlement] ?? []).filter((e) => !roads.has(e) && isLandEdge(state, e, geo));
+  const taken = edgesTaken(state);
+  return (geo.vertexEdges[settlement] ?? []).filter((e) => !taken.has(e) && isLandEdge(state, e, geo));
+}
+
+/** §14.2: a setup ship may replace the setup road when the settlement is coastal. */
+export function legalSetupShipEdges(state: GameState, settlement: VertexId): EdgeId[] {
+  if (!tidesOn(state)) return [];
+  const geo = boardGeometry(state.board);
+  const taken = edgesTaken(state);
+  const pirate = pirateEdges(state, geo);
+  return (geo.vertexEdges[settlement] ?? []).filter((e) => !taken.has(e) && isSeaEdge(state, e, geo) && !pirate.has(e));
 }
 
 /** An edge a road may use: it borders at least one land hex. */
 export function isLandEdge(state: GameState, edge: EdgeId, geo: Geometry = boardGeometry(state.board)): boolean {
   return (geo.edgeHexes[edge] ?? []).some((h) => state.board.hexes[h] !== undefined);
+}
+
+/** §14.2: an edge a ship may use: it borders at least one playable sea hex. */
+export function isSeaEdge(state: GameState, edge: EdgeId, geo: Geometry = boardGeometry(state.board)): boolean {
+  if (!state.board.seaPlayable) return false;
+  return (geo.edgeHexes[edge] ?? []).some((h) => state.board.sea.includes(h));
+}
+
+/** Every edge holding a road or a ship. */
+export function edgesTaken(state: GameState): Set<EdgeId> {
+  const out = new Set<EdgeId>();
+  for (const p of state.players) {
+    for (const e of p.roads) out.add(e);
+    for (const e of p.ships) out.add(e);
+  }
+  return out;
+}
+
+/** §14.5: the six edges around the pirate (no ship may be built on or moved to or from them). */
+export function pirateEdges(state: GameState, geo: Geometry = boardGeometry(state.board)): Set<EdgeId> {
+  return new Set(state.pirateHex === null ? [] : (geo.hexEdges[state.pirateHex] ?? []));
 }
 
 function connectsWith(
@@ -93,26 +127,93 @@ export function roadConnects(state: GameState, playerId: PlayerId, edge: EdgeId)
   return connectsWith(boardGeometry(state.board), playerId, edge, roadsMap(state), buildingsMap(state));
 }
 
-/** §5.2: empty edges the player could build on (ignores cost and supply). */
+/** §5.2: empty edges the player could build a road on (ignores cost and supply). */
 export function legalRoadEdges(state: GameState, playerId: PlayerId): EdgeId[] {
   const geo = boardGeometry(state.board);
   const roads = roadsMap(state);
+  const taken = edgesTaken(state);
   const buildings = buildingsMap(state);
-  return geo.edges.filter((e) => !roads.has(e) && isLandEdge(state, e, geo) && connectsWith(geo, playerId, e, roads, buildings));
+  return geo.edges.filter((e) => !taken.has(e) && isLandEdge(state, e, geo) && connectsWith(geo, playerId, e, roads, buildings));
 }
 
-/** §5.3: empty vertices satisfying the distance rule and touching an own road (ignores cost and supply). */
+/**
+ * §14.2: is `edge` connected to the player's shipping network (an own
+ * building or an own ship at one end, never a road) without passing an
+ * opponent's building? `ignoring` leaves one own ship out (for moves).
+ */
+export function shipConnects(state: GameState, playerId: PlayerId, edge: EdgeId, ignoring: EdgeId | null = null): boolean {
+  const geo = boardGeometry(state.board);
+  const ships = shipsMap(state);
+  if (ignoring !== null) ships.delete(ignoring);
+  return connectsWith(geo, playerId, edge, ships, buildingsMap(state));
+}
+
+/** §14.2: empty sea edges the player could build a ship on (ignores cost and supply). */
+export function legalShipEdges(state: GameState, playerId: PlayerId, ignoring: EdgeId | null = null): EdgeId[] {
+  if (!tidesOn(state)) return [];
+  const geo = boardGeometry(state.board);
+  const ships = shipsMap(state);
+  if (ignoring !== null) ships.delete(ignoring);
+  const taken = edgesTaken(state);
+  if (ignoring !== null) taken.delete(ignoring);
+  const pirate = pirateEdges(state, geo);
+  const buildings = buildingsMap(state);
+  return geo.edges.filter((e) => !taken.has(e) && !pirate.has(e) && isSeaEdge(state, e, geo) && connectsWith(geo, playerId, e, ships, buildings));
+}
+
+/**
+ * §14.2: a ship sits at the open end of a route when one of its ends has
+ * neither an own building nor another own ship.
+ */
+export function isOpenEndShip(state: GameState, playerId: PlayerId, edge: EdgeId): boolean {
+  const geo = boardGeometry(state.board);
+  const player = getPlayer(state, playerId);
+  const mine = new Set(player.ships);
+  const buildings = buildingsMap(state);
+  return (geo.edgeVertices[edge] ?? []).some((v) => {
+    const b = buildings.get(v);
+    if (b && b.owner === playerId) return false;
+    return !(geo.vertexEdges[v] ?? []).some((e) => e !== edge && mine.has(e));
+  });
+}
+
+/** §14.2: own ships that may move this turn (open end, not built this turn, not beside the pirate). */
+export function movableShips(state: GameState, playerId: PlayerId): EdgeId[] {
+  if (!tidesOn(state)) return [];
+  const player = getPlayer(state, playerId);
+  if (player.shipMovedThisTurn) return [];
+  const pirate = pirateEdges(state);
+  return player.ships.filter((e) => !player.shipsBuiltThisTurn.includes(e) && !pirate.has(e) && isOpenEndShip(state, playerId, e));
+}
+
+/** §14.2: every legal (from, to) ship move. */
+export function legalShipMoves(state: GameState, playerId: PlayerId): { from: EdgeId; to: EdgeId }[] {
+  const out: { from: EdgeId; to: EdgeId }[] = [];
+  for (const from of movableShips(state, playerId)) {
+    for (const to of legalShipEdges(state, playerId, from)) if (to !== from) out.push({ from, to });
+  }
+  return out;
+}
+
+/** §5.3 (and §14.2): empty vertices satisfying the distance rule and touching an own road or ship (ignores cost and supply). */
 export function legalSettlementVertices(state: GameState, playerId: PlayerId): VertexId[] {
   const geo = boardGeometry(state.board);
   const roads = roadsMap(state);
+  const ships = shipsMap(state);
   const buildings = buildingsMap(state);
   return geo.vertices.filter(
     (v) =>
       isLandVertex(state, v, geo) &&
       !buildings.has(v) &&
       (geo.vertexNeighbors[v] ?? []).every((n) => !buildings.has(n)) &&
-      (geo.vertexEdges[v] ?? []).some((e) => roads.get(e) === playerId),
+      (geo.vertexEdges[v] ?? []).some((e) => roads.get(e) === playerId || ships.get(e) === playerId),
   );
+}
+
+/** Road Building (§8.2, §14.2): somewhere to put a road, or a ship under Tides. */
+export function canPlaceRoadOrShip(state: GameState, player: Player): boolean {
+  if (player.pieces.roads > 0 && legalRoadEdges(state, player.id).length > 0) return true;
+  return player.pieces.ships > 0 && legalShipEdges(state, player.id).length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +241,59 @@ export function stealTargets(state: GameState, hex: HexId, thief: PlayerId): Pla
     if (!b || b.owner === thief || out.includes(b.owner)) continue;
     if (handSize(getPlayer(state, b.owner).hand) >= 1) out.push(b.owner);
   }
+  return out;
+}
+
+/** §14.5: opponents with a ship on an edge of the pirate's hex and at least one card. */
+export function pirateStealTargets(state: GameState, hex: HexId, thief: PlayerId): PlayerId[] {
+  const out: PlayerId[] = [];
+  const edges = new Set(boardGeometry(state.board).hexEdges[hex] ?? []);
+  for (const p of state.players) {
+    if (p.id === thief || out.includes(p.id)) continue;
+    if (p.ships.some((e) => edges.has(e)) && handSize(p.hand) >= 1) out.push(p.id);
+  }
+  return out;
+}
+
+/** §14.5: may the current player move the pirate? */
+export function pirateEnabled(state: GameState): boolean {
+  return tidesOn(state) && state.scenario?.pirate === true && state.pirateHex !== null;
+}
+
+// ---------------------------------------------------------------------------
+// Gold (§14.3)
+
+const GOLD_CHOICE_LIMIT = 70;
+
+/** What a player may still take from a gold field: the owed count capped by what the bank holds. */
+export function goldOwedNow(state: GameState, playerId: PlayerId): number {
+  const phase = state.phase;
+  if (phase.kind !== "chooseGold") return 0;
+  const owed = phase.owed[playerId] ?? 0;
+  return Math.min(owed, handSize(state.bank));
+}
+
+/** Every multiset of `n` resources the bank can pay (all of them up to 70 options, then one per resource). */
+export function goldChoices(state: GameState, n: number): Resource[][] {
+  if (n <= 0) return [[]];
+  const out: Resource[][] = [];
+  const walk = (start: number, left: number, acc: Resource[]) => {
+    if (out.length >= GOLD_CHOICE_LIMIT) return;
+    if (left === 0) {
+      out.push([...acc]);
+      return;
+    }
+    for (let i = start; i < RESOURCES.length; i++) {
+      const r = RESOURCES[i] as Resource;
+      const already = acc.filter((x) => x === r).length;
+      if (state.bank[r] <= already) continue;
+      acc.push(r);
+      walk(i, left - 1, acc);
+      acc.pop();
+    }
+  };
+  walk(0, n, []);
+  if (out.length === 0) return [[]];
   return out;
 }
 
@@ -186,7 +340,17 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
         for (const edge of legalSetupRoadEdges(state, phase.lastSettlement)) {
           out.push({ type: "BUILD_ROAD", playerId, edge });
         }
+        if (player.pieces.ships > 0) {
+          for (const edge of legalSetupShipEdges(state, phase.lastSettlement)) out.push({ type: "BUILD_SHIP", playerId, edge });
+        }
       }
+      return out;
+    }
+
+    case "chooseGold": {
+      // §14.3: each owing player picks, in seat order (see nextActor).
+      if (phase.owed[playerId] === undefined) return [];
+      for (const resources of goldChoices(state, goldOwedNow(state, playerId))) out.push({ type: "CHOOSE_GOLD", playerId, resources });
       return out;
     }
 
@@ -209,6 +373,11 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
       for (const hex of Object.keys(state.board.hexes)) {
         if (hex !== state.robberHex) out.push({ type: "MOVE_ROBBER", playerId, hex });
       }
+      if (pirateEnabled(state)) {
+        for (const hex of state.board.sea) {
+          if (hex !== state.pirateHex) out.push({ type: "MOVE_ROBBER", playerId, hex, target: "pirate" });
+        }
+      }
       return out;
     }
 
@@ -218,6 +387,9 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
       const h = player.hand;
       if (player.pieces.roads > 0 && hasResources(h, COSTS.road)) {
         for (const edge of legalRoadEdges(state, playerId)) out.push({ type: "BUILD_ROAD", playerId, edge });
+      }
+      if (player.pieces.ships > 0 && hasResources(h, COSTS.ship)) {
+        for (const edge of legalShipEdges(state, playerId)) out.push({ type: "BUILD_SHIP", playerId, edge });
       }
       if (player.pieces.settlements > 0 && hasResources(h, COSTS.settlement)) {
         for (const vertex of legalSettlementVertices(state, playerId)) out.push({ type: "BUILD_SETTLEMENT", playerId, vertex });
@@ -241,6 +413,9 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
       if (player.pieces.roads > 0) {
         for (const edge of legalRoadEdges(state, playerId)) out.push({ type: "BUILD_ROAD", playerId, edge });
       }
+      if (player.pieces.ships > 0) {
+        for (const edge of legalShipEdges(state, playerId)) out.push({ type: "BUILD_SHIP", playerId, edge });
+      }
       return out;
     }
 
@@ -258,6 +433,10 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
       if (player.pieces.roads > 0 && hasResources(h, COSTS.road)) {
         for (const edge of legalRoadEdges(state, playerId)) out.push({ type: "BUILD_ROAD", playerId, edge });
       }
+      if (player.pieces.ships > 0 && hasResources(h, COSTS.ship)) {
+        for (const edge of legalShipEdges(state, playerId)) out.push({ type: "BUILD_SHIP", playerId, edge });
+      }
+      for (const { from, to } of legalShipMoves(state, playerId)) out.push({ type: "MOVE_SHIP", playerId, from, to });
       if (player.pieces.settlements > 0 && hasResources(h, COSTS.settlement)) {
         for (const vertex of legalSettlementVertices(state, playerId)) {
           out.push({ type: "BUILD_SETTLEMENT", playerId, vertex });
@@ -271,11 +450,7 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
       }
 
       if (devCardPlayable(state, player, "knight") === "ok") out.push({ type: "PLAY_KNIGHT", playerId });
-      if (
-        devCardPlayable(state, player, "roadBuilding") === "ok" &&
-        player.pieces.roads > 0 &&
-        legalRoadEdges(state, playerId).length > 0
-      ) {
+      if (devCardPlayable(state, player, "roadBuilding") === "ok" && canPlaceRoadOrShip(state, player)) {
         out.push({ type: "PLAY_ROAD_BUILDING", playerId });
       }
       if (devCardPlayable(state, player, "invention") === "ok") {

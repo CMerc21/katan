@@ -72,9 +72,9 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 * `BoardDefinition` + `isBoardDefinition`, `geometryFor`/`boardGeometry` for any hex set, scaled pools, `validateBoard`, built-in frames (Beginner, Random, Large, Long strip, Ring), 3–6 players with the special build phase (`docs/rules.md` §13), `boards` table + `save-board`/`delete-board`/`fork-board`, `/boards`, the editor at `/boards/editor/[id?]`, the shared `BoardPicker` in the hotseat and create-lobby forms. Details in `docs/phase8.md`.
 
-### Phase 9 — Tides (sea module)
+### Phase 9 — Tides (sea module) (done)
 
-* Ships, pirate, gold, islands, longest route, scenarios. Details in `docs/phase9.md`.
+* `Scenario` + `validateScenario`, built-in scenarios (Across the Strait, Archipelago, Gold Coast), ships (`BUILD_SHIP`/`MOVE_SHIP`), the pirate (`MOVE_ROBBER { target }`), gold fields (`chooseGold` phase, `CHOOSE_GOLD`), islands and the island bonus, longest route, setup restriction (`docs/rules.md` §14), `scenarios` table + `save-scenario`/`delete-scenario`/`fork-scenario`, scenario picker, editor Scenario section, 3D ships/pirate/gold. Details in `docs/phase9.md`.
 
 ## Conventions
 
@@ -104,6 +104,7 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 * `game.ts` — `createGame`.
 * `redact.ts` — `redact(state, playerId)`, the only thing a client should ever receive.
 * `definition.ts` — `BoardDefinition` and its guard. `pools.ts` — terrain/token/harbour pools scaled to any land count. `validation.ts` — `validateBoard` (error/warning codes). `generation.ts` — `resolveBoard` (definition + seed → `Board`). `frames.ts` — built-in boards.
+* `scenario.ts` — `Scenario`, `ScenarioRules`, `isScenario`, `validateScenario`. `scenarios.ts` — the built-in Tides scenarios.
 
 `pnpm lint` enforces engine purity (no host/framework imports, no `Date`, no `Math.random`) via `eslint.config.js`.
 
@@ -118,9 +119,9 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 * `src/board/layout.ts` — hex/vertex/edge screen geometry and viewBox (unit tested).
 * `src/board3d/` — the diorama used in play: `Board3D` (Canvas), `layout3d` (world coords = engine geometry, y → z), `Tiles`, `Props` + `props.ts` (seeded layouts), `Pieces`, `Harbor`, `Camera`, `Interaction` (layer-1 raycast targets), `Effects3d` (dice, robber, projector), `quality` (presets, detection, watchdog), `textures` (canvas sprites).
 * `src/board2d/` — the SVG board (`Board`, `parts`, `Thumbnail`), thumbnails only.
-* `src/editor/` — board editor: `model.ts` (pure reducer + undo/redo, unit tested), `storage.ts` (localStorage drafts, `boards` table), `EditorCanvas` (diorama with a cell grid and accessible overlay), `Editor` (tools, validation, save, test play). `src/components/BoardPicker.tsx` is the shared board chooser.
+* `src/editor/` — board editor: `model.ts` (pure reducer + undo/redo + scenario settings, unit tested), `storage.ts` (localStorage drafts, `boards` and `scenarios` tables), `EditorCanvas` (diorama with a cell grid and accessible overlay), `Editor` (tools, validation, Scenario section, save, test play). `src/components/BoardPicker.tsx` is the shared board and scenario chooser.
 * `src/components/` — `BottomBar`, `PlayersPanel`, `LogPanel`, `dialogs` (handoff, discard, trade, steal, resource picker, ended), `ui` primitives, `cards` (resource and dev card faces), `Avatar` / `AvatarPicker`, `anim/` (anchors, turn banner, dice tray, flying cards, dev card reveal, confetti), `SettingsMenu`.
-* `e2e/` — Playwright (Chromium on SwiftShader for WebGL): `smoke.spec.ts` (setup by clicking, roll, end turn), `pacing.spec.ts` (bot turns take 2–8 s on Normal, instant on Off), `board3d.spec.ts` (diorama renders, raycast and overlay clicks dispatch), `visual.spec.ts` (screenshot baselines in `e2e/__screenshots__`), `editor.spec.ts` (paint, auto-fill, save a draft, play it) and `fullgame.spec.ts` (a whole greedy game through the UI; slow).
+* `e2e/` — Playwright (Chromium on SwiftShader for WebGL): `smoke.spec.ts` (setup by clicking, roll, end turn), `pacing.spec.ts` (bot turns take 2–8 s on Normal, instant on Off), `board3d.spec.ts` (diorama renders, raycast and overlay clicks dispatch), `visual.spec.ts` (screenshot baselines in `e2e/__screenshots__`), `editor.spec.ts` (paint, auto-fill, save a draft, play it), `tides.spec.ts` (Gold Coast: pirate on the sea, a setup ship) and `fullgame.spec.ts` (a whole greedy game through the UI; slow).
 * Chromium is preinstalled in the dev container; `playwright.config.ts` points at it and never downloads a browser.
 
 ## Commands

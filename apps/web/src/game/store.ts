@@ -6,7 +6,7 @@
 
 import type { AvatarSpec } from "@katan/avatars";
 import type { BotLevel } from "@katan/bots";
-import type { BoardDefinition, BoardKind } from "@katan/engine";
+import type { BoardDefinition, BoardKind, Scenario } from "@katan/engine";
 import { HotseatDriver } from "@/driver/hotseat";
 import type { GameDriver } from "@/driver/types";
 
@@ -14,6 +14,8 @@ export interface HotseatConfig {
   readonly players: readonly { id: string; name: string; bot?: BotLevel; avatar?: AvatarSpec }[];
   /** A built-in kind or a full definition from the picker/editor (docs/phase8.md §4). */
   readonly board: BoardKind | BoardDefinition;
+  /** A Tides scenario (docs/phase9.md §5) takes precedence over `board`. */
+  readonly scenario?: Scenario;
   readonly seed: string;
 }
 
@@ -30,6 +32,7 @@ export function startHotseat(config: HotseatConfig): GameDriver {
     seed: config.seed,
     players: config.players.map((p) => ({ id: p.id, name: p.name })),
     board: config.board,
+    ...(config.scenario ? { scenario: config.scenario } : {}),
     bots,
     avatars,
   });

@@ -24,6 +24,11 @@ export interface RedactedPlayer {
   readonly roads: Player["roads"];
   readonly settlements: Player["settlements"];
   readonly cities: Player["cities"];
+  readonly ships: Player["ships"];
+  readonly shipsBuiltThisTurn: Player["shipsBuiltThisTurn"];
+  readonly shipMovedThisTurn: boolean;
+  readonly startIslands: Player["startIslands"];
+  readonly islandChips: Player["islandChips"];
   /** Buildings and special cards: visible to everyone. */
   readonly publicVP: number;
   /** Hidden victoryPoint cards; only present for the requesting player (everyone once the game has ended). */
@@ -62,6 +67,11 @@ export function redact(state: GameState, viewer: PlayerId, events: readonly Game
       roads: p.roads,
       settlements: p.settlements,
       cities: p.cities,
+      ships: p.ships,
+      shipsBuiltThisTurn: p.shipsBuiltThisTurn,
+      shipMovedThisTurn: p.shipMovedThisTurn,
+      startIslands: p.startIslands,
+      islandChips: p.islandChips,
       publicVP: vp.publicVP,
       privateVP: showVP ? vp.hiddenVP : null,
     };
@@ -97,6 +107,11 @@ export function viewToState(view: RedactedGameState): GameState {
     roads: [...p.roads],
     settlements: [...p.settlements],
     cities: [...p.cities],
+    ships: [...p.ships],
+    shipsBuiltThisTurn: [...p.shipsBuiltThisTurn],
+    shipMovedThisTurn: p.shipMovedThisTurn,
+    startIslands: [...p.startIslands],
+    islandChips: [...p.islandChips],
   }));
   return {
     ...cloneJson(rest),

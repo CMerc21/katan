@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { hasErrors, validateBoard } from "@katan/engine";
-import { emptyDefinition, harborEdges, historyReduce, initialEditorState, rectangleCells, reduce, symmetricCells, tokenTray, type History } from "@/editor/model";
+import { builtInScenario, validateScenario } from "@katan/engine";
+import { DEFAULT_SCENARIO, emptyDefinition, harborEdges, historyReduce, initialEditorState, islandIndexOf, rectangleCells, reduce, settingsOf, symmetricCells, toScenario, tokenTray, type History } from "@/editor/model";
 
 describe("docs/phase8.md §4 editor model", () => {
   it("frame brush cycles empty → land → sea → frame → empty, with symmetry", () => {
@@ -105,5 +106,40 @@ describe("docs/phase8.md §4 editor model", () => {
     s = reduce(s, { type: "setName", name: "My large" });
     expect(s.dirty).toBe(true);
     expect(s.def.name).toBe("My large");
+  });
+
+  it("docs/phase9.md §5 the scenario tab: settings round-trip, main island picked by hex, VP clamped, not undoable", () => {
+    let s = initialEditorState(emptyDefinition("Isles"));
+    expect(toScenario(s)).toBeNull();
+    s = reduce(s, { type: "setScenario", scenario: { ...DEFAULT_SCENARIO } });
+    expect(s.scenario).toEqual(DEFAULT_SCENARIO);
+    expect(s.dirty).toBe(true);
+    s = reduce(s, { type: "setScenario", scenario: { victoryPoints: 99, islandBonus: -1 } });
+    expect(s.scenario?.victoryPoints).toBe(30);
+    expect(s.scenario?.islandBonus).toBe(0);
+    // Two islands: the second one picked by clicking one of its hexes.
+    s = reduce(s, { type: "loadTemplate", id: "random" });
+    s = reduce(s, { type: "setCells", cells: [{ q: 5, r: 0 }, { q: 6, r: 0 }, { q: 5, r: 1 }, { q: 6, r: -1 }, { q: 4, r: 1 }, { q: 7, r: -1 }, { q: 6, r: 1 }], kind: "land" });
+    expect(islandIndexOf(s.def, { q: 6, r: 0 })).toBe(1);
+    expect(islandIndexOf(s.def, { q: 0, r: 0 })).toBe(0);
+    expect(islandIndexOf(s.def, { q: 3, r: 0 })).toBeNull();
+    s = reduce(s, { type: "setScenario", scenario: { setup: "mainIslandOnly", mainIsland: 1, specialRules: "Start east\n\nGold is west" } });
+    const sc = toScenario(s, "test")!;
+    expect(sc).toMatchObject({ id: "test", name: "Isles", modules: { tides: true }, setup: "mainIslandOnly", mainIsland: 1, specialRules: ["Start east", "Gold is west"] });
+    expect(validateScenario(sc).some((i) => i.code === "SCENARIO_MAIN_ISLAND")).toBe(false);
+    // Settings from a stored scenario and back.
+    const gold = builtInScenario("goldCoast");
+    const fromStored = settingsOf(gold);
+    expect(fromStored).toMatchObject({ tides: true, pirate: true, islandBonus: 0, setup: "standard", victoryPoints: 11 });
+    const loaded = reduce(initialEditorState(gold.board, "gc", fromStored), { type: "setName", name: "Gold Coast" });
+    expect(toScenario(loaded, "gc")?.victoryPoints).toBe(11);
+    // Scenario settings are not part of the undo history; turning it off keeps the board.
+    let h: History = { past: [], present: initialEditorState(emptyDefinition()), future: [] };
+    h = historyReduce(h, { type: "setCell", at: { q: 0, r: 0 }, kind: "land" });
+    h = historyReduce(h, { type: "setScenario", scenario: { ...DEFAULT_SCENARIO } });
+    expect(h.past).toHaveLength(1);
+    h = historyReduce(h, { type: "setScenario", scenario: null });
+    expect(h.present.scenario).toBeNull();
+    expect(h.present.def.hexes).toHaveLength(1);
   });
 });

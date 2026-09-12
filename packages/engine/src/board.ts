@@ -60,6 +60,12 @@ export interface Port {
   readonly vertices: readonly [VertexId, VertexId];
 }
 
+/** A connected component of land (docs/rules.md §14.4). */
+export interface Island {
+  readonly id: number;
+  readonly hexes: readonly HexId[];
+}
+
 export interface Board {
   readonly name: string;
   /** Land tiles only. */
@@ -71,6 +77,8 @@ export interface Board {
   readonly ports: readonly Port[];
   readonly seats: { readonly min: number; readonly max: number };
   readonly seaPlayable: boolean;
+  /** Islands by id (largest first); a single-island board has one. */
+  readonly islands: readonly Island[];
 }
 
 export type BoardKind = "beginner" | "random";

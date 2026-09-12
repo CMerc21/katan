@@ -11,7 +11,7 @@ import { RuleError } from "./errors";
 import { edgeMidpoint, edgeVerticesOf, geometryFor, hexId, parseEdgeId, type EdgeId, type Geometry, type HexId, type VertexId } from "./geometry";
 import { PIPS, harborCount, harborPool, terrainPool, tokenPool, trimPool } from "./pools";
 import type { Rng } from "./rng";
-import { coastalEdges, hasErrors, validateBoard, type ValidateOptions } from "./validation";
+import { coastalEdges, hasErrors, landComponents, validateBoard, type ValidateOptions } from "./validation";
 
 export const MAX_TOKEN_ATTEMPTS = 10_000;
 export const BALANCED_ATTEMPTS = 400;
@@ -208,6 +208,7 @@ export function resolveBoard(def: BoardDefinition, rng: Rng, options: ValidateOp
     ports,
     seats: { min: def.seats.min, max: def.seats.max },
     seaPlayable: false,
+    islands: landComponents(def).map((hexes, id) => ({ id, hexes })),
   };
 }
 

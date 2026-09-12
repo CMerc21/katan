@@ -111,6 +111,34 @@ describe("docs/phase8.md §6 bots on arbitrary boards", () => {
   }
 });
 
+describe("docs/phase9.md §9 bots on the Tides scenarios", () => {
+  for (const id of ["acrossTheStrait", "archipelago", "goldCoast"] as const) {
+    it(`${id}: 50 mixed games finish with no illegal action and no stall, and ships get built`, async () => {
+      const { builtInScenario } = await import("@katan/engine");
+      const scenario = builtInScenario(id);
+      const levels: BotLevel[] = ["hard", "medium", "easy", "medium"];
+      let ships = 0;
+      let islandBonuses = 0;
+      let goldChoices = 0;
+      let pirateMoves = 0;
+      for (let i = 0; i < 50; i++) {
+        if (i % 5 === 0) await new Promise((r) => setTimeout(r, 0));
+        const rotated = levels.map((_, j) => levels[(j + i) % 4]!);
+        const g = playBotGame({ seed: `${id}-${i}`, players: FOUR, scenario, levels: rotated });
+        expect(g.final.phase.kind, `${id} seed ${i} stalled at turn ${g.turns}`).toBe("ended");
+        ships += g.actions.filter((a) => a.type === "BUILD_SHIP").length;
+        goldChoices += g.actions.filter((a) => a.type === "CHOOSE_GOLD").length;
+        pirateMoves += g.actions.filter((a) => a.type === "MOVE_ROBBER" && a.target === "pirate").length;
+        islandBonuses += g.final.players.reduce((n, p) => n + p.islandChips.length, 0);
+      }
+      expect(ships).toBeGreaterThan(50);
+      expect(goldChoices).toBeGreaterThan(0);
+      if (scenario.pirate !== false) expect(pirateMoves).toBeGreaterThan(0);
+      if ((scenario.islandBonus ?? 0) > 0) expect(islandBonuses).toBeGreaterThan(0);
+    }, 300_000);
+  }
+});
+
 describe("docs/phase7.md §5 bot names", () => {
   it("is deterministic and never repeats a name within a game", async () => {
     const { generateBotNames, isGeneratedBotName, FIRST_NAMES, EPITHETS, PLACES } = await import("../src/names");

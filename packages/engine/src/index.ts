@@ -15,3 +15,5 @@ export * from "./legal";
 export * from "./actions";
 export * from "./game";
 export * from "./redact";
+export * from "./scenario";
+export * from "./scenarios";

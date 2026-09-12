@@ -66,6 +66,8 @@ export const COSTS = {
   settlement: hand({ wood: 1, clay: 1, wool: 1, grain: 1 }),
   city: hand({ grain: 2, ore: 3 }),
   devCard: hand({ ore: 1, wool: 1, grain: 1 }),
+  /** §14.2 */
+  ship: hand({ wood: 1, wool: 1 }),
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -133,6 +135,35 @@ export function roadsMap(state: GameState): Map<EdgeId, PlayerId> {
   return map;
 }
 
+/** §14.2 */
+export function shipOwner(state: GameState, edge: EdgeId): PlayerId | null {
+  for (const p of state.players) {
+    if (p.ships.includes(edge)) return p.id;
+  }
+  return null;
+}
+
+export function shipsMap(state: GameState): Map<EdgeId, PlayerId> {
+  const map = new Map<EdgeId, PlayerId>();
+  for (const p of state.players) for (const e of p.ships) map.set(e, p.id);
+  return map;
+}
+
+/** Whoever holds the edge with a road or a ship. */
+export function edgeOwner(state: GameState, edge: EdgeId): PlayerId | null {
+  return roadOwner(state, edge) ?? shipOwner(state, edge);
+}
+
+/** The island a vertex belongs to (§14.4), or null for a sea-only vertex. */
+export function islandOfVertex(state: GameState, vertex: VertexId): number | null {
+  for (const h of boardGeometry(state.board).vertexHexes[vertex] ?? []) {
+    if (state.board.hexes[h] === undefined) continue;
+    const island = state.board.islands.find((i) => i.hexes.includes(h));
+    if (island) return island.id;
+  }
+  return null;
+}
+
 export interface HexBuilding extends Building {
   readonly vertex: VertexId;
 }
@@ -190,12 +221,23 @@ export function victoryPoints(state: GameState, player: Player): VictoryPoints {
   let publicVP = player.settlements.length + 2 * player.cities.length;
   if (state.longestRoad.playerId === player.id) publicVP += 2;
   if (state.largestArmy.playerId === player.id) publicVP += 2;
+  publicVP += player.islandChips.length * (state.scenario?.islandBonus ?? 0); // §14.4
   const hiddenVP = player.devCards.filter((c) => c.type === "victoryPoint").length;
   return { publicVP, hiddenVP, total: publicVP + hiddenVP };
 }
 
+/** §11, or the scenario's target (docs/phase9.md §5). */
+export function winningVP(state: GameState): number {
+  return state.scenario?.victoryPoints ?? WINNING_VP;
+}
+
 export function hasWon(state: GameState, player: Player): boolean {
-  return victoryPoints(state, player).total >= WINNING_VP;
+  return victoryPoints(state, player).total >= winningVP(state);
+}
+
+/** Tides module on (docs/rules.md §14). */
+export function tidesOn(state: GameState): boolean {
+  return state.scenario?.tides === true;
 }
 
 // ---------------------------------------------------------------------------
@@ -280,6 +322,15 @@ export function nextActor(state: GameState): PlayerId {
   if (phase.kind === "discard") {
     const owing = state.players.find((p) => state.pendingDiscards[p.id] !== undefined);
     return owing ? owing.id : current;
+  }
+  if (phase.kind === "chooseGold") {
+    // §14.3: in seat order from the current player.
+    const n = state.players.length;
+    for (let step = 0; step < n; step++) {
+      const p = state.players[(state.currentPlayer + step) % n] as Player;
+      if (phase.owed[p.id] !== undefined) return p.id;
+    }
+    return current;
   }
   if (phase.kind === "action" && state.pendingTrade) {
     const trade = state.pendingTrade;

@@ -8,6 +8,7 @@
 import type { Board, BoardKind, Resource } from "./board";
 import type { BoardDefinition } from "./definition";
 import type { EdgeId, HexId, VertexId } from "./geometry";
+import type { Scenario, ScenarioRules } from "./scenario";
 
 export type PlayerId = string;
 
@@ -33,10 +34,12 @@ export interface PieceSupply {
   roads: number;
   settlements: number;
   cities: number;
+  /** Tides (docs/rules.md §14.2): 15 ships per player; unused in base games. */
+  ships: number;
 }
 
-/** §2.4 */
-export const STARTING_PIECES: Readonly<PieceSupply> = { roads: 15, settlements: 5, cities: 4 };
+/** §2.4, §14.2 */
+export const STARTING_PIECES: Readonly<PieceSupply> = { roads: 15, settlements: 5, cities: 4, ships: 15 };
 
 /** §2.3 */
 export const BANK_PER_RESOURCE = 19;
@@ -63,6 +66,16 @@ export interface Player {
   roads: EdgeId[];
   settlements: VertexId[];
   cities: VertexId[];
+  /** Tides (§14.2): ships on sea edges. */
+  ships: EdgeId[];
+  /** Ships built this turn may not be moved (§14.2). Cleared when the next turn starts. */
+  shipsBuiltThisTurn: EdgeId[];
+  /** One ship move per turn (§14.2). */
+  shipMovedThisTurn: boolean;
+  /** Island ids the player's setup settlements touch (§14.4). */
+  startIslands: number[];
+  /** Island ids that earned the island bonus, in order (§14.4). */
+  islandChips: number[];
 }
 
 export type Phase =
@@ -73,6 +86,8 @@ export type Phase =
   | { kind: "steal"; hex: HexId; targets: PlayerId[]; returnTo: "roll" | "action" }
   | { kind: "action" }
   | { kind: "roadBuilding"; remaining: 1 | 2 }
+  /** Tides (§14.3): gold hexes produced; each owing player picks resources, then play resumes in `returnTo`. */
+  | { kind: "chooseGold"; owed: Record<PlayerId, number>; returnTo: Phase }
   /** 5–6 players (docs/phase8.md §5): after a turn ends, every other player may build in seat order. */
   | { kind: "specialBuild"; order: PlayerId[]; index: number }
   | { kind: "ended" };
@@ -113,6 +128,10 @@ export interface GameState {
   /** Hidden; top card is index 0. */
   devDeck: DevCardType[];
   robberHex: HexId;
+  /** Tides (§14.5): the pirate's sea hex, or null when the module or the pirate is off. */
+  pirateHex: HexId | null;
+  /** Scenario rules in force (docs/phase9.md §5), or null for a base game. */
+  scenario: ScenarioRules | null;
   lastRoll: [number, number] | null;
   longestRoad: { playerId: PlayerId | null; length: number };
   largestArmy: { playerId: PlayerId | null; count: number };
@@ -134,8 +153,10 @@ export interface CreateGameOptions {
   readonly seed: string;
   /** In seat order. 3 to `board.seats.max` players. */
   readonly players: readonly PlayerSetup[];
-  /** A built-in kind or a full definition (docs/phase8.md §1). Defaults to `random`. */
+  /** A built-in kind or a full definition (docs/phase8.md §1). Defaults to `random`. Ignored when `scenario` is given. */
   readonly board?: BoardKind | BoardDefinition;
+  /** A scenario bundles a board with module rules and a goal (docs/phase9.md §5). */
+  readonly scenario?: Scenario;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,6 +174,8 @@ export interface DiscardAction extends Base<"DISCARD"> {
 }
 export interface MoveRobberAction extends Base<"MOVE_ROBBER"> {
   readonly hex: HexId;
+  /** Tides (§14.5): move the pirate to a sea hex instead of the robber. Defaults to `robber`. */
+  readonly target?: "robber" | "pirate";
 }
 export interface StealAction extends Base<"STEAL"> {
   readonly targetPlayerId: PlayerId;
@@ -190,6 +213,19 @@ export interface MaritimeTradeAction extends Base<"MARITIME_TRADE"> {
 export type EndTurnAction = Base<"END_TURN">;
 /** docs/phase8.md §5: the special builder is finished. */
 export type SpecialBuildDoneAction = Base<"SPECIAL_BUILD_DONE">;
+/** Tides (§14.2). */
+export interface BuildShipAction extends Base<"BUILD_SHIP"> {
+  readonly edge: EdgeId;
+}
+/** Tides (§14.2): move the ship at the open end of a route. */
+export interface MoveShipAction extends Base<"MOVE_SHIP"> {
+  readonly from: EdgeId;
+  readonly to: EdgeId;
+}
+/** Tides (§14.3): the resources a gold hex produced, one per card owed. */
+export interface ChooseGoldAction extends Base<"CHOOSE_GOLD"> {
+  readonly resources: readonly Resource[];
+}
 
 export type Action =
   | RollAction
@@ -210,7 +246,10 @@ export type Action =
   | CancelTradeAction
   | MaritimeTradeAction
   | EndTurnAction
-  | SpecialBuildDoneAction;
+  | SpecialBuildDoneAction
+  | BuildShipAction
+  | MoveShipAction
+  | ChooseGoldAction;
 
 export type ActionType = Action["type"];
 
@@ -234,4 +273,7 @@ export const ACTION_TYPES: readonly ActionType[] = [
   "MARITIME_TRADE",
   "END_TURN",
   "SPECIAL_BUILD_DONE",
+  "BUILD_SHIP",
+  "MOVE_SHIP",
+  "CHOOSE_GOLD",
 ];

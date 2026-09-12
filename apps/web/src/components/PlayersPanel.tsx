@@ -83,6 +83,14 @@ function PlayerRow({ p, view, me, seat, online, acting, botifiable, onBotify, th
         <span>{cards} cards</span>
         <span>{dev} dev</span>
         <span>{p.playedKnights} knights</span>
+        {p.islandChips.length > 0 && (
+          <span className="flex items-center gap-0.5" aria-label={`${p.islandChips.length} island pennants`} title="Islands settled" data-testid={`pennants-${p.id}`}>
+            {p.islandChips.map((island) => (
+              <span key={island} className="inline-block h-3 w-2 bg-gilt" style={{ clipPath: "polygon(0 0, 100% 0, 100% 100%, 50% 70%, 0 100%)" }} />
+            ))}
+            <span>+{p.islandChips.length * (view.scenario?.islandBonus ?? 0)}</span>
+          </span>
+        )}
         {view.longestRoad.playerId === p.id && (
           <span className={`rounded bg-ink px-1 text-parchment ${glint ? "badge-glint" : ""}`}>Longest road {view.longestRoad.length}</span>
         )}

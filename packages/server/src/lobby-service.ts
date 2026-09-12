@@ -4,7 +4,26 @@
 
 import { isAvatarSpec, type AvatarSpec } from "@katan/avatars";
 import { isBotLevel, type BotLevel } from "@katan/bots";
-import { PLAYER_COLORS, appendNote, builtInBoard, cloneJson, hasErrors, isBoardDefinition, isBuiltInBoardId, nextActor, validateBoard, type BoardDefinition, type BoardKind, type GameState, type PlayerColor } from "@katan/engine";
+import {
+  PLAYER_COLORS,
+  appendNote,
+  builtInBoard,
+  builtInScenario,
+  cloneJson,
+  hasErrors,
+  isBoardDefinition,
+  isBuiltInBoardId,
+  isBuiltInScenarioId,
+  isScenario,
+  nextActor,
+  scenarioHasErrors,
+  validateBoard,
+  type BoardDefinition,
+  type BoardKind,
+  type GameState,
+  type PlayerColor,
+  type Scenario,
+} from "@katan/engine";
 import type { JSONValue } from "postgres";
 import { ServiceError } from "./errors";
 import {
@@ -81,31 +100,56 @@ export interface CreateLobbyInput {
   name: string;
   /**
    * A built-in kind, a built-in frame id (`large`, `longStrip`, `ring`), a saved
-   * board id (`{ boardId }`), or an inline definition (docs/phase8.md §4.3).
+   * board id (`{ boardId }`), an inline definition (docs/phase8.md §4.3), a
+   * built-in scenario id, a saved scenario (`{ scenarioId }`) or an inline
+   * scenario (`{ scenario }`) (docs/phase9.md §5).
    */
-  board: BoardKind | string | { boardId: string } | { definition: BoardDefinition };
+  board: BoardKind | string | { boardId: string } | { definition: BoardDefinition } | { scenarioId: string } | { scenario: Scenario };
   maxPlayers: 3 | 4 | 5 | 6;
   random?: () => number;
 }
 
-/** Resolve the lobby's board choice to what the games row stores. */
-async function resolveLobbyBoard(sql: Db, board: CreateLobbyInput["board"], userId: string): Promise<{ kind: BoardKind | "custom"; definition: BoardDefinition | null; name: string }> {
-  if (board === "beginner") return { kind: "beginner", definition: null, name: "Beginner" };
-  if (board === "random") return { kind: "random", definition: null, name: "Random" };
+interface LobbyBoard {
+  kind: BoardKind | "custom";
+  definition: BoardDefinition | null;
+  name: string;
+  scenario: Scenario | null;
+}
+
+/** Resolve the lobby's board or scenario choice to what the games row stores. */
+async function resolveLobbyBoard(sql: Db, board: CreateLobbyInput["board"], userId: string): Promise<LobbyBoard> {
+  if (board === "beginner") return { kind: "beginner", definition: null, name: "Beginner", scenario: null };
+  if (board === "random") return { kind: "random", definition: null, name: "Random", scenario: null };
   if (typeof board === "string") {
+    if (isBuiltInScenarioId(board)) {
+      const scenario = builtInScenario(board);
+      return { kind: "custom", definition: scenario.board, name: scenario.name, scenario };
+    }
     if (!isBuiltInBoardId(board)) throw new ServiceError("BAD_REQUEST", "unknown board");
     const def = builtInBoard(board);
-    return { kind: "custom", definition: def, name: def.name };
+    return { kind: "custom", definition: def, name: def.name, scenario: null };
+  }
+  if ("scenarioId" in board) {
+    const [row] = await sql<{ definition: unknown; is_public: boolean; owner_id: string; name: string }[]>`select definition, is_public, owner_id, name from scenarios where id = ${board.scenarioId}`;
+    if (!row || (!row.is_public && row.owner_id !== userId)) throw new ServiceError("BAD_REQUEST", "no such scenario");
+    if (!isScenario(row.definition)) throw new ServiceError("BAD_REQUEST", "stored scenario is malformed");
+    const scenario: Scenario = { ...row.definition, id: board.scenarioId, name: row.name };
+    return { kind: "custom", definition: scenario.board, name: row.name, scenario };
+  }
+  if ("scenario" in board) {
+    if (!isScenario(board.scenario)) throw new ServiceError("BAD_REQUEST", "malformed scenario");
+    if (scenarioHasErrors(board.scenario)) throw new ServiceError("INVALID_SCENARIO", "the scenario has errors");
+    return { kind: "custom", definition: board.scenario.board, name: board.scenario.name, scenario: board.scenario };
   }
   if ("boardId" in board) {
     const [row] = await sql<{ definition: unknown; is_public: boolean; owner_id: string; name: string }[]>`select definition, is_public, owner_id, name from boards where id = ${board.boardId}`;
     if (!row || (!row.is_public && row.owner_id !== userId)) throw new ServiceError("BAD_REQUEST", "no such board");
     if (!isBoardDefinition(row.definition)) throw new ServiceError("BAD_REQUEST", "stored board is malformed");
-    return { kind: "custom", definition: { ...row.definition, id: board.boardId, name: row.name }, name: row.name };
+    return { kind: "custom", definition: { ...row.definition, id: board.boardId, name: row.name }, name: row.name, scenario: null };
   }
   if (!isBoardDefinition(board.definition)) throw new ServiceError("BAD_REQUEST", "malformed board definition");
   if (hasErrors(validateBoard(board.definition))) throw new ServiceError("INVALID_BOARD", "the board has errors");
-  return { kind: "custom", definition: board.definition, name: board.definition.name };
+  return { kind: "custom", definition: board.definition, name: board.definition.name, scenario: null };
 }
 
 export async function createLobby(sql: Db, input: CreateLobbyInput): Promise<{ gameId: string; joinCode: string }> {
@@ -119,8 +163,8 @@ export async function createLobby(sql: Db, input: CreateLobbyInput): Promise<{ g
     try {
       return await sql.begin(async (tx) => {
         const [row] = await tx<{ id: string }[]>`
-          insert into games (seed, state, version, status, created_by, join_code, host_user_id, max_players, board, board_definition)
-          values (${randomSeed(random)}, '{}'::jsonb, 0, 'lobby', ${input.hostUserId}, ${joinCode}, ${input.hostUserId}, ${input.maxPlayers}, ${chosen.kind}, ${chosen.definition ? tx.json(chosen.definition as unknown as JSONValue) : null})
+          insert into games (seed, state, version, status, created_by, join_code, host_user_id, max_players, board, board_definition, scenario)
+          values (${randomSeed(random)}, '{}'::jsonb, 0, 'lobby', ${input.hostUserId}, ${joinCode}, ${input.hostUserId}, ${input.maxPlayers}, ${chosen.kind}, ${chosen.definition ? tx.json(chosen.definition as unknown as JSONValue) : null}, ${chosen.scenario ? tx.json(chosen.scenario as unknown as JSONValue) : null})
           returning id`;
         const gameId = row!.id;
         await tx`insert into lobbies (game_id, join_code, status, host_user_id, max_players, board, board_name)

@@ -40,6 +40,11 @@ export const BASE_DURATION: Record<GameEventKind, number> = {
   setupCompleted: 300,
   gameEnded: 1500,
   note: 300,
+  shipBuilt: 300,
+  shipMoved: 450,
+  pirateMoved: 450,
+  goldChosen: 400,
+  islandSettled: 700,
 };
 
 export const PRODUCED_STAGGER = 80;
@@ -145,9 +150,9 @@ function adjustBank(bank: Hand, cards: Hand, sign: 1 | -1): Hand {
   return out;
 }
 
-function costOf(view: RedactedState, piece: "road" | "settlement" | "city"): Hand | null {
-  // Setup and road-building placements are free; only the action phase pays.
-  return view.phase.kind === "action" ? COSTS[piece] : null;
+function costOf(view: RedactedState, piece: "road" | "settlement" | "city" | "ship"): Hand | null {
+  // Setup and road-building placements are free; the action and special build phases pay.
+  return view.phase.kind === "action" || view.phase.kind === "specialBuild" ? COSTS[piece] : null;
 }
 
 function withDev(cards: P["devCards"], fn: (list: DevCard[]) => DevCard[], countDelta: number): P["devCards"] {
@@ -301,6 +306,34 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
     }
     case "gameEnded":
       next = { ...next, winner: event.winner, phase: { kind: "ended" } };
+      break;
+    case "shipBuilt": {
+      const cost = costOf(next, "ship");
+      next = withPlayer(next, event.playerId, (p) => {
+        if (p.ships.includes(event.at)) throw new Error("ship already placed");
+        return { ...p, hand: cost ? adjustHandBy(p.hand, cost, -1) : p.hand, ships: [...p.ships, event.at], shipsBuiltThisTurn: [...p.shipsBuiltThisTurn, event.at], pieces: { ...p.pieces, ships: p.pieces.ships - 1 } };
+      });
+      if (cost) next = { ...next, bank: adjustBank(next.bank, cost, 1) };
+      break;
+    }
+    case "shipMoved":
+      next = withPlayer(next, event.playerId, (p) => {
+        if (!p.ships.includes(event.from)) throw new Error("no ship to move");
+        return { ...p, ships: [...p.ships.filter((e) => e !== event.from), event.to], shipMovedThisTurn: true };
+      });
+      break;
+    case "pirateMoved":
+      next = { ...next, pirateHex: event.to };
+      break;
+    case "goldChosen": {
+      const want: Hand = { wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 };
+      for (const r of event.resources) want[r] += 1;
+      next = withPlayer(next, event.playerId, (p) => ({ ...p, hand: adjustHandBy(p.hand, want, 1) }));
+      next = { ...next, bank: adjustBank(next.bank, want, -1) };
+      break;
+    }
+    case "islandSettled":
+      next = withPlayer(next, event.playerId, (p) => ({ ...p, islandChips: [...p.islandChips, event.island], publicVP: p.publicVP + event.bonus }));
       break;
     case "turnEnded":
     case "specialBuildTurn":

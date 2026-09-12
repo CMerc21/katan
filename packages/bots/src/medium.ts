@@ -8,6 +8,7 @@ import {
   cardCount,
   edgeTowardScore,
   geo,
+  goldPick,
   handTotal,
   hexValueFor,
   hexValueForOpponents,
@@ -15,6 +16,7 @@ import {
   me as meOf,
   myHand,
   opponentsLikelyResource,
+  pirateHexScore,
   publicVP,
   resourceNeed,
   threat,
@@ -38,12 +40,12 @@ export function chooseMedium(view: RedactedState, legal: Action[], rng: Rng): Ac
   if (phase === "setup") {
     const settlements = ofType(legal, "BUILD_SETTLEMENT");
     if (settlements.length) return best(rng, settlements, (a) => vertexScore(view, a.vertex, me));
-    const roads = ofType(legal, "BUILD_ROAD");
-    if (roads.length) return best(rng, roads, (a) => edgeTowardScore(view, a.edge, me));
-    return pick(rng, legal);
+    return bestSetupLink(view, legal, rng, (edge, kind) => edgeTowardScore(view, edge, me, kind));
   }
 
   if (phase === "discard") return discardKeepingTarget(view, legal, rng);
+
+  if (phase === "chooseGold") return chooseGold(view, legal, rng);
 
   if (phase === "moveRobber") return chooseRobberHex(view, legal, rng, "leader");
 
@@ -60,8 +62,7 @@ export function chooseMedium(view: RedactedState, legal: Action[], rng: Rng): Ac
   }
 
   if (phase === "roadBuilding") {
-    const roads = ofType(legal, "BUILD_ROAD");
-    return best(rng, roads, (a) => edgeTowardScore(view, a.edge, me) + longestRoadGain(view, a.edge, me));
+    return bestSetupLink(view, legal, rng, (edge, kind) => edgeTowardScore(view, edge, me, kind) + longestRoadGain(view, edge, me));
   }
 
   if (phase === "action") {
@@ -75,6 +76,35 @@ export function chooseMedium(view: RedactedState, legal: Action[], rng: Rng): Ac
   return pick(rng, legal);
 }
 
+/** Setup and Road Building: the best road or ship (docs/phase9.md §7), scored by `score(edge, kind)`. */
+export function bestSetupLink(view: RedactedState, legal: Action[], rng: Rng, score: (edge: string, kind: "road" | "ship") => number): Action {
+  const links: { a: Action; s: number }[] = [];
+  for (const a of ofType(legal, "BUILD_ROAD")) links.push({ a, s: score(a.edge, "road") });
+  for (const a of ofType(legal, "BUILD_SHIP")) links.push({ a, s: score(a.edge, "ship") });
+  if (links.length === 0) return pick(rng, legal);
+  return best(rng, links, (l) => l.s).a;
+}
+
+/** docs/phase9.md §7: take what the next build needs, then the scarcest resource. */
+export function chooseGold(view: RedactedState, legal: Action[], rng: Rng): Action {
+  const me = view.viewer;
+  const choices = ofType(legal, "CHOOSE_GOLD");
+  if (choices.length === 0) return pick(rng, legal);
+  const want = goldPick(view, me, choices[0]!.resources.length);
+  const key = (rs: readonly Resource[]) => [...rs].sort().join();
+  return choices.find((c) => key(c.resources) === key(want)) ?? best(rng, choices, (c) => c.resources.filter((r) => want.includes(r)).length);
+}
+
+/** docs/phase9.md §7: move the open-end ship toward the best target when it leads nowhere itself. */
+export function chooseShipMove(view: RedactedState, legal: Action[], rng: Rng): Action | null {
+  const me = view.viewer;
+  const moves = ofType(legal, "MOVE_SHIP");
+  if (moves.length === 0) return null;
+  const scored = moves.map((m) => ({ m, gain: edgeTowardScore(view, m.to, me, "ship") - edgeTowardScore(view, m.from, me, "ship") }));
+  const top = scored.reduce((b, x) => (x.gain > b.gain ? x : b), scored[0]!);
+  return top.gain > 1 ? best(rng, scored.filter((x) => x.gain >= top.gain - 1e-9), (x) => x.gain).m : null;
+}
+
 /** docs/phase8.md §5: the special build is a build-or-pass decision with the turn priorities. */
 export function chooseSpecialBuild(view: RedactedState, legal: Action[], rng: Rng): Action {
   const me = view.viewer;
@@ -83,10 +113,12 @@ export function chooseSpecialBuild(view: RedactedState, legal: Action[], rng: Rn
   if (cities.length) return best(rng, cities, (a) => handTotal(vertexPipsFor(view, a.vertex)));
   const settlements = ofType(legal, "BUILD_SETTLEMENT");
   if (settlements.length) return best(rng, settlements, (a) => vertexScore(view, a.vertex, me));
-  const roads = ofType(legal, "BUILD_ROAD");
-  if (roads.length) {
-    const scored = roads.map((a) => ({ a, s: edgeTowardScore(view, a.edge, me) + longestRoadGain(view, a.edge, me) }));
-    const top = scored.reduce((b, x) => (x.s > b.s ? x : b), scored[0]!);
+  const links = [
+    ...ofType(legal, "BUILD_ROAD").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me) + longestRoadGain(view, a.edge, me) })),
+    ...ofType(legal, "BUILD_SHIP").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me, "ship") + longestRoadGain(view, a.edge, me) })),
+  ];
+  if (links.length) {
+    const top = links.reduce((b, x) => (x.s > b.s ? x : b), links[0]!);
     if (top.s > 0.5) return top.a;
   }
   const buy = legal.find((a) => a.type === "BUY_DEV_CARD");
@@ -120,6 +152,8 @@ export function chooseRobberHex(view: RedactedState, legal: Action[], rng: Rng, 
   const target =
     mode === "threat" ? (t.roadThreat ?? t.armyThreat ?? t.leader?.id ?? null) : (t.leader?.id ?? null);
   return best(rng, moves, (m) => {
+    // docs/phase9.md §7: the pirate goes where the most opposing ships are, never beside our own.
+    if (m.target === "pirate") return pirateHexScore(view, m.hex, me);
     if (mine.has(m.hex)) return -100;
     const forTarget = target ? hexValueFor(view, m.hex, target) : 0;
     return forTarget * 3 + hexValueForOpponents(view, m.hex);
@@ -186,13 +220,18 @@ export function chooseTurnAction(view: RedactedState, legal: Action[], rng: Rng)
   if (cities.length) return best(rng, cities, (a) => handTotal(vertexPipsFor(view, a.vertex)));
   const settlements = ofType(legal, "BUILD_SETTLEMENT");
   if (settlements.length) return best(rng, settlements, (a) => vertexScore(view, a.vertex, me));
-  const roads = ofType(legal, "BUILD_ROAD");
-  if (roads.length) {
-    const scored = roads.map((a) => ({ a, s: edgeTowardScore(view, a.edge, me) + longestRoadGain(view, a.edge, me) }));
-    const top = scored.reduce((b, x) => (x.s > b.s ? x : b), scored[0]!);
-    // Only spend on a road when it opens something, or when settlements are the plan and nothing is reachable.
-    if (top.s > 0.5 || (need.target === "settlement" && top.s > 0)) return best(rng, roads, (a) => edgeTowardScore(view, a.edge, me) + longestRoadGain(view, a.edge, me));
+  const links = [
+    ...ofType(legal, "BUILD_ROAD").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me) + longestRoadGain(view, a.edge, me) })),
+    ...ofType(legal, "BUILD_SHIP").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me, "ship") + longestRoadGain(view, a.edge, me) })),
+  ];
+  if (links.length) {
+    const top = links.reduce((b, x) => (x.s > b.s ? x : b), links[0]!);
+    // Only spend on a road or ship when it opens something, or when settlements are the plan and nothing is reachable.
+    if (top.s > 0.5 || ((need.target === "settlement" || need.target === "ship") && top.s > 0)) return best(rng, links.filter((l) => l.s >= top.s - 1e-9), (l) => l.s).a;
   }
+  // docs/phase9.md §7: relocate a ship that leads nowhere.
+  const shipMove = chooseShipMove(view, legal, rng);
+  if (shipMove) return shipMove;
   const buy = legal.find((a) => a.type === "BUY_DEV_CARD");
   if (buy && (need.target === "devCard" || afford(hand, { wood: 0, clay: 0, wool: 1, grain: 1, ore: 1 }))) {
     // Buy when nothing better is affordable this turn.

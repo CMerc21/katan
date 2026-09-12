@@ -17,8 +17,8 @@ import {
   type EdgeId,
   type VertexId,
 } from "@katan/engine";
-import { afford, geo, handTotal, hexValueFor, myHand, productionOf, publicVP, resourceNeed, scarcity, settlementCandidates, threat, vertexScore } from "./eval";
-import { chooseRobberHex, chooseSpecialBuild, discardKeepingTarget, longestRoadGain, offeredThisTurn, respondToTrade } from "./medium";
+import { afford, edgeTowardScore, geo, handTotal, hexValueFor, myHand, productionOf, publicVP, resourceNeed, scarcity, settlementCandidates, threat, vertexScore } from "./eval";
+import { bestSetupLink, chooseGold, chooseRobberHex, chooseShipMove, chooseSpecialBuild, discardKeepingTarget, longestRoadGain, offeredThisTurn, respondToTrade } from "./medium";
 import { best, ensureLegal, ofType, pick, type BotPolicy, type RedactedState, type Rng } from "./types";
 
 export function hardBot(): BotPolicy {
@@ -34,11 +34,10 @@ export function chooseHard(view: RedactedState, legal: Action[], rng: Rng): Acti
   if (phase === "setup") {
     const settlements = ofType(legal, "BUILD_SETTLEMENT");
     if (settlements.length) return best(rng, settlements, (a) => vertexScore(view, a.vertex, me) + 0.3 * planValueFrom(view, a.vertex, me));
-    const roads = ofType(legal, "BUILD_ROAD");
-    if (roads.length) return best(rng, roads, (a) => scoreEdgeForPlan(view, a.edge, me));
-    return pick(rng, legal);
+    return bestSetupLink(view, legal, rng, (edge, kind) => scoreEdgeForPlan(view, edge, me) + (kind === "ship" ? edgeTowardScore(view, edge, me, "ship") * 0.5 : 0));
   }
   if (phase === "discard") return discardKeepingTarget(view, legal, rng);
+  if (phase === "chooseGold") return chooseGold(view, legal, rng);
   if (phase === "moveRobber") {
     const leading = view.players.every((p) => p.id === me || publicVP(p) <= publicVP(view.players.find((x) => x.id === me)!));
     return chooseRobberHex(view, legal, rng, leading ? "threat" : "leader");
@@ -54,8 +53,7 @@ export function chooseHard(view: RedactedState, legal: Action[], rng: Rng): Acti
     return legal.find((a) => a.type === "ROLL") ?? pick(rng, legal);
   }
   if (phase === "roadBuilding") {
-    const roads = ofType(legal, "BUILD_ROAD");
-    return best(rng, roads, (a) => scoreEdgeForPlan(view, a.edge, me) + longestRoadGain(view, a.edge, me));
+    return bestSetupLink(view, legal, rng, (edge, kind) => scoreEdgeForPlan(view, edge, me) + longestRoadGain(view, edge, me) + (kind === "ship" ? edgeTowardScore(view, edge, me, "ship") * 0.5 : 0));
   }
   if (phase === "action") {
     const current = view.players[view.currentPlayer]!.id;
@@ -83,23 +81,24 @@ export function plan(view: RedactedState, playerId: string): PlanTarget[] {
   const state = viewToState(view);
   const g = geo(view);
   const p = view.players.find((x) => x.id === playerId)!;
-  const roadsAll = new Set(view.players.flatMap((x) => x.roads));
+  const roadsAll = new Set(view.players.flatMap((x) => [...x.roads, ...x.ships]));
+  const myLinks = new Set([...p.roads, ...p.ships]);
   const taken = new Set(view.players.flatMap((x) => [...x.settlements, ...x.cities]));
   const blocked = new Set(view.players.filter((x) => x.id !== playerId).flatMap((x) => [...x.settlements, ...x.cities]));
   // BFS over vertices from my network, counting roads needed.
   const dist = new Map<VertexId, number>();
   const queue: VertexId[] = [];
-  for (const e of p.roads) for (const v of g.edgeVertices[e] ?? []) if (!dist.has(v)) { dist.set(v, 0); queue.push(v); }
+  for (const e of myLinks) for (const v of g.edgeVertices[e] ?? []) if (!dist.has(v)) { dist.set(v, 0); queue.push(v); }
   for (const v of [...p.settlements, ...p.cities]) if (!dist.has(v)) { dist.set(v, 0); queue.push(v); }
   while (queue.length) {
     const v = queue.shift()!;
     const d = dist.get(v)!;
     if (d >= 3 || (blocked.has(v) && d > 0)) continue;
     for (const e of g.vertexEdges[v] ?? []) {
-      if (roadsAll.has(e) && !p.roads.includes(e)) continue;
+      if (roadsAll.has(e) && !myLinks.has(e)) continue;
       const [a, b] = g.edgeVertices[e] as [VertexId, VertexId];
       const n = a === v ? b : a;
-      const nd = p.roads.includes(e) ? d : d + 1;
+      const nd = myLinks.has(e) ? d : d + 1;
       if (!dist.has(n) || dist.get(n)! > nd) { dist.set(n, nd); queue.push(n); }
     }
   }
@@ -180,6 +179,7 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
   const candidates = legal.filter(
     (a) =>
       a.type === "BUILD_ROAD" ||
+      a.type === "BUILD_SHIP" ||
       a.type === "BUILD_SETTLEMENT" ||
       a.type === "BUILD_CITY" ||
       a.type === "BUY_DEV_CARD" ||
@@ -191,11 +191,11 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
   );
 
   // Prune: keep the most promising roads and maritime trades.
-  const roads = candidates.filter((a) => a.type === "BUILD_ROAD");
+  const roads = candidates.filter((a) => a.type === "BUILD_ROAD" || a.type === "BUILD_SHIP");
   const trades = candidates.filter((a) => a.type === "MARITIME_TRADE");
-  const others = candidates.filter((a) => a.type !== "BUILD_ROAD" && a.type !== "MARITIME_TRADE");
+  const others = candidates.filter((a) => a.type !== "BUILD_ROAD" && a.type !== "BUILD_SHIP" && a.type !== "MARITIME_TRADE");
   const topRoads = roads
-    .map((a) => ({ a, s: a.type === "BUILD_ROAD" ? scoreEdgeForPlan(view, a.edge, me) + longestRoadGain(view, a.edge, me) : 0 }))
+    .map((a) => ({ a, s: a.type === "BUILD_ROAD" ? scoreEdgeForPlan(view, a.edge, me) + longestRoadGain(view, a.edge, me) : a.type === "BUILD_SHIP" ? scoreEdgeForPlan(view, a.edge, me) + edgeTowardScore(view, a.edge, me, "ship") * 0.5 : 0 }))
     .sort((x, y) => y.s - x.s)
     .slice(0, 8)
     .map((x) => x.a);
@@ -212,6 +212,8 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
     }
   }
   if (bestAction) return bestAction;
+  const shipMove = chooseShipMove(view, legal, rng);
+  if (shipMove) return shipMove;
 
   // One 1:1 offer per turn for the single blocking resource (as medium).
   const missing = RESOURCES.filter((r) => need.missing[r] > 0);

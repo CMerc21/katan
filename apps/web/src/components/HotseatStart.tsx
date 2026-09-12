@@ -55,7 +55,7 @@ export function HotseatStart() {
       const avatar = avatars[i]!;
       return kind === "human" ? { id, name, avatar } : { id, name, bot: kind, avatar };
     });
-    startHotseat({ players, board: choiceForGame(board), seed: isBeginner ? "beginner" : seed.trim() || randomSeed() });
+    startHotseat({ players, ...choiceForGame(board), seed: isBeginner ? "beginner" : seed.trim() || randomSeed() });
     router.push("/play");
   };
 
