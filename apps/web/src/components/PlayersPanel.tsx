@@ -7,6 +7,7 @@ import { currentPlayerId } from "@/game/labels";
 import { useAnchor } from "./anim/anchors";
 import { Avatar } from "./Avatar";
 import { Button } from "./ui";
+import { WayfarersBadges, WayfarersStrip } from "./wayfarers/Badges";
 
 export interface PlayersPanelProps {
   view: RedactedState;
@@ -97,6 +98,8 @@ function PlayerRow({ p, view, me, seat, online, acting, botifiable, onBotify, th
         {view.largestArmy.playerId === p.id && (
           <span className={`rounded bg-ink px-1 text-parchment ${glint ? "badge-glint" : ""}`}>Largest army {view.largestArmy.count}</span>
         )}
+        {/* Wayfarers (docs/phase10.md): fish, boot, coins, chips, castle, guards, spice, deliveries, cargo. */}
+        <WayfarersBadges p={p} view={view} glint={glint} />
         {botifiable && onBotify && (
           <Button size="sm" variant="quiet" className="ml-auto text-xs underline" onClick={() => onBotify(p.id, "medium")} data-testid={`botify-${p.id}`}>
             Let a bot play for {p.name}
@@ -113,6 +116,8 @@ export function PlayersPanel({ view, me, seats, connected, botifiable, onBotify,
   return (
     <section aria-label="Players" className="ink-rule">
       <h2 className="font-display px-3 pt-2 text-sm font-semibold text-ink-soft">Players</h2>
+      {/* Wayfarers (docs/phase10.md): the raider track and the event deck count. */}
+      <WayfarersStrip view={view} />
       <ul className="px-1 pb-1">
         {view.players.map((p) => (
           <PlayerRow

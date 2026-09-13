@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hand, type Action, type GameState } from "@katan/engine";
+import { builtInScenario, hand, type Action, type GameState } from "@katan/engine";
 import { HotseatDriver, actingPlayer } from "@/driver/hotseat";
 import type { RedactedState } from "@/driver/types";
 
@@ -159,5 +159,23 @@ describe("HotseatDriver", () => {
     withState(d, (s) => void (s.phase = { kind: "action" }));
     await step(d, "END_TURN");
     expect(d.me()).toBe("c");
+  });
+
+  it("docs/phase10.md §5: Coastal Watch hands the device to the settler for the castle prompt, then moves on", async () => {
+    const d = HotseatDriver.create({ seed: "castle", players: PLAYERS.slice(0, 3), scenario: builtInScenario("coastalWatch") });
+    // Round 1: three settlements and roads; round 2 starts with the last player.
+    for (let i = 0; i < 6; i++) await step(d);
+    expect(d.me()).toBe("c");
+    await step(d, "BUILD_SETTLEMENT");
+    const view = d.snapshot();
+    expect(view.phase.kind).toBe("modulePrompt");
+    expect(d.me()).toBe("c");
+    const castle = await step(d, "BUILD_CASTLE");
+    expect(castle.type).toBe("BUILD_CASTLE");
+    expect(d.snapshot().wayfarers?.raiders?.castles.c).not.toBeNull();
+    expect(d.snapshot().phase.kind).toBe("setup");
+    expect(d.me()).toBe("c");
+    await step(d, "BUILD_ROAD");
+    expect(d.me()).toBe("b");
   });
 });

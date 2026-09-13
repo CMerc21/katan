@@ -1,12 +1,8 @@
 /**
  * Crown & Castle (docs/phase11.md): registers the module's hooks. The rules
  * live in the section files (`production`, `trade`, `progress`,
- * `improvements`, `knights`, `fleet`, `walls`, `victory`); this file only
- * wires them to `ModuleHooks`.
- *
- * Progress card effects (`PLAY_PROGRESS` and the prompts it raises) are not
- * handled here yet: `apply` returns false for them, so the core reports
- * MODULE_OFF until `progressActions.ts` takes them over.
+ * `progressCards`, `improvements`, `knights`, `fleet`, `walls`, `victory`);
+ * this file only wires them to `ModuleHooks`.
  */
 
 import { registerModule, type RollOutcome } from "../hooks";
@@ -18,6 +14,7 @@ import { crownState } from "./common";
 import { afterProduction, cardCount, discardActions, discardExtra, stealExtra, yieldOverride } from "./production";
 import { maritime, maritimeActions } from "./trade";
 import { applyDiscardProgress, drawForTrack, initialDecks, progressPromptActions } from "./progress";
+import { applyChooseDeserter, applyCommercialSwap, applyGiveCards, applyPlaceFreeKnight, applyPlayProgress, applySpyTake, progressCardActions, progressCardPromptActions } from "./progressCards";
 import { applyBuildImprovement, applyPlaceMetropolis, improvementActions, improvementPromptActions } from "./improvements";
 import {
   applyActivateKnight,
@@ -117,10 +114,12 @@ function extraActions(state: GameState, playerId: PlayerId, out: Action[]): void
   improvementActions(state, player, out);
   wallActions(state, player, out);
   maritimeActions(state, playerId, out);
+  progressCardActions(state, player, out);
 }
 
 function promptActions(state: GameState, prompt: ModulePrompt, playerId: PlayerId, out: Action[]): void {
   progressPromptActions(state, prompt, playerId, out);
+  progressCardPromptActions(state, prompt, playerId, out);
   improvementPromptActions(state, prompt, playerId, out);
   fleetPromptActions(state, prompt, playerId, out);
   knightPromptActions(state, prompt, playerId, out);
@@ -165,12 +164,23 @@ function apply(state: GameState, action: Action): boolean {
       applyChooseDowngrade(state, action);
       return true;
     case "PLAY_PROGRESS":
+      applyPlayProgress(state, action);
+      return true;
     case "CHOOSE_DESERTER":
+      applyChooseDeserter(state, action);
+      return true;
     case "PLACE_FREE_KNIGHT":
+      applyPlaceFreeKnight(state, action);
+      return true;
     case "SPY_TAKE":
+      applySpyTake(state, action);
+      return true;
     case "COMMERCIAL_SWAP":
+      applyCommercialSwap(state, action);
+      return true;
     case "GIVE_CARDS":
-      return false; // progress card effects: progressActions.ts
+      applyGiveCards(state, action);
+      return true;
     default:
       return false;
   }

@@ -334,7 +334,7 @@ function walk(scenario: Scenario, seed: string, steps: number, players = PLAYERS
     const legal = legalActions(state, actor);
     let action: Action | undefined;
     for (const [type, chance] of PREFERRED) {
-      let options = legal.filter((a) => a.type === type && (type !== "ACCEPT_TRADE" || a.boot === true) && (type !== "MOVE_WAGON" || !a.grain));
+      let options = legal.filter((a) => a.type === type && (a.type !== "ACCEPT_TRADE" || a.boot === true) && (a.type !== "MOVE_WAGON" || !a.grain));
       if (type === "BUILD_SETTLEMENT" && state.phase.kind === "setup") options = preferSpots(state, options);
       if (options.length > 0 && rnd() < chance) {
         action = options[Math.floor(rnd() * options.length)];

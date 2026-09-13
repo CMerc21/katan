@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { GEOMETRY, createGame, legalActions } from "@katan/engine";
+import { GEOMETRY, createGame, legalActions, type Action } from "@katan/engine";
 import { createLayout } from "@/board/layout";
 import { boardBounds, edgeWorld, framingDistance, hexCornerWorld, hexWorld, tileJitter, vertexWorld } from "@/board3d/layout3d";
-import { computeTargets } from "@/board3d/Interaction";
+import { computeTargets, targetName, wagonMoveFor } from "@/board3d/Interaction";
 import { FrameWatchdog, QUALITY_PRESETS, detectQuality, stepDown } from "@/board3d/quality";
 import { propsForHex } from "@/board3d/props";
 
@@ -80,6 +80,53 @@ describe("docs/phase7-5.md §5 interaction layer", () => {
     expect([...roads.edges.keys()]).toEqual(["0,0|1,0"]);
     const robber = computeTargets([{ type: "MOVE_ROBBER", playerId: "a", hex: "1,0" }], "moveRobber", null);
     expect([...robber.hexes.keys()]).toEqual(["1,0"]);
+  });
+});
+
+describe("docs/phase10.md §5 Wayfarers target modes", () => {
+  const legal: Action[] = [
+    { type: "BUILD_KNIGHT", playerId: "a", hex: "0,0" },
+    { type: "REBUILD_HEX", playerId: "a", hex: "1,0" },
+    { type: "EXTEND_CARAVAN", playerId: "a", caravan: 0, edge: "0,0|1,0" },
+    { type: "EXTEND_CARAVAN", playerId: "a", caravan: 1, edge: "0,0|1,0" },
+    { type: "SPEND_FISH", playerId: "a", option: "moveRobber", hex: "0,1" },
+    { type: "SPEND_FISH", playerId: "a", option: "freeRoad", edge: "0,0|0,1" },
+    { type: "SPEND_FISH", playerId: "a", option: "freeDevCard", vertex: "v1" },
+    { type: "SPEND_FISH", playerId: "a", option: "steal", targetPlayerId: "b" },
+    { type: "BUILD_CASTLE", playerId: "a", vertex: "v2" },
+    { type: "MOVE_WAGON", playerId: "a", path: ["w0", "w1"] },
+    { type: "MOVE_WAGON", playerId: "a", path: ["w0", "w1", "w2"] },
+    { type: "MOVE_WAGON", playerId: "a", path: ["w0", "w1", "w3"], grain: 1 },
+    { type: "MOVE_WAGON", playerId: "a", path: ["w0", "w4"] },
+  ];
+
+  it("each mode exposes exactly its own targets, and the castle prompt needs no mode", () => {
+    const none = computeTargets(legal, "action", null);
+    expect(none.hexes.size + none.edges.size + none.steps.size).toBe(0);
+    expect([...none.vertices.keys()]).toEqual(["v2"]);
+    expect([...computeTargets(legal, "action", "guard").hexes.keys()]).toEqual(["0,0"]);
+    expect([...computeTargets(legal, "action", "rebuild").hexes.keys()]).toEqual(["1,0"]);
+    const caravan = computeTargets(legal, "action", "caravan");
+    expect([...caravan.edges.keys()]).toEqual(["0,0|1,0"]);
+    expect(caravan.edges.get("0,0|1,0")).toMatchObject({ caravan: 0 });
+    expect([...computeTargets(legal, "action", "fishRobber").hexes.keys()]).toEqual(["0,1"]);
+    expect([...computeTargets(legal, "action", "fishRoad").edges.keys()]).toEqual(["0,0|0,1"]);
+    expect([...computeTargets(legal, "action", "fishCity").vertices.keys()].sort()).toEqual(["v1", "v2"]);
+  });
+
+  it("wagon mode offers the next stops along the legal paths and Go resolves the exact path", () => {
+    expect([...computeTargets(legal, "action", "wagon").steps].sort()).toEqual(["w1", "w4"]);
+    expect([...computeTargets(legal, "action", "wagon", null, ["w1"]).steps].sort()).toEqual(["w2", "w3"]);
+    expect(computeTargets(legal, "action", "wagon", null, ["w4"]).steps.size).toBe(0);
+    expect(wagonMoveFor(legal, [])).toBeUndefined();
+    expect(wagonMoveFor(legal, ["w1"])).toMatchObject({ path: ["w0", "w1"] });
+    expect(wagonMoveFor(legal, ["w1", "w3"])).toMatchObject({ grain: 1 });
+  });
+
+  it("overlay buttons carry a data-target name per action", () => {
+    expect(legal.map(targetName)).toEqual(["guard", "rebuild", "caravan", "caravan", "fishRobber", "fishRoad", "fishCity", "fish", "castle", "MOVE_WAGON", "MOVE_WAGON", "MOVE_WAGON", "MOVE_WAGON"]);
+    expect(targetName({ type: "MOVE_ROBBER", playerId: "a", hex: "0,0", target: "pirate" })).toBe("pirate");
+    expect(targetName({ type: "BUILD_KNIGHT", playerId: "a", vertex: "v" })).toBe("knight");
   });
 });
 

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { COSTS, RESOURCES, isHiddenCount, type Action, type DevCard, type Hand, type Resource } from "@katan/engine";
 import type { RedactedState, SeatInfo } from "@/driver/types";
-import { COST_TEXT, DEV_CARD_HELP, DEV_CARD_LABEL, bannerText, currentPlayerId } from "@/game/labels";
+import { COST_TEXT, DEV_CARD_HELP, DEV_CARD_LABEL, MODE_HINT, bannerText, currentPlayerId } from "@/game/labels";
 import type { TargetMode } from "@/board3d/Board3D";
 import { useAnchor } from "./anim/anchors";
 import { Avatar } from "./Avatar";
@@ -11,6 +11,7 @@ import { CardBack, DevCardFace } from "./cards";
 import { TradeResponse } from "./dialogs";
 import { SettingsMenu } from "./SettingsMenu";
 import { Button, ResourceChip } from "./ui";
+import { WayfarersActions, type WagonControls } from "./wayfarers/WayfarersActions";
 
 export interface BottomBarProps {
   view: RedactedState;
@@ -33,11 +34,13 @@ export interface BottomBarProps {
   onSkip?: () => void;
   /** The 3D board has graphics settings (docs/phase7-5.md §7). */
   showGraphics?: boolean;
+  /** Wayfarers (docs/phase10.md): the fish sheet opener and the wagon path state. */
+  wayfarers?: { onFish: () => void; wagon: WagonControls };
 }
 
 /** The acting player's bar: banner, hand, dev cards, actions (docs/phase3.md §3.2, §5, §6). */
 export function BottomBar(props: BottomBarProps) {
-  const { view, me, legal, mode, revealed, error, onDispatch, onMode, onTrade, onPickResources, seats, waitingOn, draining = false, onSkip, showGraphics = false } = props;
+  const { view, me, legal, mode, revealed, error, onDispatch, onMode, onTrade, onPickResources, seats, waitingOn, draining = false, onSkip, showGraphics = false, wayfarers } = props;
   const player = view.players.find((p) => p.id === me)!;
   const hand: Hand | null = isHiddenCount(player.hand) ? null : player.hand;
   const devCards: DevCard[] = isHiddenCount(player.devCards) ? [] : player.devCards;
@@ -141,6 +144,7 @@ export function BottomBar(props: BottomBarProps) {
                 <Button disabled={!has("BUY_DEV_CARD")} reason={buyReason(view, hand)} onClick={() => onDispatch({ type: "BUY_DEV_CARD", playerId: me })} data-testid="buy-dev">
                   Buy development card
                 </Button>
+                {wayfarers && <WayfarersActions view={view} me={me} hand={hand} legal={legal} mode={mode} onMode={onMode} onDispatch={onDispatch} onFish={wayfarers.onFish} wagon={wayfarers.wagon} specialBuild />}
                 <Button variant="primary" onClick={() => onDispatch({ type: "SPECIAL_BUILD_DONE", playerId: me })} data-testid="special-build-done">
                   Done building
                 </Button>
@@ -160,6 +164,8 @@ export function BottomBar(props: BottomBarProps) {
                 <Button disabled={!!view.pendingTrade} reason="An offer is already open" onClick={onTrade} data-testid="trade">
                   Trade
                 </Button>
+                {/* Wayfarers (docs/phase10.md): fish, guards, rebuilds, caravans and the wagon. */}
+                {wayfarers && <WayfarersActions view={view} me={me} hand={hand} legal={legal} mode={mode} onMode={onMode} onDispatch={onDispatch} onFish={wayfarers.onFish} wagon={wayfarers.wagon} />}
                 {view.pendingTrade?.from === me && <Button onClick={() => onDispatch({ type: "CANCEL_TRADE", playerId: me })}>Withdraw offer</Button>}
                 <Button variant="primary" disabled={!has("END_TURN")} reason="Finish the current step first" onClick={() => onDispatch({ type: "END_TURN", playerId: me })} data-testid="end-turn">
                   End turn
@@ -168,8 +174,8 @@ export function BottomBar(props: BottomBarProps) {
             )}
 
             {mode !== null && (
-              <span className="text-sm text-ink-soft">
-                {mode === "moveShip" ? "Pick the ship, then where it sails" : "Choose a spot on the board"} · <kbd className="rounded border border-line px-1">Esc</kbd> cancels
+              <span className="text-sm text-ink-soft" data-testid="mode-hint">
+                {MODE_HINT[mode] ?? "Choose a spot on the board"} · <kbd className="rounded border border-line px-1">Esc</kbd> cancels
               </span>
             )}
           </>

@@ -2,7 +2,7 @@
  * Crown & Castle §2, §4 (docs/phase11.md): the three progress decks, draws
  * on the event die, the hand limit and DISCARD_PROGRESS.
  *
- * Card effects (`PLAY_PROGRESS`) live in `progressActions.ts`; this file is
+ * Card effects (`PLAY_PROGRESS`) live in `progressCards.ts`; this file is
  * the seam they build on: `drawProgress`, `discardProgressToBottom`,
  * `removeHeldProgress`, `revealed`, `progressHandCount`, `enforceProgressLimit`.
  */

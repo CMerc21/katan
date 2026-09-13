@@ -12,20 +12,21 @@ import { EffectComposer, TiltShift2, Vignette } from "@react-three/postprocessin
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
-import type { Action, EdgeId, HexId, PlayerColor, Terrain } from "@katan/engine";
+import type { Action, EdgeId, HexId, PlayerColor, Terrain, VertexId } from "@katan/engine";
 import type { RedactedState } from "@/driver/types";
 import type { Step } from "@/game/eventQueue";
 import { useAnchors } from "@/components/anim/anchors";
 import { CameraRig } from "./Camera";
 import { AnimatedPirate, AnimatedRobber, DiceTray3D, Projector, projectWorld, type CameraSnapshot } from "./Effects3d";
 import { Harbor } from "./Harbor";
-import { INTERACTION_LAYER, InteractionLayer, computeTargets, type TargetMode } from "./Interaction";
+import { INTERACTION_LAYER, InteractionLayer, computeTargets, targetLabel, targetName, type TargetMode } from "./Interaction";
 import { boardBounds, hexWorld, edgeWorld, vertexWorld, SLAB_HEIGHT, type World } from "./layout3d";
 import { CityFigure, RoadFigure, SettlementFigure, ShipFigure } from "./Pieces";
 import { Props } from "./Props";
 import { FrameWatchdog, QUALITY_PRESETS, detectQuality, readDeviceInfo, type Quality } from "./quality";
 import { woodTexture } from "./textures";
 import { Tiles, type TileInfo } from "./Tiles";
+import { WayfarersBoard, wayfarersPieceList } from "./Wayfarers3d";
 
 export type { TargetMode };
 
@@ -36,6 +37,9 @@ export interface Board3DProps {
   /** Move-ship mode: the ship picked so far (docs/phase9.md §8). */
   moveFrom?: EdgeId | null;
   onPickShip?: (edge: EdgeId) => void;
+  /** Wagon mode (docs/phase10.md §7): the stops picked so far and the pick callback. */
+  wagonPath?: readonly VertexId[];
+  onPickStep?: (vertex: VertexId) => void;
   meColor: PlayerColor;
   onAction: (action: Action) => void;
   step?: Step | null;
@@ -113,7 +117,7 @@ function Detector({ onDetected }: { onDetected: (q: Quality) => void }) {
 }
 
 export function Board3D(props: Board3DProps) {
-  const { view, legal, mode, moveFrom = null, onPickShip, meColor, onAction, step = null, onSkip, onCancelMode, quality, onDegrade, onDetected, followTurns = false, overlay = null, children } = props;
+  const { view, legal, mode, moveFrom = null, onPickShip, wagonPath = [], onPickStep, meColor, onAction, step = null, onSkip, onCancelMode, quality, onDegrade, onDetected, followTurns = false, overlay = null, children } = props;
   const preset = QUALITY_PRESETS[quality];
   const anchors = useAnchors();
   const [resetToken, setResetToken] = useState(0);
@@ -137,7 +141,7 @@ export function Board3D(props: Board3DProps) {
   const landSet = useMemo(() => new Set(hexIds), [hexIds]);
   const bounds = useMemo(() => boardBounds([...hexIds, ...view.board.sea]), [hexIds, view.board.sea]);
   const centre = useMemo<World>(() => ({ x: bounds.cx, z: bounds.cz }), [bounds]);
-  const targets = useMemo(() => computeTargets(legal, view.phase.kind, mode, moveFrom), [legal, view.phase.kind, mode, moveFrom]);
+  const targets = useMemo(() => computeTargets(legal, view.phase.kind, mode, moveFrom, wagonPath), [legal, view.phase.kind, mode, moveFrom, wagonPath]);
 
   // Anchors: hex/vertex/edge → viewport through the camera (flying cards).
   useEffect(() => {
@@ -160,6 +164,7 @@ export function Board3D(props: Board3DProps) {
     for (const e of targets.edges.keys()) out.push({ key: `target-edge-${e}`, world: edgeWorld(e).mid, y: SLAB_HEIGHT + 0.05 });
     for (const h of targets.hexes.keys()) out.push({ key: `target-hex-${h}`, world: hexWorld(h), y: SLAB_HEIGHT + 0.1 });
     for (const e of targets.ships) out.push({ key: `target-ship-${e}`, world: edgeWorld(e).mid, y: SLAB_HEIGHT + 0.2 });
+    for (const v of targets.steps) out.push({ key: `target-step-${v}`, world: vertexWorld(v), y: SLAB_HEIGHT + 0.1 });
     if (overlay) out.push({ key: "overlay", world: hexWorld(overlay.hex), y: SLAB_HEIGHT + 0.3 });
     return out;
   }, [targets, overlay]);
@@ -245,9 +250,10 @@ export function Board3D(props: Board3DProps) {
               ...p.ships.map((e) => <ShipFigure key={`sh:${e}`} edge={e} color={p.color} fresh={freshShip?.at === e} seq={freshShip?.seq ?? null} shadows={preset.shadows} />),
             ])}
           </group>
+          <WayfarersBoard view={view} shadows={preset.shadows} idle={preset.idleMotion} centre={centre} land={landSet} />
           <AnimatedRobber hex={view.robberHex} shadows={preset.shadows} />
           {view.pirateHex !== null && <AnimatedPirate hex={view.pirateHex} shadows={preset.shadows} />}
-          <InteractionLayer targets={targets} color={meColor} onAction={onAction} {...(onPickShip ? { onPickShip } : {})} />
+          <InteractionLayer targets={targets} color={meColor} onAction={onAction} {...(onPickShip ? { onPickShip } : {})} {...(onPickStep ? { onPickStep } : {})} />
           <DiceTray3D bounds={bounds} dice={view.lastRoll} rollKey={rollKey} shadows={preset.shadows} />
           {children}
         </group>
@@ -288,6 +294,11 @@ export function Board3D(props: Board3DProps) {
         ])}
         <li data-piece="robber">Robber on {view.robberHex}</li>
         {view.pirateHex !== null && <li data-piece="pirate">Pirate on {view.pirateHex}</li>}
+        {wayfarersPieceList(view).map((item) => (
+          <li key={item.key} data-piece={item.piece} data-color={item.color}>
+            {item.text}
+          </li>
+        ))}
       </ul>
 
       {/* Accessible targets over the canvas: same actions as the raycast layer. */}
@@ -312,31 +323,36 @@ export function Board3D(props: Board3DProps) {
                 />
               );
             }
+            if (p.key.startsWith("target-step-")) {
+              const vertex = p.key.slice("target-step-".length);
+              return (
+                <button
+                  key={p.key}
+                  type="button"
+                  className="pointer-events-auto absolute h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-gilt"
+                  style={{ left: p.x, top: p.y }}
+                  aria-label={`Drive the wagon to ${vertex}`}
+                  data-testid={p.key}
+                  data-target="wagon"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPickStep?.(vertex);
+                  }}
+                />
+              );
+            }
             const action = actionFor(p.key);
             if (!action) return null;
-            const label =
-              action.type === "BUILD_CITY"
-                ? `Upgrade to city at ${p.key.slice(14)}`
-                : action.type === "BUILD_SETTLEMENT"
-                  ? `Build settlement at ${p.key.slice(14)}`
-                  : action.type === "BUILD_ROAD"
-                    ? `Build road on ${p.key.slice(12)}`
-                    : action.type === "BUILD_SHIP"
-                      ? `Build ship on ${p.key.slice(12)}`
-                      : action.type === "MOVE_SHIP"
-                        ? `Move ship to ${p.key.slice(12)}`
-                        : action.type === "MOVE_ROBBER" && action.target === "pirate"
-                          ? `Move pirate to sea hex ${p.key.slice(11)}`
-                          : `Move robber to hex ${p.key.slice(11)}`;
+            const id = p.key.startsWith("target-vertex-") ? p.key.slice(14) : p.key.startsWith("target-edge-") ? p.key.slice(12) : p.key.slice(11);
             return (
               <button
                 key={p.key}
                 type="button"
                 className="pointer-events-auto absolute h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-gilt"
                 style={{ left: p.x, top: p.y }}
-                aria-label={label}
+                aria-label={targetLabel(action, id)}
                 data-testid={p.key}
-                data-target={action.type === "MOVE_ROBBER" ? (action.target ?? "robber") : action.type}
+                data-target={targetName(action)}
                 onClick={(e) => {
                   e.stopPropagation();
                   onAction(action);

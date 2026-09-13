@@ -215,6 +215,9 @@ export function TradeDialog({
   const [receive, setReceive] = useState<Hand>(emptyHand);
   const [bankGive, setBankGive] = useState<Resource | null>(null);
   const [bankReceive, setBankReceive] = useState<Resource | null>(null);
+  // Wayfarers, Fishing (docs/rules.md §15.2): the boot's holder may attach it to an offer someone could take.
+  const bootOffer = view.wayfarers?.fishing?.boot === me && legal.some((a) => a.type === "OFFER_TRADE" && a.boot === true);
+  const [boot, setBoot] = useState(false);
 
   const ratios = ratiosFor(view, me);
   const offerOk = total(give) > 0 && total(receive) > 0 && !RESOURCES.some((r) => give[r] > 0 && receive[r] > 0);
@@ -272,12 +275,18 @@ export function TradeDialog({
             </span>
             The offer goes to every other player in turn; the first to accept trades with you.
           </p>
-          <div className="mt-3 flex justify-end">
+          <div className="mt-3 flex items-center justify-end gap-4">
+            {bootOffer && (
+              <label className="flex items-center gap-1.5 text-sm">
+                <input type="checkbox" checked={boot} onChange={(e) => setBoot(e.target.checked)} data-testid="offer-boot" />
+                Pass the old boot along
+              </label>
+            )}
             <Button
               variant="primary"
               disabled={!offerOk}
               reason="Give and get at least one card each, with no resource on both sides"
-              onClick={() => onDispatch({ type: "OFFER_TRADE", playerId: me, give, receive })}
+              onClick={() => onDispatch({ type: "OFFER_TRADE", playerId: me, give, receive, ...(bootOffer && boot ? { boot: true } : {}) })}
               data-testid="offer-trade"
             >
               Offer trade
@@ -352,6 +361,9 @@ export function TradeResponse({
   onDispatch: (action: Action) => void;
 }) {
   const trade = view.pendingTrade;
+  // Wayfarers, Fishing (docs/rules.md §15.2): the boot may ride along with the acceptance.
+  const bootAccept = legal.some((a) => a.type === "ACCEPT_TRADE" && a.boot === true);
+  const [boot, setBoot] = useState(false);
   if (!trade) return null;
   const from = view.players.find((p) => p.id === trade.from)!;
   const canAccept = legal.some((a) => a.type === "ACCEPT_TRADE");
@@ -362,8 +374,15 @@ export function TradeResponse({
       <HandInline hand={trade.give} />
       <span className="text-sm">for your</span>
       <HandInline hand={trade.receive} />
-      <div className="ml-auto flex gap-2">
-        <Button variant="primary" disabled={!canAccept} reason="You do not hold those cards" onClick={() => onDispatch({ type: "ACCEPT_TRADE", playerId: me })}>
+      {trade.boot && <span className="rounded bg-ink px-1 text-xs text-parchment" data-testid="trade-boot">with the old boot</span>}
+      <div className="ml-auto flex items-center gap-2">
+        {bootAccept && (
+          <label className="flex items-center gap-1.5 text-sm">
+            <input type="checkbox" checked={boot} onChange={(e) => setBoot(e.target.checked)} data-testid="accept-boot" />
+            Pass the old boot
+          </label>
+        )}
+        <Button variant="primary" disabled={!canAccept} reason="You do not hold those cards" onClick={() => onDispatch({ type: "ACCEPT_TRADE", playerId: me, ...(bootAccept && boot ? { boot: true } : {}) })}>
           Accept
         </Button>
         <Button onClick={() => onDispatch({ type: "REJECT_TRADE", playerId: me })}>Decline</Button>

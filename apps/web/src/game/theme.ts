@@ -4,7 +4,7 @@
  * with heraldic tinctures for the seats.
  */
 
-import type { PlayerColor, Resource, Terrain } from "@katan/engine";
+import type { PlayerColor, Resource, Terrain, WagonGood } from "@katan/engine";
 
 export const INK = "#211d19";
 export const INK_SOFT = "#4a433c";
@@ -72,3 +72,6 @@ export const PLAYER_TEXT: Record<PlayerColor, string> = {
 };
 
 export const HOT_TOKEN = "#c8412b";
+
+/** Wagon goods (docs/phase10.md §7): marble, glass, sand, tools. */
+export const GOOD_COLOR: Record<WagonGood, string> = { marble: "#e9e5dc", glass: "#9fd3dd", sand: "#dcc48f", tools: "#6b6e75" };

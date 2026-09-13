@@ -7,10 +7,11 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import type { DevCardType, PlayerColor, Resource } from "@katan/engine";
+import type { DevCardType, EventCardKind, PlayerColor, Resource } from "@katan/engine";
 import type { RedactedState, SeatInfo } from "@/driver/types";
 import type { Step } from "@/game/eventQueue";
-import { BONE, INK, LEATHER, PLAYER_FILL, PLAYER_TEXT } from "@/game/theme";
+import { EVENT_CARD_LABEL } from "@/game/labels";
+import { BONE, GILT, INK, LEATHER, PLAYER_FILL, PLAYER_TEXT } from "@/game/theme";
 import { Avatar } from "../Avatar";
 import { CardBack, DevCardFace, ResourceCardFace } from "../cards";
 import { useAnchors, type Point } from "./anchors";
@@ -98,14 +99,36 @@ function Die({ n, rolling, delay }: { n: number; rolling: boolean; delay: number
   );
 }
 
+/** The event deck's drawn card (docs/rules.md §15.1) shown in place of the dice. */
+function EventCard({ total, event, rolling }: { total: number; event: EventCardKind | null; rolling: boolean }) {
+  return (
+    <div className={`flex h-12 w-9 flex-col items-center justify-center rounded border-2 ${rolling ? "die-settle" : ""}`} style={{ background: BONE, borderColor: event ? GILT : INK, color: INK }} aria-label={`card ${total}${event ? `, ${EVENT_CARD_LABEL[event]}` : ""}`} data-testid="event-card" data-event={event ?? undefined}>
+      <span className="font-display text-lg font-semibold leading-none">{total}</span>
+      {event && <span className="mt-0.5 text-[7px] leading-tight text-center" style={{ color: "#6f1519" }}>{EVENT_CARD_LABEL[event]}</span>}
+    </div>
+  );
+}
+
 export function DiceTray({ step, view }: { step: Step | null; view: RedactedState }) {
   const rolling = step?.kind === "event" && step.event.kind === "diceRolled";
   const dice = rolling && step.event.kind === "diceRolled" ? step.event.dice : view.lastRoll;
   const [showing, setShowing] = useState(false);
+  // Under the event deck a roll carries its card; keep the last one to show between rolls.
+  const drawn = rolling && step.event.kind === "diceRolled" ? (step.event.card ?? null) : null;
+  const [card, setCard] = useState<{ total: number; event: EventCardKind | null } | null>(null);
   useEffect(() => {
     if (rolling) setShowing(true);
-  }, [rolling]);
+    if (drawn) setCard(drawn);
+  }, [rolling, drawn]);
   if (!dice || (!showing && !view.lastRoll)) return null;
+  const deck = view.scenario?.variants.eventDeck === true;
+  if (deck && card) {
+    return (
+      <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-1.5 rounded-lg px-2 py-1.5" style={{ background: LEATHER, boxShadow: "inset 0 0 0 2px rgba(0,0,0,.35), 0 2px 4px rgba(0,0,0,.4)" }} data-testid="dice-tray" aria-label={`drew ${card.total}`}>
+        <EventCard total={card.total} event={card.event} rolling={!!rolling} />
+      </div>
+    );
+  }
   return (
     <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-1.5 rounded-lg px-2 py-1.5" style={{ background: LEATHER, boxShadow: "inset 0 0 0 2px rgba(0,0,0,.35), 0 2px 4px rgba(0,0,0,.4)" }} data-testid="dice-tray" aria-label={`dice ${dice[0]} and ${dice[1]}`}>
       <Die n={dice[0]} rolling={!!rolling} delay={0} />
