@@ -23,6 +23,7 @@ import {
   vertexScore,
 } from "./eval";
 import { best, ensureLegal, ofType, pick, resourceTrades, type BotPolicy, type RedactedState, type Rng } from "./types";
+import { chooseGuard, choosePrompt, cityBonus, linkBonus, wayfarersAfterBuild, wayfarersBeforeBuild, withBoot } from "./wayfarers";
 
 export function mediumBot(): BotPolicy {
   return { level: "medium", chooseAction: chooseMedium };
@@ -62,7 +63,7 @@ export function chooseMedium(view: RedactedState, legal: Action[], rng: Rng): Ac
   }
 
   if (phase === "roadBuilding") {
-    return bestSetupLink(view, legal, rng, (edge, kind) => edgeTowardScore(view, edge, me, kind) + longestRoadGain(view, edge, me));
+    return bestSetupLink(view, legal, rng, (edge, kind) => edgeTowardScore(view, edge, me, kind) + longestRoadGain(view, edge, me) + linkBonus(view, edge, me));
   }
 
   if (phase === "action") {
@@ -72,6 +73,9 @@ export function chooseMedium(view: RedactedState, legal: Action[], rng: Rng): Ac
   }
 
   if (phase === "specialBuild") return chooseSpecialBuild(view, legal, rng);
+
+  // Wayfarers / Crown prompts (docs/phase10.md §4).
+  if (phase === "modulePrompt") return choosePrompt(view, legal, rng);
 
   return pick(rng, legal);
 }
@@ -110,11 +114,14 @@ export function chooseSpecialBuild(view: RedactedState, legal: Action[], rng: Rn
   const me = view.viewer;
   const need = resourceNeed(view, me);
   const cities = ofType(legal, "BUILD_CITY");
-  if (cities.length) return best(rng, cities, (a) => handTotal(vertexPipsFor(view, a.vertex)));
+  if (cities.length) return best(rng, cities, (a) => handTotal(vertexPipsFor(view, a.vertex)) + cityBonus(view, a.vertex));
   const settlements = ofType(legal, "BUILD_SETTLEMENT");
   if (settlements.length) return best(rng, settlements, (a) => vertexScore(view, a.vertex, me));
+  // Wayfarers (docs/phase10.md §5): guards may be posted in the special build phase.
+  const guard = chooseGuard(view, legal, rng);
+  if (guard) return guard;
   const links = [
-    ...ofType(legal, "BUILD_ROAD").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me) + longestRoadGain(view, a.edge, me) })),
+    ...ofType(legal, "BUILD_ROAD").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me) + longestRoadGain(view, a.edge, me) + linkBonus(view, a.edge, me) })),
     ...ofType(legal, "BUILD_SHIP").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me, "ship") + longestRoadGain(view, a.edge, me) })),
   ];
   if (links.length) {
@@ -173,7 +180,9 @@ export function respondToTrade(view: RedactedState, legal: Action[], rng: Rng): 
   const after = RESOURCES.reduce((n, r) => n + Math.max(0, need.cost[r] - (hand[r] - trade.receive[r] + trade.give[r])), 0);
   const givesAwayShort = RESOURCES.some((r) => trade.receive[r] > 0 && hand[r] - trade.receive[r] < need.cost[r]);
   const leaderAsking = threat(view).leader?.id === trade.from && publicVP(view.players.find((p) => p.id === trade.from)!) >= 8;
-  if (after < before && !givesAwayShort && !leaderAsking) return accept;
+  // Wayfarers (docs/phase10.md §2): an offer carrying the old boot (-1 VP) is taken only when it completes the build.
+  if (trade.boot === true && after > 0) return reject ?? pick(rng, legal);
+  if (after < before && !givesAwayShort && !leaderAsking) return withBoot(legal, accept);
   return reject ?? pick(rng, legal);
 }
 
@@ -194,6 +203,10 @@ export function chooseTurnAction(view: RedactedState, legal: Action[], rng: Rng)
   const p = meOf(view);
   const hand = myHand(view);
   const need = resourceNeed(view, me);
+
+  // Wayfarers (docs/phase10.md §4): fish, caravans, rebuilds and deliveries first (free or clearly profitable).
+  const early = wayfarersBeforeBuild(view, legal, rng);
+  if (early) return early;
 
   // Road Building toward Longest Road, or when roads are what the plan needs.
   const roadBuilding = legal.find((a) => a.type === "PLAY_ROAD_BUILDING");
@@ -217,11 +230,14 @@ export function chooseTurnAction(view: RedactedState, legal: Action[], rng: Rng)
 
   // Build priority (§6.5).
   const cities = ofType(legal, "BUILD_CITY");
-  if (cities.length) return best(rng, cities, (a) => handTotal(vertexPipsFor(view, a.vertex)));
+  if (cities.length) return best(rng, cities, (a) => handTotal(vertexPipsFor(view, a.vertex)) + cityBonus(view, a.vertex));
   const settlements = ofType(legal, "BUILD_SETTLEMENT");
   if (settlements.length) return best(rng, settlements, (a) => vertexScore(view, a.vertex, me));
+  // Wayfarers (docs/phase10.md §4): guards, wagon moves and boot-passing offers before roads and purchases.
+  const later = wayfarersAfterBuild(view, legal, rng);
+  if (later) return later;
   const links = [
-    ...ofType(legal, "BUILD_ROAD").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me) + longestRoadGain(view, a.edge, me) })),
+    ...ofType(legal, "BUILD_ROAD").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me) + longestRoadGain(view, a.edge, me) + linkBonus(view, a.edge, me) })),
     ...ofType(legal, "BUILD_SHIP").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me, "ship") + longestRoadGain(view, a.edge, me) })),
   ];
   if (links.length) {
@@ -266,7 +282,7 @@ export function chooseTurnAction(view: RedactedState, legal: Action[], rng: Rng)
       giveHand[give] = 1;
       receive[want] = 1;
       const offer = ensureLegal(legal, { type: "OFFER_TRADE", playerId: me, give: giveHand, receive });
-      if (offer) return offer;
+      if (offer) return withBoot(legal, offer);
     }
   }
 

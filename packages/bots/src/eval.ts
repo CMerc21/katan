@@ -26,6 +26,7 @@ import {
   type VertexId,
 } from "@katan/engine";
 import type { RedactedState } from "./types";
+import { vertexBonus } from "./wayfarers";
 
 export type RedactedPlayer = RedactedState["players"][number];
 
@@ -191,6 +192,8 @@ export function vertexScore(view: RedactedState, vertex: VertexId, playerId: str
       score += Math.min(2, nearest * 0.4);
     }
   }
+  // Wayfarers (docs/phase10.md §4): rivers, harbour points, oases.
+  score += vertexBonus(view, vertex);
   return score;
 }
 

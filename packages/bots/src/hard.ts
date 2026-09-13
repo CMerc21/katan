@@ -20,6 +20,7 @@ import {
 import { afford, edgeTowardScore, geo, handTotal, hexValueFor, myHand, productionOf, publicVP, resourceNeed, scarcity, settlementCandidates, threat, vertexScore } from "./eval";
 import { bestSetupLink, chooseGold, chooseRobberHex, chooseShipMove, chooseSpecialBuild, discardKeepingTarget, longestRoadGain, offeredThisTurn, respondToTrade } from "./medium";
 import { best, ensureLegal, isResourceTrade, ofType, pick, type BotPolicy, type RedactedState, type Rng } from "./types";
+import { choosePrompt, linkBonus, positionBonus, wayfarersAfterBuild, wayfarersBeforeBuild, withBoot } from "./wayfarers";
 
 export function hardBot(): BotPolicy {
   return { level: "hard", chooseAction: chooseHard };
@@ -65,6 +66,8 @@ export function chooseHard(view: RedactedState, legal: Action[], rng: Rng): Acti
     const pick1 = chooseByLookahead(view, legal, rng);
     return pick1.type === "SPECIAL_BUILD_DONE" ? chooseSpecialBuild(view, legal, rng) : pick1;
   }
+  // Wayfarers / Crown prompts (docs/phase10.md §4).
+  if (phase === "modulePrompt") return choosePrompt(view, legal, rng);
   return pick(rng, legal);
 }
 
@@ -166,7 +169,9 @@ export function positionScore(view: RedactedState, playerId: string): number {
   const t = threat(view);
   const lr = view.longestRoad.playerId === playerId ? 0 : p.roads.length >= 4 ? 0.8 : 0;
   const la = view.largestArmy.playerId === playerId ? 0 : p.playedKnights >= 2 ? 0.8 : 0;
-  return vp * 10 * endgame + production * 0.6 + planScore * 0.25 + closeness * 0.8 + cards + lr + la - t.leaderVP * 0.2;
+  // Wayfarers (docs/phase10.md §4): chip progress and stored variant currency.
+  const variants = positionBonus(view, playerId);
+  return vp * 10 * endgame + production * 0.6 + planScore * 0.25 + closeness * 0.8 + cards + lr + la + variants - t.leaderVP * 0.2;
 }
 
 function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Action {
@@ -175,6 +180,11 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
   const need = resourceNeed(view, me);
   const baseState = viewToState(view);
   const baseScore = positionScore(view, me);
+
+  // Wayfarers (docs/phase10.md §4): fish, caravans, rebuilds and deliveries first; the variant
+  // action types stay out of the lookahead (their payoffs are not in positionScore).
+  const early = wayfarersBeforeBuild(view, legal, rng);
+  if (early) return early;
 
   const candidates = legal.filter(
     (a) =>
@@ -195,7 +205,7 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
   const trades = candidates.filter((a) => a.type === "MARITIME_TRADE");
   const others = candidates.filter((a) => a.type !== "BUILD_ROAD" && a.type !== "BUILD_SHIP" && a.type !== "MARITIME_TRADE");
   const topRoads = roads
-    .map((a) => ({ a, s: a.type === "BUILD_ROAD" ? scoreEdgeForPlan(view, a.edge, me) + longestRoadGain(view, a.edge, me) : a.type === "BUILD_SHIP" ? scoreEdgeForPlan(view, a.edge, me) + edgeTowardScore(view, a.edge, me, "ship") * 0.5 : 0 }))
+    .map((a) => ({ a, s: a.type === "BUILD_ROAD" ? scoreEdgeForPlan(view, a.edge, me) + longestRoadGain(view, a.edge, me) + linkBonus(view, a.edge, me) : a.type === "BUILD_SHIP" ? scoreEdgeForPlan(view, a.edge, me) + edgeTowardScore(view, a.edge, me, "ship") * 0.5 : 0 }))
     .sort((x, y) => y.s - x.s)
     .slice(0, 8)
     .map((x) => x.a);
@@ -211,6 +221,10 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
       bestAction = a;
     }
   }
+  // Wayfarers: guards, wagon moves and boot offers rank between buildings and everything else.
+  if (bestAction && (bestAction.type === "BUILD_SETTLEMENT" || bestAction.type === "BUILD_CITY")) return bestAction;
+  const later = wayfarersAfterBuild(view, legal, rng);
+  if (later) return later;
   if (bestAction) return bestAction;
   const shipMove = chooseShipMove(view, legal, rng);
   if (shipMove) return shipMove;
@@ -227,7 +241,7 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
       giveHand[give] = 1;
       receive[want] = 1;
       const offer = ensureLegal(legal, { type: "OFFER_TRADE", playerId: me, give: giveHand, receive });
-      if (offer) return offer;
+      if (offer) return withBoot(legal, offer);
     }
   }
   return legal.find((a) => a.type === "END_TURN") ?? legal.find((a) => a.type === "SPECIAL_BUILD_DONE") ?? pick(rng, legal);
@@ -270,6 +284,8 @@ function respondToTradeHard(view: RedactedState, legal: Action[], rng: Rng): Act
   // Decline anything that helps a leader close on 10.
   const from = view.players.find((p) => p.id === trade.from)!;
   if (publicVP(from) >= 8) return legal.find((a) => a.type === "REJECT_TRADE") ?? pick(rng, legal);
+  // Wayfarers (docs/phase10.md §2): the medium rule handles an offer that carries the old boot.
+  if (trade.boot === true) return respondToTrade(view, legal, rng);
   // Score both sides by expected production access: accept if my gain ≥ theirs.
   const me = view.viewer;
   const base = viewToState(view);
@@ -277,7 +293,7 @@ function respondToTradeHard(view: RedactedState, legal: Action[], rng: Rng): Act
     const after = applyAction(base, accept);
     const mine = positionScore(redact(after, me), me) - positionScore(view, me);
     const theirs = positionScore(redact(after, from.id), from.id) - positionScore(redact(base, from.id), from.id);
-    if (mine > 0 && mine >= theirs * 0.8) return accept;
+    if (mine > 0 && mine >= theirs * 0.8) return withBoot(legal, accept);
   } catch {
     /* fall through */
   }

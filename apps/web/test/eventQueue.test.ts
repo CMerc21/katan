@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyActionWithEvents, builtInScenario, createGame, legalActions, nextActor, redact, type GameEvent, type GameState } from "@katan/engine";
+import { applyActionWithEvents, builtInScenario, createGame, greatLakeBoard, hexEdge, legalActions, nextActor, redact, type Action, type BoardDefinition, type EdgeDef, type GameEvent, type GameState, type HexDef, type Scenario } from "@katan/engine";
 import type { RedactedState } from "@/driver/types";
 import { EventQueue, applyEventToView, planSteps, scaleDuration, totalDuration, type QueueState, type Step } from "@/game/eventQueue";
 import type { AnimationSpeed } from "@/game/settings";
@@ -250,5 +250,142 @@ describe("docs/phase7.md §2 event queue", () => {
     expect(fast).toBeGreaterThanOrEqual(700);
     expect(fast).toBeLessThanOrEqual(2500);
     expect(off).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Wayfarers (docs/phase10.md): every variant's events keep the rendered view in step with the engine.
+
+/** The Great Lake's board with a river down the middle column and two oases: every variant has something to do. */
+function everythingBoard(): BoardDefinition {
+  const base = greatLakeBoard();
+  const oases = new Set(["1,-2", "-2,1"]);
+  const river: EdgeDef[] = [];
+  for (let r = 2; r >= -2; r--) river.push({ edge: hexEdge({ q: 0, r }, 0), kind: "river" }, { edge: hexEdge({ q: 0, r }, 1), kind: "river" });
+  return {
+    ...base,
+    name: "Everything",
+    hexes: base.hexes.map((h): HexDef => (oases.has(`${h.at.q},${h.at.r}`) ? { ...h, extras: { oasis: true } } : h)),
+    edges: [...(base.edges ?? []), ...river],
+  };
+}
+
+const EVERYTHING: Scenario = {
+  id: "everything",
+  name: "Everything",
+  board: everythingBoard(),
+  modules: {},
+  variants: { eventDeck: true, fishing: true, rivers: true, harbormaster: true, raiders: true, caravans: true, wagons: true },
+  victoryPoints: 30,
+};
+
+/** A small seeded picker so the walk is deterministic without the engine's RNG. */
+function lcg(seed: number): () => number {
+  let x = seed >>> 0;
+  return () => {
+    x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+    return x / 4294967296;
+  };
+}
+
+const PREFERRED: Action["type"][] = ["SPEND_FISH", "BUILD_CASTLE", "NEIGHBORLY_GIVE", "REBUILD_HEX", "EXTEND_CARAVAN", "DELIVER", "LOAD_COMMODITY", "MOVE_WAGON", "BUILD_KNIGHT", "ACCEPT_TRADE", "CHOOSE_GOLD", "BUILD_CITY", "BUILD_SETTLEMENT", "BUILD_ROAD"];
+
+/** Walk a scenario game with a variant-hungry policy, applying every event to the viewer's rendered view. */
+function walk(scenario: Scenario, seed: string, steps: number, players = PLAYERS): { view: RedactedState; final: RedactedState; kinds: Set<string> } {
+  let state: GameState = createGame({ seed, players, scenario });
+  let view = redact(state, "a");
+  const kinds = new Set<string>();
+  const rnd = lcg(seed.length * 7919 + steps);
+  for (let i = 0; i < steps && state.phase.kind !== "ended"; i++) {
+    const actor = nextActor(state);
+    const legal = legalActions(state, actor);
+    let action: Action | undefined;
+    for (const type of PREFERRED) {
+      const options = legal.filter((a) => a.type === type && (type !== "ACCEPT_TRADE" || a.boot === true));
+      if (options.length > 0 && rnd() < 0.8) {
+        action = options[Math.floor(rnd() * options.length)];
+        break;
+      }
+    }
+    action ??= legal.find((a) => a.type === "ROLL") ?? legal.find((a) => a.type === "END_TURN") ?? legal[Math.floor(rnd() * legal.length)];
+    if (!action) throw new Error("no legal action");
+    const r = applyActionWithEvents(state, action);
+    state = r.state;
+    for (const e of r.events) {
+      kinds.add(e.kind);
+      view = applyEventToView(view, e);
+    }
+  }
+  return { view, final: redact(state, "a"), kinds };
+}
+
+function expectInStep(view: RedactedState, final: RedactedState): void {
+  for (const p of final.players) {
+    const r = view.players.find((x) => x.id === p.id)!;
+    expect(r.roads).toEqual(p.roads);
+    expect(r.settlements).toEqual(p.settlements);
+    expect(r.cities).toEqual(p.cities);
+    expect(r.pieces).toEqual(p.pieces);
+    expect(r.publicVP).toBe(p.publicVP);
+    expect(r.hand).toEqual(p.hand);
+  }
+  expect(view.bank).toEqual(final.bank);
+  expect(view.robberHex).toBe(final.robberHex);
+  expect(view.eventSeq).toBe(final.eventSeq);
+  const w = view.wayfarers;
+  const f = final.wayfarers;
+  expect(w === null).toBe(f === null);
+  if (!w || !f) return;
+  expect(w.eventDeck).toEqual(f.eventDeck);
+  expect(w.fishing).toEqual(f.fishing);
+  expect(w.rivers).toEqual(f.rivers);
+  expect(w.harbormaster).toEqual(f.harbormaster);
+  expect(w.raiders).toEqual(f.raiders);
+  expect(w.caravans).toEqual(f.caravans);
+  if (w.wagons && f.wagons) {
+    expect(w.wagons.wagons).toEqual(f.wagons.wagons);
+    expect(w.wagons.points).toEqual(f.wagons.points);
+    expect(w.wagons.stock).toEqual(f.wagons.stock);
+    // A city's first demand token is seeded, so the rendered view only learns it at the snap; rotations it saw must agree.
+    for (const [v, good] of Object.entries(w.wagons.demand)) expect(f.wagons.demand[v]).toBe(good);
+  }
+}
+
+describe("docs/phase10.md Wayfarers events apply event by event", () => {
+  it("The Great Lake: fish, the old boot and the Harbormaster", () => {
+    const { view, final, kinds } = walk(builtInScenario("greatLake"), "lake-queue", 700);
+    expect(kinds.has("fishDrawn")).toBe(true);
+    expect(kinds.has("fishSpent")).toBe(true);
+    expectInStep(view, final);
+  });
+
+  it("River Country: bridges, coins, chips and the event deck", () => {
+    const { view, final, kinds } = walk(builtInScenario("riverCountry"), "river-queue", 700);
+    for (const k of ["coinsAwarded", "bridgeBuilt", "chipMoved", "deckReshuffled"]) expect(kinds.has(k), k).toBe(true);
+    expectInStep(view, final);
+  });
+
+  it("Coastal Watch: castles, guards, the raider counter and rebuilt hexes", () => {
+    const { view, final, kinds } = walk(builtInScenario("coastalWatch"), "raid-queue", 900);
+    expect(kinds.has("castleBuilt")).toBe(true);
+    expect(kinds.has("guardPlaced")).toBe(true);
+    expect(kinds.has("raidersAdvanced")).toBe(true);
+    expectInStep(view, final);
+  });
+
+  it("Salt Road: spice, caravans, wagons, goods and deliveries", () => {
+    const { view, final, kinds } = walk(builtInScenario("saltRoad"), "salt-queue", 900);
+    for (const k of ["spiceProduced", "wagonMoved", "goodsStocked"]) expect(kinds.has(k), k).toBe(true);
+    expectInStep(view, final);
+  });
+
+  it("every variant at once stays in step over a long walk", () => {
+    const seen = new Set<string>();
+    for (const seed of ["all-1", "all-2", "all-3"]) {
+      const { view, final, kinds } = walk(EVERYTHING, seed, 900);
+      for (const k of kinds) seen.add(k);
+      expectInStep(view, final);
+    }
+    for (const k of ["fishDrawn", "fishSpent", "castleBuilt", "guardPlaced", "coinsAwarded", "spiceProduced", "wagonMoved", "goodsStocked"]) expect(seen.has(k), k).toBe(true);
   });
 });

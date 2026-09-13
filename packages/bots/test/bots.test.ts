@@ -139,6 +139,100 @@ describe("docs/phase9.md §9 bots on the Tides scenarios", () => {
   }
 });
 
+describe("docs/phase10.md §9 bots on the Wayfarers scenarios", () => {
+  const SIX = ["a", "b", "c", "d", "e", "f"].map((id) => ({ id, name: id.toUpperCase() }));
+  const LEVELS: BotLevel[] = ["hard", "medium", "easy", "medium", "hard", "easy"];
+
+  async function play(id: "greatLake" | "riverCountry" | "coastalWatch" | "saltRoad", games: number, onGame: (g: ReturnType<typeof playBotGame>) => void) {
+    const { builtInScenario } = await import("@katan/engine");
+    const scenario = builtInScenario(id);
+    const count = id === "saltRoad" ? 6 : 4;
+    const levels = LEVELS.slice(0, count);
+    for (let i = 0; i < games; i++) {
+      if (i % 5 === 0) await new Promise((r) => setTimeout(r, 0));
+      const rotated = levels.map((_, j) => levels[(j + i) % count]!);
+      const g = playBotGame({ seed: `${id}-${i}`, players: SIX.slice(0, count), scenario, levels: rotated, maxTurns: 600 });
+      expect(g.final.phase.kind, `${id} seed ${i} stalled at turn ${g.turns}`).toBe("ended");
+      expect(g.final.winner).not.toBeNull();
+      onGame(g);
+    }
+  }
+
+  it("greatLake (fishing + harbormaster): 30 mixed games finish; fish are spent and the boot comes out of the bag", async () => {
+    let fishSpent = 0;
+    let bootDrawn = 0;
+    let bootPasses = 0;
+    let harbormasters = 0;
+    await play("greatLake", 30, (g) => {
+      fishSpent += g.actions.filter((a) => a.type === "SPEND_FISH").length;
+      const fishing = g.final.wayfarers?.fishing;
+      if (fishing && !fishing.bag.includes(0)) bootDrawn += 1;
+      bootPasses += g.actions.filter((a) => (a.type === "ACCEPT_TRADE" || a.type === "OFFER_TRADE") && a.boot === true).length;
+      if (g.final.wayfarers?.harbormaster?.playerId) harbormasters += 1;
+    });
+    expect(fishSpent).toBeGreaterThan(0);
+    expect(bootDrawn + bootPasses).toBeGreaterThan(0);
+    expect(harbormasters).toBeGreaterThan(0);
+  }, 600_000);
+
+  it("riverCountry (rivers + event deck): 30 mixed games finish; bridges get built and coins awarded", async () => {
+    let bridges = 0;
+    let coins = 0;
+    let prompts = 0;
+    await play("riverCountry", 30, (g) => {
+      const rivers = g.final.wayfarers?.rivers;
+      expect(rivers).toBeTruthy();
+      bridges += g.final.players.reduce((n, p) => n + p.roads.filter((e) => g.final.board.rivers.includes(e)).length, 0);
+      coins += Object.values(rivers?.coins ?? {}).reduce((n, c) => n + c, 0);
+      prompts += g.actions.filter((a) => a.type === "NEIGHBORLY_GIVE").length;
+    });
+    expect(bridges).toBeGreaterThan(0);
+    expect(coins).toBeGreaterThan(0);
+    expect(prompts).toBeGreaterThan(0);
+  }, 600_000);
+
+  it("coastalWatch (raiders): 30 mixed games finish; castles and guards are placed and the raiders land", async () => {
+    let guards = 0;
+    let landings = 0;
+    let rebuilds = 0;
+    let castles = 0;
+    await play("coastalWatch", 30, (g) => {
+      guards += g.actions.filter((a) => a.type === "BUILD_KNIGHT").length;
+      rebuilds += g.actions.filter((a) => a.type === "REBUILD_HEX").length;
+      castles += g.actions.filter((a) => a.type === "BUILD_CASTLE").length;
+      landings += g.final.wayfarers?.raiders?.landings ?? 0;
+    });
+    expect(castles).toBe(30 * 4);
+    expect(guards).toBeGreaterThan(0);
+    expect(landings).toBeGreaterThan(0);
+    expect(rebuilds).toBeGreaterThan(0);
+  }, 600_000);
+
+  it("saltRoad (caravans + wagons, six players): 30 mixed games finish; caravans are extended and goods delivered", async () => {
+    let extended = 0;
+    let delivered = 0;
+    let moves = 0;
+    await play("saltRoad", 30, (g) => {
+      extended += g.actions.filter((a) => a.type === "EXTEND_CARAVAN").length;
+      delivered += g.actions.filter((a) => a.type === "DELIVER").length;
+      moves += g.actions.filter((a) => a.type === "MOVE_WAGON").length;
+    });
+    expect(extended).toBeGreaterThan(0);
+    expect(moves).toBeGreaterThan(0);
+    expect(delivered).toBeGreaterThan(0);
+  }, 600_000);
+
+  it("is deterministic on a variant scenario", async () => {
+    const { builtInScenario } = await import("@katan/engine");
+    const scenario = builtInScenario("greatLake");
+    const a = playBotGame({ seed: "det-lake", players: FOUR, scenario, levels: ["hard", "medium", "easy", "medium"] });
+    const b = playBotGame({ seed: "det-lake", players: FOUR, scenario, levels: ["hard", "medium", "easy", "medium"] });
+    expect(a.final.phase.kind).toBe("ended");
+    expect(b.actions).toEqual(a.actions);
+    expect(b.final).toEqual(a.final);
+  }, 60_000);
+});
+
 describe("docs/phase7.md §5 bot names", () => {
   it("is deterministic and never repeats a name within a game", async () => {
     const { generateBotNames, isGeneratedBotName, FIRST_NAMES, EPITHETS, PLACES } = await import("../src/names");

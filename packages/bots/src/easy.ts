@@ -6,6 +6,7 @@
 import { RESOURCES, type Action } from "@katan/engine";
 import { hexesOf, myHand, rawPipCount } from "./eval";
 import { ensureLegal, ofType, pick, resourceTrades, type BotPolicy, type RedactedState, type Rng } from "./types";
+import { wayfarersBeforeBuild } from "./wayfarers";
 
 export function easyBot(): BotPolicy {
   return { level: "easy", chooseAction: chooseEasy };
@@ -69,6 +70,9 @@ export function chooseEasy(view: RedactedState, legal: Action[], rng: Rng): Acti
       // Trade response: never trades with players.
       return legal.find((a) => a.type === "REJECT_TRADE") ?? pick(rng, legal);
     }
+    // Wayfarers (docs/phase10.md §4): free variant actions (fish, caravans, deliveries) most of the time.
+    const variant = wayfarersBeforeBuild(view, legal, rng);
+    if (variant && rng() < 0.7) return variant;
     const roll = rng();
     const hand = myHand(view);
     const handSize = RESOURCES.reduce((n, r) => n + hand[r], 0);

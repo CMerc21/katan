@@ -5,7 +5,7 @@
  * the screen advances in step with the animation rather than snapping.
  */
 
-import { COSTS, RESOURCES, describeEvent, eventPlayer, isHiddenCount, type DevCard, type GameEvent, type GameEventKind, type Hand, type Resource } from "@katan/engine";
+import { COSTS, RESOURCES, WAGON_GOODS, describeEvent, eventPlayer, isHiddenCount, type DevCard, type GameEvent, type GameEventKind, type Hand, type RedactedWayfarers, type Resource, type WagonGood } from "@katan/engine";
 import type { RedactedState } from "@/driver/types";
 import type { AnimationSpeed } from "./settings";
 
@@ -214,6 +214,237 @@ function withDev(cards: P["devCards"], fn: (list: DevCard[]) => DevCard[], count
   return isHiddenCount(cards) ? { count: Math.max(0, cards.count + countDelta) } : fn(cards);
 }
 
+
+// --- Wayfarers (docs/phase10.md): keep the variant state in step with its events -----------------
+
+/** The event deck's size (docs/rules.md §15.1); the rendered count resets to it on a reshuffle. */
+export const EVENT_DECK_SIZE = 36;
+/** A guard and a rebuild both cost one ore and one wool (docs/rules.md §15.5). */
+export const GUARD_COST: Hand = { wood: 0, clay: 0, wool: 1, grain: 0, ore: 1 };
+
+type W = NonNullable<RedactedWayfarers>;
+
+/**
+ * Fish buy a free road, card or city (docs/rules.md §15.2) whose `built` /
+ * `devCardBought` event looks like a paid one: the rendered view carries a
+ * one-event marker so the next event charges nothing (and a free bridge skips
+ * its surcharge). The marker never survives the event after it.
+ */
+type FreeBuild = "road" | "bridge" | "devCard" | "city";
+type Rendered = RedactedState & { readonly freeBuild?: FreeBuild };
+
+function withWayfarers(view: RedactedState, fn: (w: W) => W): RedactedState {
+  if (!view.wayfarers) throw new Error("event needs a Wayfarers variant that is not on");
+  return { ...view, wayfarers: fn(view.wayfarers) };
+}
+
+function withVP(view: RedactedState, id: string | null, delta: number): RedactedState {
+  return id === null ? view : withPlayer(view, id, (p) => ({ ...p, publicVP: p.publicVP + delta }));
+}
+
+/** Pay `cost` from a player's hand into the bank in the rendered view. */
+function pay(view: RedactedState, id: string, cost: Hand): RedactedState {
+  const next = withPlayer(view, id, (p) => ({ ...p, hand: adjustHandBy(p.hand, cost, -1) }));
+  return { ...next, bank: adjustBank(next.bank, cost, 1) };
+}
+
+function bump(record: Record<string, number>, id: string, delta: number): Record<string, number> {
+  return { ...record, [id]: (record[id] ?? 0) + delta };
+}
+
+/** Bridge Builder's count: the holder's roads on river edges (docs/rules.md §15.3). */
+function riverRoads(view: RedactedState, id: string | null): number {
+  if (id === null) return 0;
+  const p = view.players.find((x) => x.id === id);
+  return p ? p.roads.filter((e) => view.board.rivers.includes(e)).length : 0;
+}
+
+/** Harbormaster's points: 1 per settlement and 2 per city on a harbour vertex (docs/rules.md §15.4). */
+function harborPoints(view: RedactedState, id: string | null): number {
+  if (id === null) return 0;
+  const p = view.players.find((x) => x.id === id);
+  if (!p) return 0;
+  const harbour = new Set(view.board.ports.flatMap((port) => [...port.vertices]));
+  return p.settlements.filter((v) => harbour.has(v)).length + 2 * p.cities.filter((v) => harbour.has(v)).length;
+}
+
+/** Recount the chips whose holder just built something (their counts are not in the events). */
+function recountChips(view: RedactedState, id: string): RedactedState {
+  const w = view.wayfarers;
+  if (!w) return view;
+  let out = w;
+  if (out.rivers && out.rivers.bridgeBuilder.playerId === id) out = { ...out, rivers: { ...out.rivers, bridgeBuilder: { playerId: id, count: riverRoads(view, id) } } };
+  if (out.harbormaster && out.harbormaster.playerId === id) out = { ...out, harbormaster: { playerId: id, points: harborPoints(view, id) } };
+  if (out.wagons) {
+    const p = view.players.find((x) => x.id === id);
+    const stock = { ...out.wagons.stock };
+    for (const v of p?.cities ?? []) stock[v] ??= [];
+    // docs/rules.md §15.7: the wagon appears on the second setup settlement (no event of its own).
+    const start = p && !out.wagons.wagons[id] && p.settlements.length === 2 ? p.settlements[1] : undefined;
+    const wagons = start ? { ...out.wagons.wagons, [id]: { at: start, cargo: [], cargoFrom: [], stepsUsed: 0 } } : out.wagons.wagons;
+    out = { ...out, wagons: { ...out.wagons, stock, wagons } };
+  }
+  return out === w ? view : { ...view, wayfarers: out };
+}
+
+function nextGood(good: WagonGood): WagonGood {
+  return WAGON_GOODS[(WAGON_GOODS.indexOf(good) + 1) % WAGON_GOODS.length] as WagonGood;
+}
+
+function applyWayfarersEvent(view: RedactedState, event: GameEvent, free: FreeBuild | undefined): RedactedState {
+  let next = view;
+  switch (event.kind) {
+    case "deckReshuffled":
+      return withWayfarers(next, (w) => ({ ...w, eventDeck: w.eventDeck ? { count: EVENT_DECK_SIZE, shuffles: w.eventDeck.shuffles + 1 } : null }));
+    case "neighborlyGave": {
+      if (!event.gave) return next;
+      const r = asResource(event.resource);
+      next = withPlayer(next, event.from, (p) => ({ ...p, hand: adjustHand(p.hand, r, -1) }));
+      return withPlayer(next, event.to, (p) => ({ ...p, hand: adjustHand(p.hand, r, 1) }));
+    }
+    case "taxCollected":
+      return next; // the card itself arrives as a `discarded` event
+    case "fishDrawn":
+      next = withWayfarers(next, (w) => {
+        if (!w.fishing) throw new Error("fish without the Fishing variant");
+        const bag = w.fishing.bag.length > 0 ? w.fishing.bag.slice(1) : w.fishing.bag;
+        return event.boot
+          ? { ...w, fishing: { ...w.fishing, bag, boot: event.playerId } }
+          : { ...w, fishing: { ...w.fishing, bag, fish: bump(w.fishing.fish, event.playerId, event.fish) } };
+      });
+      return event.boot ? withVP(next, event.playerId, -1) : next;
+    case "fishSpent": {
+      next = withWayfarers(next, (w) => {
+        if (!w.fishing) throw new Error("fish without the Fishing variant");
+        return { ...w, fishing: { ...w.fishing, fish: bump(w.fishing.fish, event.playerId, -event.fish), spent: w.fishing.spent + event.fish } };
+      });
+      // The free road, card or city arrives as the next `built` / `devCardBought` event: mark it as paid for.
+      if (event.option === "freeRoad") return { ...next, freeBuild: "road" } as Rendered;
+      if (event.option === "freeDevCard") return { ...next, freeBuild: next.devDeck.count > 0 ? "devCard" : "city" } as Rendered;
+      return next;
+    }
+    case "bootPassed":
+      next = withWayfarers(next, (w) => (w.fishing ? { ...w, fishing: { ...w.fishing, boot: event.to } } : w));
+      return withVP(withVP(next, event.from, 1), event.to, -1);
+    case "bridgeBuilt":
+      // The surcharge is paid in the action and special build phases only, like the road itself (never for a fish road).
+      return costOf(next, "road") && free !== "bridge" ? pay(next, event.playerId, { wood: 0, clay: 1, wool: 0, grain: 0, ore: 0 }) : next;
+    case "coinsAwarded":
+      return withWayfarers(next, (w) => (w.rivers ? { ...w, rivers: { ...w.rivers, coins: { ...w.rivers.coins, [event.playerId]: event.total } } } : w));
+    case "chipMoved": {
+      const vp = event.chip === "bridgeBuilder" ? 1 : event.chip === "poorSettler" ? -2 : 2;
+      next = withVP(withVP(next, event.from, -vp), event.to, vp);
+      return withWayfarers(next, (w) => {
+        switch (event.chip) {
+          case "bridgeBuilder":
+            return w.rivers ? { ...w, rivers: { ...w.rivers, bridgeBuilder: { playerId: event.to, count: riverRoads(next, event.to) } } } : w;
+          case "poorSettler":
+            return w.rivers ? { ...w, rivers: { ...w.rivers, poorSettler: event.to } } : w;
+          case "harbormaster":
+            return w.harbormaster ? { ...w, harbormaster: { playerId: event.to, points: harborPoints(next, event.to) } } : w;
+          default:
+            return w;
+        }
+      });
+    }
+    case "castleBuilt":
+      next = withWayfarers(next, (w) => (w.raiders ? { ...w, raiders: { ...w.raiders, castles: { ...w.raiders.castles, [event.playerId]: event.vertex } } } : w));
+      return withVP(next, event.playerId, 1);
+    case "raidersAdvanced":
+      return withWayfarers(next, (w) => (w.raiders ? { ...w, raiders: { ...w.raiders, counter: event.counter } } : w));
+    case "guardPlaced":
+      next = pay(next, event.playerId, GUARD_COST);
+      return withWayfarers(next, (w) => (w.raiders ? { ...w, raiders: { ...w.raiders, guards: { ...w.raiders.guards, [event.playerId]: [...(w.raiders.guards[event.playerId] ?? []), event.hex] } } } : w));
+    case "raid":
+      return withWayfarers(next, (w) => {
+        if (!w.raiders) return w;
+        const guards = { ...w.raiders.guards };
+        for (const lost of event.guardsLost) {
+          const list = [...(guards[lost.playerId] ?? [])];
+          const i = list.indexOf(lost.hex);
+          if (i >= 0) list.splice(i, 1);
+          guards[lost.playerId] = list;
+        }
+        const raided = [...w.raiders.raided];
+        for (const h of event.raided) if (!raided.includes(h)) raided.push(h);
+        return { ...w, raiders: { ...w.raiders, guards, raided, counter: 0, landings: w.raiders.landings + 1 } };
+      });
+    case "hexRebuilt":
+      next = pay(next, event.playerId, GUARD_COST);
+      next = withWayfarers(next, (w) => (w.raiders ? { ...w, raiders: { ...w.raiders, raided: w.raiders.raided.filter((h) => h !== event.hex), rebuilt: bump(w.raiders.rebuilt, event.playerId, 1) } } : w));
+      return withVP(next, event.playerId, 1);
+    case "spiceProduced":
+      return withWayfarers(next, (w) => {
+        if (!w.caravans) return w;
+        let spice = w.caravans.spice;
+        let bank = w.caravans.spiceBank;
+        for (const g of event.gains) {
+          spice = bump(spice, g.playerId, g.count);
+          bank -= g.count;
+        }
+        return { ...w, caravans: { ...w.caravans, spice, spiceBank: Math.max(0, bank) } };
+      });
+    case "caravanExtended":
+      return withWayfarers(next, (w) => {
+        if (!w.caravans) return w;
+        const tracks = w.caravans.tracks.map((t, i) => (i === event.caravan ? { ...t, edges: [...t.edges, event.edge] } : t));
+        return { ...w, caravans: { ...w.caravans, tracks, spice: bump(w.caravans.spice, event.playerId, -1), spiceBank: w.caravans.spiceBank + 1 } };
+      });
+    case "wagonMoved": {
+      const grain: Hand = { wood: 0, clay: 0, wool: 0, grain: event.grain, ore: 0 };
+      if (event.grain > 0) next = pay(next, event.playerId, grain);
+      if (event.toll !== null) {
+        // The toll's resource is not in the event: hidden counts move, a known hand waits for the snap.
+        next = withPlayer(next, event.playerId, (p) => ({ ...p, hand: adjustHand(p.hand, null, -1) }));
+        next = withPlayer(next, event.toll, (p) => ({ ...p, hand: adjustHand(p.hand, null, 1) }));
+      }
+      return withWayfarers(next, (w) => {
+        if (!w.wagons) throw new Error("no wagon to move");
+        const wagon = w.wagons.wagons[event.playerId] ?? { at: event.path[0] as string, cargo: [], cargoFrom: [], stepsUsed: 0 };
+        const at = event.path[event.path.length - 1] as string;
+        return { ...w, wagons: { ...w.wagons, wagons: { ...w.wagons.wagons, [event.playerId]: { ...wagon, at, stepsUsed: wagon.stepsUsed + event.path.length - 1 } } } };
+      });
+    }
+    case "goodLoaded":
+      return withWayfarers(next, (w) => {
+        const wagon = w.wagons?.wagons[event.playerId];
+        if (!w.wagons || !wagon) throw new Error("no wagon to load");
+        const shelf = [...(w.wagons.stock[event.vertex] ?? [])];
+        const i = shelf.indexOf(event.good);
+        if (i >= 0) shelf.splice(i, 1);
+        return {
+          ...w,
+          wagons: {
+            ...w.wagons,
+            stock: { ...w.wagons.stock, [event.vertex]: shelf },
+            wagons: { ...w.wagons.wagons, [event.playerId]: { ...wagon, cargo: [...wagon.cargo, event.good], cargoFrom: [...wagon.cargoFrom, event.vertex] } },
+          },
+        };
+      });
+    case "delivered":
+      next = withWayfarers(next, (w) => {
+        const wagon = w.wagons?.wagons[event.playerId];
+        if (!w.wagons || !wagon) throw new Error("no wagon to deliver from");
+        const i = wagon.cargo.findIndex((g, k) => g === event.good && wagon.cargoFrom[k] !== event.vertex);
+        const cargo = wagon.cargo.filter((_, k) => k !== i);
+        const cargoFrom = wagon.cargoFrom.filter((_, k) => k !== i);
+        const held = w.wagons.demand[event.vertex];
+        const demand = held ? { ...w.wagons.demand, [event.vertex]: nextGood(held) } : w.wagons.demand;
+        return { ...w, wagons: { ...w.wagons, demand, points: bump(w.wagons.points, event.playerId, event.points), wagons: { ...w.wagons.wagons, [event.playerId]: { ...wagon, cargo, cargoFrom } } } };
+      });
+      return withVP(next, event.playerId, event.points);
+    case "goodsStocked":
+      return withWayfarers(next, (w) => {
+        if (!w.wagons) return w;
+        const stock = { ...w.wagons.stock };
+        for (const s of event.stocked) stock[s.vertex] = [...(stock[s.vertex] ?? []), s.good];
+        return { ...w, wagons: { ...w.wagons, stock } };
+      });
+    default:
+      return next;
+  }
+}
+
 function appendLog(view: RedactedState, event: GameEvent): RedactedState {
   const text = describeEvent(event, (id) => view.players.find((p) => p.id === id)?.name ?? id);
   if (text === null) return view;
@@ -227,13 +458,22 @@ function appendLog(view: RedactedState, event: GameEvent): RedactedState {
  * to the server view" (docs/phase7.md §2.1).
  */
 export function applyEventToView(view: RedactedState, event: GameEvent): RedactedState {
-  let next: RedactedState = { ...view, eventSeq: event.seq + 1 };
+  const { freeBuild: free, ...rest } = view as Rendered;
+  let next: RedactedState = { ...rest, eventSeq: event.seq + 1 };
   switch (event.kind) {
     case "turnStarted":
-      next = { ...next, currentPlayer: playerIndex(next, event.playerId), turn: event.turn };
+      next = { ...next, currentPlayer: playerIndex(next, event.playerId), turn: event.turn, phase: { kind: "roll" } };
+      // Wagons (docs/rules.md §15.7): every wagon's free steps come back at the start of a turn.
+      if (next.wayfarers?.wagons) {
+        const wagons = Object.fromEntries(Object.entries(next.wayfarers.wagons.wagons).map(([id, w]) => [id, { ...w, stepsUsed: 0 }]));
+        next = { ...next, wayfarers: { ...next.wayfarers, wagons: { ...next.wayfarers.wagons, wagons } } };
+      }
       break;
     case "diceRolled":
-      next = { ...next, lastRoll: event.dice };
+      // The phase follows the events far enough for costs to be right (a seven's sub-phases never build).
+      next = { ...next, lastRoll: event.dice, phase: { kind: "action" } };
+      // The event deck (docs/rules.md §15.1) drew its top card.
+      if (event.card && next.wayfarers?.eventDeck) next = { ...next, wayfarers: { ...next.wayfarers, eventDeck: { ...next.wayfarers.eventDeck, count: Math.max(0, next.wayfarers.eventDeck.count - 1) } } };
       break;
     case "produced": {
       let bank = next.bank;
@@ -261,7 +501,7 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
       break;
     }
     case "built": {
-      const cost = costOf(next, event.piece);
+      const cost = (free === "road" && event.piece === "road") || (free === "city" && event.piece === "city") ? null : costOf(next, event.piece);
       next = withPlayer(next, event.playerId, (p) => {
         const hand = cost ? adjustHandBy(p.hand, cost, -1) : p.hand;
         switch (event.piece) {
@@ -291,16 +531,21 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
         }
       });
       if (cost) next = { ...next, bank: adjustBank(next.bank, cost, 1) };
+      if (next.phase.kind === "roadBuilding" && event.piece === "road") next = { ...next, phase: next.phase.remaining === 2 ? { kind: "roadBuilding", remaining: 1 } : { kind: "action" } };
+      next = recountChips(next, event.playerId);
+      if (free === "road" && event.piece === "road") next = { ...next, freeBuild: "bridge" } as Rendered;
       break;
     }
-    case "devCardBought":
+    case "devCardBought": {
+      const paid = free !== "devCard";
       next = withPlayer(next, event.playerId, (p) => ({
         ...p,
-        hand: adjustHandBy(p.hand, COSTS.devCard, -1),
+        hand: paid ? adjustHandBy(p.hand, COSTS.devCard, -1) : p.hand,
         devCards: withDev(p.devCards, (list) => (event.card ? [...list, { type: event.card, boughtOnTurn: next.turn }] : list), 1),
       }));
-      next = { ...next, bank: adjustBank(next.bank, COSTS.devCard, 1), devDeck: { count: Math.max(0, next.devDeck.count - 1) } };
+      next = { ...next, bank: paid ? adjustBank(next.bank, COSTS.devCard, 1) : next.bank, devDeck: { count: Math.max(0, next.devDeck.count - 1) } };
       break;
+    }
     case "devCardPlayed":
       next = withPlayer(next, event.playerId, (p) => {
         const devCards = withDev(
@@ -313,6 +558,7 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
         );
         return { ...p, devCards, devCardPlayedThisTurn: true, playedKnights: p.playedKnights + (event.card === "knight" ? 1 : 0) };
       });
+      if (event.card === "roadBuilding") next = { ...next, phase: { kind: "roadBuilding", remaining: 2 } };
       break;
     case "inventionTaken": {
       const want: Hand = { wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 };
@@ -398,13 +644,17 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
       next = withPlayer(next, event.playerId, (p) => ({ ...p, hand: adjustHandBy(p.hand, event.cards, 1) }));
       next = { ...next, bank: adjustBank(next.bank, event.cards, -1) };
       break;
-    case "turnEnded":
     case "specialBuildTurn":
+      next = { ...next, phase: { kind: "specialBuild", order: [event.playerId], index: 0 } };
+      break;
+    case "setupCompleted":
+      next = { ...next, phase: { kind: "roll" } };
+      break;
+    case "turnEnded":
     case "productionBlocked":
     case "bankShort":
-    case "setupCompleted":
     case "note":
-    // Module events (docs/phase10.md, docs/phase11.md): the rendered view snaps to the server view at the end of the batch.
+    // Wayfarers (docs/phase10.md): applied in `applyWayfarersEvent` so counters move with their events.
     case "deckReshuffled":
     case "neighborlyGave":
     case "taxCollected":
@@ -425,6 +675,9 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
     case "goodLoaded":
     case "delivered":
     case "goodsStocked":
+      next = applyWayfarersEvent(next, event, free);
+      break;
+    // Crown & Castle (docs/phase11.md): the rendered view snaps to the server view at the end of the batch.
     case "commoditiesProduced":
     case "progressDrawn":
     case "progressPlayed":
