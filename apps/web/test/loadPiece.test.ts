@@ -3,7 +3,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { PIECES, ZONE_BASE, ZONE_MIDDLE, ZONE_TOP, assemblePiece, disposePiece, parsePiece, pieceFit, pieceMaterial, zoneOf, type PieceName } from "@/board3d/loadPiece";
-import { HEX_RADIUS } from "@/board3d/layout3d";
+import { EDGE_LENGTH, HEX_RADIUS, edgeWorld } from "@/board3d/layout3d";
+import { GEOMETRY } from "@katan/engine";
 
 const glb = (name: PieceName): ArrayBuffer => {
   const buf = readFileSync(path.resolve(__dirname, "../public/models", `${name}.glb`));
@@ -11,6 +12,16 @@ const glb = (name: PieceName): ArrayBuffer => {
 };
 
 const NAMES: PieceName[] = ["robber", "settlement", "city", "road"];
+
+describe("edge length in the board code", () => {
+  it("EDGE_LENGTH is the hex circumradius and the distance between every edge's two vertices", () => {
+    expect(EDGE_LENGTH).toBe(HEX_RADIUS);
+    for (const e of GEOMETRY.edges) {
+      const { a, b } = edgeWorld(e);
+      expect(Math.hypot(b.x - a.x, b.z - a.z)).toBeCloseTo(EDGE_LENGTH, 9);
+    }
+  });
+});
 
 describe("GLB pieces (public/models)", () => {
   it.each(NAMES)("%s.glb parses, is non-indexed with unit flat normals, and is centred about the origin", async (name) => {
@@ -88,19 +99,21 @@ describe("GLB pieces (public/models)", () => {
     }
   });
 
-  it("the road is scaled so Z spans the hex edge, X and Y by the same factor, lifted by half its thickness", async () => {
+  it("the road is scaled per axis to 0.80 × 0.18 × 0.08 of the edge (Z length, X width, Y thickness), foot at y = 0", async () => {
     const g = await parsePiece("road", glb("road"));
     const { scale, lift } = pieceFit(PIECES.road, g);
     const box = g.boundingBox!;
-    expect(scale).toBeCloseTo(HEX_RADIUS / (box.max.z - box.min.z), 6);
+    expect(scale.z).toBeCloseTo((0.8 * EDGE_LENGTH) / (box.max.z - box.min.z), 6);
+    expect(scale.x).toBeCloseTo((0.18 * EDGE_LENGTH) / (box.max.x - box.min.x), 6);
+    expect(scale.y).toBeCloseTo((0.08 * EDGE_LENGTH) / (box.max.y - box.min.y), 6);
     expect(lift).toBeCloseTo((box.max.y - box.min.y) / 2, 2);
     const group = assemblePiece("road", g, { color: "#c03030" });
     group.updateMatrixWorld(true);
     const world = new THREE.Box3().setFromObject(group);
-    expect(world.max.z - world.min.z).toBeCloseTo(HEX_RADIUS, 5);
-    expect(world.max.x - world.min.x).toBeCloseTo(0.46 * scale, 1);
+    expect(world.max.z - world.min.z).toBeCloseTo(0.8 * EDGE_LENGTH, 5);
+    expect(world.max.x - world.min.x).toBeCloseTo(0.18 * EDGE_LENGTH, 5);
     expect(world.min.y).toBeCloseTo(0, 5);
-    expect(world.max.y).toBeCloseTo(0.1 * scale, 1);
+    expect(world.max.y).toBeCloseTo(0.08 * EDGE_LENGTH, 5);
     const mesh = group.children[0] as THREE.Mesh;
     expect(Array.isArray(mesh.material)).toBe(false);
     expect((mesh.material as THREE.MeshStandardMaterial).color.getHexString()).toBe("c03030");

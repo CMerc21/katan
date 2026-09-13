@@ -9,6 +9,8 @@ import { edgeVerticesOf, hexCenter, parseEdgeId, parseHexId, vertexPosition, typ
 import { LAND_HEIGHT, SEA_SLAB_HEIGHT, slabJitter } from "./slab";
 
 export const HEX_RADIUS = 1;
+/** A hex edge is as long as the circumradius: the distance between two adjacent vertices (pinned in test/board3d.test.ts). */
+export const EDGE_LENGTH = HEX_RADIUS;
 /** Land slabs are 0.22 R tall (docs/props.md §1); pieces and props stand on this plane. */
 export const SLAB_HEIGHT = LAND_HEIGHT;
 /** Sea slabs are 0.15 R; ships and the pirate float on this plane. */

@@ -5,9 +5,11 @@
  * prepared geometry by name (one download, one normal pass and one zone
  * split per piece for the whole session), and returns a fresh Group per
  * call: the mesh is raised so its foot sits at the group's origin, and the
- * group is scaled uniformly to `PIECES[name].fit` (the procedural piece's
- * height in the unscaled piece frame Pieces.tsx uses before `PIECE_SCALE`,
- * or, for roads, the hex edge length along the model's Z axis).
+ * group is scaled to `PIECES[name].fit`: uniformly to a height (the
+ * procedural piece's, in the unscaled piece frame Pieces.tsx uses before
+ * `PIECE_SCALE`), or per axis to explicit world dimensions (roads: length
+ * on the model's Z, width on X, thickness on Y, as fractions of the hex
+ * edge).
  *
  * Colour comes from the caller so one helper serves the robber and the
  * player-coloured pieces. A piece with `zones` is split by vertex Y in the
@@ -22,7 +24,7 @@
 import { useEffect, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { HEX_RADIUS } from "./layout3d";
+import { EDGE_LENGTH } from "./layout3d";
 
 export type PieceName = "robber" | "settlement" | "city" | "road";
 
@@ -38,8 +40,8 @@ export interface PieceConfig {
   zones: PieceZones | null;
   /** The whole model in the caller's colour (roads). */
   fullPlayerColor?: boolean;
-  /** Scale the model's height (Y extent) to this, or its length (Z extent) to this. */
-  fit: { height: number } | { length: number };
+  /** Scale uniformly so the Y extent is `height`, or per axis so Z, X and Y extents are `length`, `width`, `thickness`. */
+  fit: { height: number } | { length: number; width: number; thickness: number };
 }
 
 export const PIECES: Record<PieceName, PieceConfig> = {
@@ -49,8 +51,9 @@ export const PIECES: Record<PieceName, PieceConfig> = {
   settlement: { zones: { baseMaxY: -0.34, topMinY: -0.11 }, fit: { height: 0.18 } },
   // Base ring to the top of the keep's flag pole: 0.2 + 0.14.
   city: { zones: { baseMaxY: -0.41, topMinY: 0.27 }, fit: { height: 0.34 } },
-  // 1.0 long on local Z, 0.46 wide, 0.10 thick, centred; Z becomes the hex edge (world units, no PIECE_SCALE).
-  road: { zones: null, fullPlayerColor: true, fit: { length: HEX_RADIUS } },
+  // 1.0 long on local Z, 0.46 wide, 0.10 thick, centred. World units, no PIECE_SCALE: the length stops
+  // short of the vertices where settlements sit.
+  road: { zones: null, fullPlayerColor: true, fit: { length: 0.8 * EDGE_LENGTH, width: 0.18 * EDGE_LENGTH, thickness: 0.08 * EDGE_LENGTH } },
 };
 
 /** Material slot order for a zoned piece. */
@@ -194,12 +197,28 @@ export function pieceMaterials(config: PieceConfig, options: PieceMaterialOption
   return [player, middle, player.clone()];
 }
 
-/** Uniform scale that fits the geometry's extent to the config, and the lift that puts its foot at y = 0. */
-export function pieceFit(config: PieceConfig, geometry: THREE.BufferGeometry): { scale: number; lift: number } {
+/** Per-axis scale that fits the geometry's extents to the config, and the raw-space lift that puts its foot at y = 0. */
+export function pieceFit(config: PieceConfig, geometry: THREE.BufferGeometry): { scale: THREE.Vector3; lift: number } {
   const box = geometry.boundingBox ?? (geometry.computeBoundingBox(), geometry.boundingBox!);
-  const extent = "height" in config.fit ? box.max.y - box.min.y : box.max.z - box.min.z;
-  const target = "height" in config.fit ? config.fit.height : config.fit.length;
-  return { scale: target / extent, lift: -box.min.y };
+  const size = box.getSize(new THREE.Vector3());
+  const lift = -box.min.y;
+  if ("height" in config.fit) {
+    const s = config.fit.height / size.y;
+    return { scale: new THREE.Vector3(s, s, s), lift };
+  }
+  return { scale: new THREE.Vector3(config.fit.width / size.x, config.fit.thickness / size.y, config.fit.length / size.z), lift };
+}
+
+const logged = new Set<PieceName>();
+
+/** Report a piece's fitted world size once per session (before `PIECE_SCALE`, where the caller applies it). */
+function logFit(name: PieceName, group: THREE.Group): void {
+  if (logged.has(name)) return;
+  logged.add(name);
+  group.updateMatrixWorld(true);
+  const size = new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3());
+  const fmt = (n: number) => n.toFixed(3);
+  console.info(`[board3d] ${name}.glb world size: x ${fmt(size.x)} × y ${fmt(size.y)} × z ${fmt(size.z)}`);
 }
 
 /** Wrap a prepared geometry: mesh lifted so the foot is at the origin, group scaled to the piece's fit. */
@@ -213,8 +232,9 @@ export function assemblePiece(name: PieceName, geometry: THREE.BufferGeometry, o
   mesh.name = `${name}-mesh`;
   const group = new THREE.Group();
   group.name = `${name}-glb`;
-  group.scale.setScalar(scale);
+  group.scale.copy(scale);
   group.add(mesh);
+  logFit(name, group);
   return group;
 }
 

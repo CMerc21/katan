@@ -246,7 +246,7 @@ export function RoadFigure({ edge, color, fresh = false, seq = null, ghost = fal
   const model = usePiece("road", { color: colorOf(color), ghost, castShadow: shadows && !ghost, receiveShadow: shadows });
   return (
     <group ref={group} position={[mid.x, SLAB_HEIGHT, mid.z]} rotation={[0, -angle, 0]} name={`road:${edge}`}>
-      {/* The GLB is long on its local Z; a quarter turn lays Z along the group's X, which the outer rotation aims down the edge. */}
+      {/* The GLB is long on its local Z (0.8 of the edge, so it stops short of the settlements at either vertex); a quarter turn lays Z along the group's X, which the outer rotation aims down the edge. */}
       {model ? <group rotation={[0, Math.PI / 2, 0]}><primitive object={model} /></group> : <ProceduralRoad color={color} ghost={ghost} shadows={shadows} />}
       <mesh ref={dust} visible={false} position={[0, 0.005, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[0.6, 0.8, 24]} />
