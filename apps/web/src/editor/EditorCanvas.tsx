@@ -19,11 +19,12 @@ import { Projector, projectWorld, type CameraSnapshot } from "@/board3d/Effects3
 import { INTERACTION_LAYER } from "@/board3d/Interaction";
 import { Harbor } from "@/board3d/Harbor";
 import { SLAB_HEIGHT, boardBounds, edgeWorld, hexWorld, outwardWorld, type World } from "@/board3d/layout3d";
-import { Props } from "@/board3d/Props";
+import { Props, type PropHex } from "@/board3d/Props";
+import { RECESS_DEPTH } from "@/board3d/slab";
 import { Tiles, type TileInfo } from "@/board3d/Tiles";
 import { tokenTexture, woodTexture } from "@/board3d/textures";
 import { QUALITY_PRESETS } from "@/board3d/quality";
-import { GILT, WATER, WATER_DEEP, WAX } from "@/game/theme";
+import { GILT, WATER, WAX } from "@/game/theme";
 import { fishingGroundsOf, gridCells, harborEdges, harborKindOf, isOasis, landEdges, riverEdgesOf, type Tool } from "./model";
 
 const RIVER_LIGHT = "#8cc3d4";
@@ -113,15 +114,11 @@ function OasisMarker({ id }: { id: string }) {
   );
 }
 
-/** Lakes are water on land: two ripple rings over the slab so they read as a pond, not a grey tile. */
+/** Lakes are water on land: the slab's recess holds the water (docs/props.md §3); two ripple rings sit on it. */
 function LakeRipple({ id }: { id: string }) {
   const c = hexWorld(id);
   return (
-    <group position={[c.x, SLAB_HEIGHT + 0.012, c.z]} name={`lake:${id}`}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.62, 24]} />
-        <meshStandardMaterial color={WATER_DEEP} roughness={0.2} transparent opacity={0.9} />
-      </mesh>
+    <group position={[c.x, SLAB_HEIGHT - RECESS_DEPTH + 0.006, c.z]} name={`lake:${id}`}>
       {[0.3, 0.5].map((r) => (
         <mesh key={r} position={[0.05, 0.004, -0.04]} rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[r, r + 0.025, 28]} />
@@ -180,7 +177,7 @@ export function EditorCanvas(props: CanvasProps) {
       })),
     [def],
   );
-  const landHexes = useMemo(() => def.hexes.filter((h) => h.kind === "land" && h.terrain).map((h) => ({ id: hexId(h.at), terrain: h.terrain as Terrain })), [def]);
+  const propHexes = useMemo<PropHex[]>(() => def.hexes.filter((h) => (h.kind === "land" && h.terrain) || h.kind === "sea").map((h) => ({ id: hexId(h.at), terrain: h.kind === "sea" ? "sea" : (h.terrain as Terrain) })), [def]);
   const landSet = useMemo(() => new Set(def.hexes.filter((h) => h.kind === "land").map((h) => hexId(h.at))), [def]);
   const bounds = useMemo(() => boardBounds(cells.map(hexId)), [cells]);
   const centre = useMemo<World>(() => ({ x: bounds.cx, z: bounds.cz }), [bounds]);
@@ -235,7 +232,7 @@ export function EditorCanvas(props: CanvasProps) {
         <directionalLight position={[bounds.cx - light * 0.9, light * 1.1, bounds.cz - light * 0.6]} intensity={2} color="#fff1d6" castShadow={preset.shadows} shadow-mapSize={[2048, 2048]} shadow-camera-left={-light} shadow-camera-right={light} shadow-camera-top={light} shadow-camera-bottom={-light} shadow-camera-far={light * 4} />
         <Table bounds={bounds} onTap={() => onSelect(null)} />
         <Tiles tiles={tiles} robberHex="" rolled={null} rollKey={null} blockedHex={null} shadows={preset.shadows} />
-        <Props hexes={landHexes} density={preset.propDensity * 0.6} idle={false} shadows={preset.shadows} />
+        <Props hexes={propHexes} density={preset.propDensity * 0.6} idle={false} shadows={preset.shadows} />
         {ports.map((p) => (
           <Harbor key={p.edge} port={p} centre={centre} owned={false} shadows={preset.shadows} land={landSet} />
         ))}

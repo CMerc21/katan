@@ -18,6 +18,7 @@ import type { RedactedState } from "@/driver/types";
 import { GILT, GOOD_COLOR, PLAYER_FILL, WATER, WATER_DEEP } from "@/game/theme";
 import { easeInOut } from "./geo";
 import { SLAB_HEIGHT, edgeWorld, hexWorld, outwardWorld, vertexWorld, type World } from "./layout3d";
+import { RECESS_DEPTH } from "./slab";
 import { tokenTexture } from "./textures";
 
 const PIECE_SCALE = 1.5;
@@ -140,6 +141,7 @@ function RaidedOverlay({ hex }: { hex: HexId }) {
 // ---------------------------------------------------------------------------
 // Fishing: the lake and the fishing grounds
 
+/** The lake's water is the slab's recess (docs/props.md §3); this adds two spreading ripple rings on it. */
 function LakeWater({ hex, idle }: { hex: HexId; idle: boolean }) {
   const c = hexWorld(hex);
   const rings = useRef<THREE.Mesh[]>([]);
@@ -154,33 +156,18 @@ function LakeWater({ hex, idle }: { hex: HexId; idle: boolean }) {
     });
   });
   return (
-    <group position={[c.x, SLAB_HEIGHT, c.z]} name={`lake:${hex}`}>
-      <mesh position={[0, 0.006, 0]} rotation={[-Math.PI / 2, Math.PI / 6, 0]}>
-        <circleGeometry args={[0.86, 6]} />
-        <meshStandardMaterial color={WATER} roughness={0.25} transparent opacity={0.9} />
-      </mesh>
+    <group position={[c.x, SLAB_HEIGHT - RECESS_DEPTH, c.z]} name={`lake:${hex}`}>
       {[0, 1].map((i) => (
         <mesh
           key={i}
           ref={(el) => {
             if (el) rings.current.push(el);
           }}
-          position={[0.1 * i, 0.012, -0.15 * i]}
+          position={[0.1 * i, 0.006, -0.15 * i]}
           rotation={[-Math.PI / 2, 0, 0]}
         >
-          <ringGeometry args={[0.5, 0.54, 32]} />
+          <ringGeometry args={[0.4, 0.43, 32]} />
           <meshBasicMaterial color="#dff2f7" transparent opacity={0.25} depthWrite={false} />
-        </mesh>
-      ))}
-      {[
-        [-0.62, 0.35],
-        [-0.55, 0.45],
-        [0.6, -0.4],
-        [0.66, -0.3],
-      ].map(([dx, dz], i) => (
-        <mesh key={i} position={[dx as number, 0.1, dz as number]} rotation={[0.1, 0, i % 2 ? 0.15 : -0.1]}>
-          <cylinderGeometry args={[0.008, 0.012, 0.2, 4]} />
-          <meshStandardMaterial color={PALM_DARK} flatShading />
         </mesh>
       ))}
     </group>

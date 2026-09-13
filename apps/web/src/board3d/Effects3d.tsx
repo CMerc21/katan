@@ -1,55 +1,61 @@
 "use client";
 
 /**
- * Event animations in the scene (docs/phase7-5.md §6): scripted dice
- * tumbling into a tray at the near edge, the robber hopping in a parabola
- * with squash-and-stretch, and the projector that turns world points into
- * screen coordinates for the DOM flights and target buttons.
+ * Event animations in the scene (docs/phase7-5.md §5, docs/props.md §5):
+ * rounded bone dice with indented pips tumbling into a soft leather tray at
+ * the near edge (the red number die and the event die with its solid faces
+ * under Crown & Castle), the robber hopping in a parabola with
+ * squash-and-stretch, and the projector that turns world points into screen
+ * coordinates for the DOM flights and target buttons.
  */
 
 import { useFrame, useThree } from "@react-three/fiber";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import type { EventDie, HexId } from "@katan/engine";
-import { LEATHER } from "@/game/theme";
 import { easeInOut, easeOutCubic } from "./geo";
-import { SLAB_HEIGHT, hexWorld, type Bounds, type World } from "./layout3d";
+import { SEA_HEIGHT, SLAB_HEIGHT, hexWorld, type Bounds, type World } from "./layout3d";
+import * as P from "./palette";
 import { PirateFigure, RobberFigure, pirateOffset, robberOffset } from "./Pieces";
-import { dieFaceTexture, eventDieFaceTexture } from "./textures";
+import { fleetFaceTexture } from "./textures";
 
 // ---------------------------------------------------------------------------
 // Robber
 
-export function AnimatedRobber({ hex, shadows }: { hex: HexId; shadows: boolean }) {
+/** The robber hops between hexes; `centred` stands it in the recess (the desert has no token). */
+export function AnimatedRobber({ hex, shadows, centred = false }: { hex: HexId; shadows: boolean; centred?: boolean }) {
   const group = useRef<THREE.Group>(null);
-  const from = useRef<World | null>(null);
+  const from = useRef<(World & { y: number }) | null>(null);
   const to = useRef<HexId>(hex);
+  const toCentred = useRef(centred);
   const start = useRef(0);
-  const o = robberOffset();
-  const dest = (h: HexId): World => {
-    const c = hexWorld(h);
-    return { x: c.x + o.dx, z: c.z + o.dz };
+  const dest = (h: HexId, c: boolean): World & { y: number } => {
+    const at = hexWorld(h);
+    const o = robberOffset(c);
+    return { x: at.x + o.dx, z: at.z + o.dz, y: SLAB_HEIGHT + o.dy };
   };
   useEffect(() => {
     if (to.current !== hex) {
-      from.current = dest(to.current);
+      from.current = dest(to.current, toCentred.current);
       to.current = hex;
+      toCentred.current = centred;
       start.current = performance.now();
-    }
-  }, [hex]);
+    } else toCentred.current = centred;
+  }, [hex, centred]);
   useFrame(() => {
     const g = group.current;
     if (!g) return;
-    const end = dest(to.current);
+    const end = dest(to.current, toCentred.current);
     const f = from.current;
     if (!f) {
-      g.position.set(end.x, SLAB_HEIGHT, end.z);
+      g.position.set(end.x, end.y, end.z);
       return;
     }
     const t = Math.min(1, (performance.now() - start.current) / 450);
     const k = easeInOut(t);
     const arc = Math.sin(t * Math.PI) * 0.6;
-    g.position.set(f.x + (end.x - f.x) * k, SLAB_HEIGHT + arc, f.z + (end.z - f.z) * k);
+    g.position.set(f.x + (end.x - f.x) * k, f.y + (end.y - f.y) * k + arc, f.z + (end.z - f.z) * k);
     // Squash on take-off and landing, stretch mid-air.
     const stretch = 1 + Math.sin(t * Math.PI) * 0.25;
     g.scale.set(1 / Math.sqrt(stretch), stretch, 1 / Math.sqrt(stretch));
@@ -83,20 +89,20 @@ export function AnimatedPirate({ hex, shadows }: { hex: HexId; shadows: boolean 
       start.current = performance.now();
     }
   }, [hex]);
-  useFrame(() => {
+  useFrame(({ clock }) => {
     const g = group.current;
     if (!g) return;
     const end = dest(to.current);
     const f = from.current;
+    const bob = Math.sin(clock.getElapsedTime() * 1.4 + end.x) * 0.008;
     if (!f) {
-      g.position.set(end.x, SLAB_HEIGHT, end.z);
+      g.position.set(end.x, SEA_HEIGHT + bob, end.z);
       return;
     }
     const t = Math.min(1, (performance.now() - start.current) / 450);
     const k = easeInOut(t);
     const arc = Math.sin(t * Math.PI) * 0.25;
-    g.position.set(f.x + (end.x - f.x) * k, SLAB_HEIGHT + arc, f.z + (end.z - f.z) * k);
-    // Squash on take-off and landing, stretch mid-air.
+    g.position.set(f.x + (end.x - f.x) * k, SEA_HEIGHT + arc, f.z + (end.z - f.z) * k);
     const stretch = 1 + Math.sin(t * Math.PI) * 0.25;
     g.scale.set(1 / Math.sqrt(stretch), stretch, 1 / Math.sqrt(stretch));
     if (t >= 1) {
@@ -181,12 +187,121 @@ export function eventDieFace(event: EventDie): number {
   }
 }
 
-function Die({ index, value, rollKey, rest, kind = "number", red = false }: { index: number; value: number; rollKey: number | null; rest: THREE.Vector3; kind?: "number" | "event"; red?: boolean }) {
-  const mesh = useRef<THREE.Mesh>(null);
-  const materials = useMemo(
-    () => [3, 4, 1, 6, 2, 5].map((n) => new THREE.MeshStandardMaterial({ map: kind === "event" ? eventDieFaceTexture(n) : dieFaceTexture(n, red), roughness: 0.6 })),
-    [kind, red],
+/** Dice are 0.18 R at the pieces' 1.5× scale. */
+export const DIE_SIZE = 0.27;
+/** Face order of a box geometry's material groups. */
+const FACE_ORDER = [3, 4, 1, 6, 2, 5] as const;
+
+/** Pip spots on a face in [-1, 1]² for each value. */
+export function pipSpots(n: number): [number, number][] {
+  switch (n) {
+    case 1:
+      return [[0, 0]];
+    case 2:
+      return [
+        [-1, -1],
+        [1, 1],
+      ];
+    case 3:
+      return [
+        [-1, -1],
+        [0, 0],
+        [1, 1],
+      ];
+    case 4:
+      return [
+        [-1, -1],
+        [1, -1],
+        [-1, 1],
+        [1, 1],
+      ];
+    case 5:
+      return [
+        [-1, -1],
+        [1, -1],
+        [0, 0],
+        [-1, 1],
+        [1, 1],
+      ];
+    default:
+      return [
+        [-1, -1],
+        [1, -1],
+        [-1, 0],
+        [1, 0],
+        [-1, 1],
+        [1, 1],
+      ];
+  }
+}
+
+/** Every pip of a die as a position on its faces (21 in total), sunk `sink` into the face. */
+export function diePips(size: number, sink: number): THREE.Vector3[] {
+  const half = size / 2 - sink;
+  const spread = size * 0.27;
+  const out: THREE.Vector3[] = [];
+  FACE_ORDER.forEach((n, face) => {
+    for (const [u, v] of pipSpots(n)) {
+      const a = u * spread;
+      const b = v * spread;
+      switch (face) {
+        case 0:
+          out.push(new THREE.Vector3(half, a, b));
+          break;
+        case 1:
+          out.push(new THREE.Vector3(-half, a, b));
+          break;
+        case 2:
+          out.push(new THREE.Vector3(a, half, b));
+          break;
+        case 3:
+          out.push(new THREE.Vector3(a, -half, b));
+          break;
+        case 4:
+          out.push(new THREE.Vector3(a, b, half));
+          break;
+        default:
+          out.push(new THREE.Vector3(a, b, -half));
+          break;
+      }
+    }
+  });
+  return out;
+}
+
+function Pips({ color }: { color: string }) {
+  const ref = useRef<THREE.InstancedMesh>(null);
+  const spots = useMemo(() => diePips(DIE_SIZE, 0.014), []);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  useLayoutEffect(() => {
+    const m = ref.current;
+    if (!m) return;
+    spots.forEach((p, i) => {
+      dummy.position.copy(p);
+      dummy.updateMatrix();
+      m.setMatrixAt(i, dummy.matrix);
+    });
+    m.instanceMatrix.needsUpdate = true;
+  }, [spots, dummy]);
+  return (
+    <instancedMesh ref={ref} args={[undefined, undefined, spots.length]}>
+      <sphereGeometry args={[0.03, 8, 6]} />
+      <meshStandardMaterial color={color} roughness={0.5} />
+    </instancedMesh>
   );
+}
+
+function Die({ index, value, rollKey, rest, kind = "number", red = false, shadows }: { index: number; value: number; rollKey: number | null; rest: THREE.Vector3; kind?: "number" | "event"; red?: boolean; shadows: boolean }) {
+  const mesh = useRef<THREE.Mesh>(null);
+  const geometry = useMemo(() => new RoundedBoxGeometry(DIE_SIZE, DIE_SIZE, DIE_SIZE, 3, DIE_SIZE * 0.18), []);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  const materials = useMemo(() => {
+    if (kind === "event") {
+      const fleet = fleetFaceTexture();
+      return FACE_ORDER.map((n) => (n <= 3 ? new THREE.MeshStandardMaterial({ map: fleet, roughness: 0.6 }) : new THREE.MeshStandardMaterial({ color: n === 4 ? P.EVENT_TRADE : n === 5 ? P.EVENT_POLITICS : P.EVENT_SCIENCE, roughness: 0.6 })));
+    }
+    return new THREE.MeshStandardMaterial({ color: red ? P.DIE_RED : P.DIE_BONE, roughness: 0.6 });
+  }, [kind, red]);
   const lastKey = useRef<number | null>(null);
   const start = useRef(0);
   const finalQ = useMemo(() => faceUpQuaternion(value, ((rollKey ?? 0) * 0.7 + index * 1.3) % (Math.PI * 2)), [value, rollKey, index]);
@@ -203,12 +318,48 @@ function Die({ index, value, rollKey, rest, kind = "number", red = false }: { in
     const k = easeOutCubic(t);
     const spin = new THREE.Quaternion().setFromAxisAngle(spinAxis, (1 - k) * (1 - k) * Math.PI * 5);
     m.quaternion.copy(spin.multiply(finalQ));
-    m.position.set(rest.x - (1 - k) * 0.9 * (index === 0 ? 1 : -0.6), rest.y + Math.sin(k * Math.PI) * 0.7 * (1 - k) + 0.16, rest.z - (1 - k) * 1.2);
+    m.position.set(rest.x - (1 - k) * 0.9 * (index === 0 ? 1 : -0.6), rest.y + Math.sin(k * Math.PI) * 0.7 * (1 - k) + DIE_SIZE / 2, rest.z - (1 - k) * 1.2);
   });
   return (
-    <mesh ref={mesh} material={materials} position={[rest.x, rest.y + 0.16, rest.z]} castShadow>
-      <boxGeometry args={[0.32, 0.32, 0.32]} />
+    <mesh ref={mesh} geometry={geometry} material={materials} position={[rest.x, rest.y + DIE_SIZE / 2, rest.z]} castShadow={shadows}>
+      {kind === "number" && <Pips color={red ? P.DIE_BONE : P.DARK} />}
     </mesh>
+  );
+}
+
+/** A soft leather tray: a rounded floor and four flared rims, no hard corners. */
+function Tray({ x, z, w, shadows }: { x: number; z: number; w: number; shadows: boolean }) {
+  const d = 0.7;
+  const floor = useMemo(() => new RoundedBoxGeometry(w, 0.05, d, 3, 0.02), [w]);
+  const long = useMemo(() => new RoundedBoxGeometry(w + 0.04, 0.09, 0.05, 3, 0.02), [w]);
+  const short = useMemo(() => new RoundedBoxGeometry(0.05, 0.09, d + 0.04, 3, 0.02), []);
+  useEffect(
+    () => () => {
+      floor.dispose();
+      long.dispose();
+      short.dispose();
+    },
+    [floor, long, short],
+  );
+  const mat = <meshStandardMaterial color={P.TRAY_LEATHER} roughness={0.95} />;
+  return (
+    <group position={[x, 0, z]}>
+      <mesh geometry={floor} position={[0, 0.025, 0]} receiveShadow={shadows}>
+        {mat}
+      </mesh>
+      <mesh geometry={long} position={[0, 0.06, -d / 2]} rotation={[-0.22, 0, 0]}>
+        {mat}
+      </mesh>
+      <mesh geometry={long} position={[0, 0.06, d / 2]} rotation={[0.22, 0, 0]}>
+        {mat}
+      </mesh>
+      <mesh geometry={short} position={[-w / 2, 0.06, 0]} rotation={[0, 0, 0.22]}>
+        {mat}
+      </mesh>
+      <mesh geometry={short} position={[w / 2, 0.06, 0]} rotation={[0, 0, -0.22]}>
+        {mat}
+      </mesh>
+    </group>
   );
 }
 
@@ -216,29 +367,16 @@ function Die({ index, value, rollKey, rest, kind = "number", red = false }: { in
 export function DiceTray3D({ bounds, dice, rollKey, shadows, eventDie = null, redDie = false }: { bounds: Bounds; dice: [number, number] | null; rollKey: number | null; shadows: boolean; eventDie?: EventDie | null; redDie?: boolean }) {
   const three = eventDie !== null;
   const x = bounds.cx - (three ? 1.1 : 0.9);
-  const z = bounds.maxZ + 1.35;
-  const w = three ? 2.1 : 1.5;
+  const z = bounds.maxZ + 1.3;
+  const w = three ? 1.6 : 1.2;
   if (!dice) return null;
+  const floor = 0.05;
   return (
     <group name="dice-tray">
-      <mesh position={[x, 0.04, z]} receiveShadow={shadows}>
-        <boxGeometry args={[w, 0.08, 0.9]} />
-        <meshStandardMaterial color={LEATHER} roughness={0.95} />
-      </mesh>
-      {[
-        [-w / 2, 0],
-        [w / 2, 0],
-        [0, -0.45],
-        [0, 0.45],
-      ].map(([dx, dz], i) => (
-        <mesh key={i} position={[x + dx!, 0.1, z + dz!]}>
-          <boxGeometry args={[dx === 0 ? w : 0.06, 0.12, dz === 0 ? 0.9 : 0.06]} />
-          <meshStandardMaterial color="#2e1c10" />
-        </mesh>
-      ))}
-      <Die index={0} value={dice[0]} rollKey={rollKey} rest={new THREE.Vector3(x - (three ? 0.6 : 0.3), 0.08, z)} red={redDie} />
-      <Die index={1} value={dice[1]} rollKey={rollKey} rest={new THREE.Vector3(x + (three ? 0 : 0.3), 0.08, z + 0.05)} />
-      {eventDie !== null && <Die index={2} value={eventDieFace(eventDie)} rollKey={rollKey} rest={new THREE.Vector3(x + 0.62, 0.08, z - 0.03)} kind="event" />}
+      <Tray x={x} z={z} w={w} shadows={shadows} />
+      <Die index={0} value={dice[0]} rollKey={rollKey} rest={new THREE.Vector3(x - (three ? 0.5 : 0.25), floor, z)} red={redDie} shadows={shadows} />
+      <Die index={1} value={dice[1]} rollKey={rollKey} rest={new THREE.Vector3(x + (three ? 0 : 0.25), floor, z + 0.04)} shadows={shadows} />
+      {eventDie !== null && <Die index={2} value={eventDieFace(eventDie)} rollKey={rollKey} rest={new THREE.Vector3(x + 0.5, floor, z - 0.03)} kind="event" shadows={shadows} />}
     </group>
   );
 }

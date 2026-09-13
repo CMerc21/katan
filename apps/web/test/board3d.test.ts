@@ -4,7 +4,8 @@ import { createLayout } from "@/board/layout";
 import { boardBounds, edgeWorld, framingDistance, hexCornerWorld, hexWorld, tileJitter, vertexWorld } from "@/board3d/layout3d";
 import { computeTargets, targetName, wagonMoveFor } from "@/board3d/Interaction";
 import { FrameWatchdog, QUALITY_PRESETS, detectQuality, resolveDpr, stepDown } from "@/board3d/quality";
-import { propsForHex } from "@/board3d/props";
+import { FOOTPRINT, HERO_PROP, propsForHex, type PropKind, type PropTerrain } from "@/board3d/props";
+import { RECESS_RADIUS, propBoundary } from "@/board3d/slab";
 
 const close = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) < tol;
 
@@ -50,16 +51,15 @@ describe("docs/phase7-5.md §2 world layout agrees with the 2D layout", () => {
     expect(framingDistance(5, 40, 0.5)).toBeGreaterThan(framingDistance(5, 40, 1.6));
   });
 
-  it("tile jitter is seeded, small, and different per tile", () => {
+  it("tile jitter is seeded, small, and different per tile (docs/props.md §1: ±0.4°, ±1.5%)", () => {
     const a = tileJitter("0,0");
     expect(tileJitter("0,0")).toEqual(a);
     expect(tileJitter("1,0")).not.toEqual(a);
     const deg = Math.PI / 180;
     for (const h of GEOMETRY.hexes) {
       const j = tileJitter(h);
-      expect(Math.abs(j.tiltX)).toBeLessThanOrEqual(0.5 * deg);
-      expect(Math.abs(j.tiltZ)).toBeLessThanOrEqual(0.5 * deg);
-      expect(Math.abs(j.height - 1)).toBeLessThanOrEqual(0.02);
+      expect(Math.abs(j.rotation)).toBeLessThanOrEqual(0.4 * deg);
+      expect(Math.abs(j.height - 1)).toBeLessThanOrEqual(0.015);
     }
   });
 });
@@ -130,18 +130,66 @@ describe("docs/phase10.md §5 Wayfarers target modes", () => {
   });
 });
 
-describe("docs/phase7-5.md §4 props", () => {
-  it("are seeded per tile, respect the density, and stay inside the tile", () => {
+describe("docs/props.md §3 props", () => {
+  const boundaryAt = (x: number, z: number) => propBoundary(Math.atan2(z, x));
+
+  it("are seeded per tile, respect the density, and keep off the recess and the edge margin", () => {
     const a = propsForHex("0,0", "forest", 1);
     expect(propsForHex("0,0", "forest", 1)).toEqual(a);
     expect(propsForHex("1,0", "forest", 1)).not.toEqual(a);
-    expect(a.filter((p) => p.kind === "pine").length).toBeGreaterThanOrEqual(5);
+    expect(a.filter((p) => p.kind === "pine").length).toBeGreaterThanOrEqual(6);
     const low = propsForHex("0,0", "forest", 0.4);
     expect(low.length).toBeLessThan(a.length);
-    for (const p of [...a, ...propsForHex("2,-1", "meadow", 1), ...propsForHex("0,1", "mountain", 1)]) {
-      expect(Math.hypot(p.x, p.z)).toBeLessThan(0.86);
-      expect(Math.hypot(p.x, p.z)).toBeGreaterThan(0.36);
+    for (const terrain of ["forest", "meadow", "farmland", "claypit", "mountain", "wasteland", "gold"] as const) {
+      for (const p of propsForHex("2,-1", terrain, 1)) {
+        const r = Math.hypot(p.x, p.z);
+        const foot = FOOTPRINT[p.kind];
+        expect(r).toBeGreaterThan(RECESS_RADIUS);
+        expect(r + foot).toBeLessThanOrEqual(boundaryAt(p.x, p.z) + 1e-9);
+      }
     }
+    for (const p of propsForHex("0,1", "sea", 1)) expect(Math.hypot(p.x, p.z) + FOOTPRINT[p.kind]).toBeLessThanOrEqual(boundaryAt(p.x, p.z) + 1e-9);
+  });
+
+  it("every terrain keeps its hero prop at every density, and the counts follow the brief at High", () => {
+    for (const [terrain, hero] of Object.entries(HERO_PROP) as [PropTerrain, PropKind][]) {
+      for (const density of [1, 0.7, 0.4]) {
+        const kinds = propsForHex("0,0", terrain, density).map((p) => p.kind);
+        expect(kinds.filter((k) => k === hero).length).toBe(1);
+      }
+    }
+    const counts = (terrain: PropTerrain, kind: PropKind, hex = "0,0") => propsForHex(hex, terrain, 1).filter((p) => p.kind === kind).length;
+    expect(counts("meadow", "sheep")).toBeGreaterThanOrEqual(5);
+    expect(counts("meadow", "sheep")).toBeLessThanOrEqual(6);
+    expect(counts("meadow", "fence")).toBe(2);
+    expect(counts("claypit", "mound")).toBeGreaterThanOrEqual(2);
+    expect(counts("mountain", "peak")).toBeGreaterThanOrEqual(2);
+    expect(counts("mountain", "goldNugget")).toBe(2);
+    expect(counts("wasteland", "rock")).toBeGreaterThanOrEqual(4);
+    expect(counts("gold", "goldNugget")).toBeGreaterThanOrEqual(5);
+    expect(counts("gold", "peak")).toBe(2);
+    expect(counts("sea", "crest")).toBe(2);
+    expect(counts("lake", "reed")).toBeGreaterThanOrEqual(4);
+    // The gull only appears at Medium and above.
+    expect(propsForHex("0,0", "sea", 0.4).some((p) => p.kind === "gull")).toBe(false);
+  });
+
+  it("fields lay four wheat rows evenly around the recess, each turned along its ring", () => {
+    const rows = propsForHex("0,0", "farmland", 1).filter((p) => p.kind === "wheat");
+    expect(rows).toHaveLength(4);
+    const angles = rows.map((p) => Math.atan2(p.z, p.x));
+    for (let i = 0; i < 4; i++) {
+      const r = Math.hypot(rows[i]!.x, rows[i]!.z);
+      expect(r).toBeGreaterThan(0.49);
+      expect(r).toBeLessThan(0.55);
+      // The row's long axis (local +x under a Y rotation) is tangent to the ring.
+      const dx = Math.cos(rows[i]!.rot);
+      const dz = -Math.sin(rows[i]!.rot);
+      expect(Math.abs(dx * Math.cos(angles[i]!) + dz * Math.sin(angles[i]!))).toBeLessThan(1e-9);
+    }
+    const sorted = [...angles].sort((a, b) => a - b);
+    for (let i = 1; i < 4; i++) expect(sorted[i]! - sorted[i - 1]!).toBeCloseTo(Math.PI / 2, 6);
+    expect(propsForHex("0,0", "farmland", 0.4).filter((p) => p.kind === "windmill")).toHaveLength(1);
   });
 });
 

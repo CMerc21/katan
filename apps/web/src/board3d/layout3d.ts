@@ -6,9 +6,13 @@
 
 import { edgeVerticesOf, hexCenter, parseEdgeId, parseHexId, vertexPosition, type EdgeId, type HexId, type VertexId } from "@katan/engine";
 
+import { LAND_HEIGHT, SEA_SLAB_HEIGHT, slabJitter } from "./slab";
+
 export const HEX_RADIUS = 1;
-export const SLAB_HEIGHT = 0.18;
-export const SEA_HEIGHT = 0.1;
+/** Land slabs are 0.22 R tall (docs/props.md §1); pieces and props stand on this plane. */
+export const SLAB_HEIGHT = LAND_HEIGHT;
+/** Sea slabs are 0.15 R; ships and the pirate float on this plane. */
+export const SEA_HEIGHT = SEA_SLAB_HEIGHT;
 
 export interface World {
   readonly x: number;
@@ -94,20 +98,7 @@ export function framingDistance(radius: number, fovDeg: number, aspect: number, 
   return (radius * (1 + margin)) / Math.sin(fov / 2);
 }
 
-/** Seeded per-tile jitter so the board feels hand-placed (docs/phase7-5.md §1). */
-export function tileJitter(hex: HexId): { tiltX: number; tiltZ: number; height: number; rotation: number } {
-  let h = 2166136261;
-  for (let i = 0; i < hex.length; i++) {
-    h ^= hex.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  const u = (k: number) => {
-    h = (h + 0x6d2b79f5 * (k + 1)) >>> 0;
-    let t = h;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-  const deg = 0.5 * (Math.PI / 180);
-  return { tiltX: (u(1) * 2 - 1) * deg, tiltZ: (u(2) * 2 - 1) * deg, height: 1 + (u(3) * 2 - 1) * 0.02, rotation: 0 };
+/** Seeded per-tile jitter (docs/props.md §1): rotation ±0.4° about the vertical and height ±1.5%. */
+export function tileJitter(hex: HexId): { rotation: number; height: number } {
+  return slabJitter(hex);
 }

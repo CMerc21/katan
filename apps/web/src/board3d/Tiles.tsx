@@ -1,55 +1,127 @@
 "use client";
 
 /**
- * Tiles (docs/phase7-5.md §1): thick bevelled hex slabs with seeded tilt and
- * height jitter, thinner translucent sea tiles, clay number tokens that
+ * Tiles (docs/props.md §1, §5): two-layer land slabs with a centre recess
+ * and seeded low-poly relief, faceted sea slabs that ripple, walnut frame
+ * slabs, and clay number tokens with a raised rim and a recessed face that
  * bounce on a matching roll, dim and shake when the robber blocks them.
  */
 
 import { useFrame } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { HexId, Terrain } from "@katan/engine";
-import { TERRAIN_FILL, WATER } from "@/game/theme";
-import { hexShape } from "./geo";
-import { HEX_RADIUS, SEA_HEIGHT, SLAB_HEIGHT, hexWorld, tileJitter } from "./layout3d";
+import { hexWorld, tileJitter } from "./layout3d";
+import { TOKEN_CLAY, TOKEN_HOT } from "./palette";
+import { LAND_HEIGHT, RECESS_DEPTH, SEA_SLAB_HEIGHT, SEA_VARIANTS, buildSlab, seaVariant, type SlabSpec } from "./slab";
 import { tokenTexture } from "./textures";
 
 export interface TileInfo {
   readonly id: HexId;
   readonly kind: "land" | "sea" | "frame";
-  readonly terrain: Terrain | "gold" | null;
+  readonly terrain: Terrain | null;
   readonly token: number | null;
 }
 
-function useSlabGeometry(depth: number): THREE.ExtrudeGeometry {
-  return useMemo(() => {
-    const g = new THREE.ExtrudeGeometry(hexShape(HEX_RADIUS - 0.02), { depth, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.03, bevelSegments: 2, steps: 1 });
-    g.rotateX(-Math.PI / 2);
-    return g;
-  }, [depth]);
+export const TOKEN_RADIUS = 0.2;
+export const TOKEN_HEIGHT = 0.04;
+
+function useSlabMaterials(): { land: THREE.MeshStandardMaterial; sea: THREE.MeshStandardMaterial } {
+  return useMemo(
+    () => ({
+      land: new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95 }),
+      sea: new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.35 }),
+    }),
+    [],
+  );
 }
 
-const TERRAIN_COLORS: Record<Terrain | "gold", string> = { ...TERRAIN_FILL, gold: "#e0b43a" };
-
-function useTerrainMaterials(): Record<Terrain | "gold" | "sea" | "frame", THREE.MeshStandardMaterial> {
-  return useMemo(() => {
-    const out = {} as Record<Terrain | "gold" | "sea" | "frame", THREE.MeshStandardMaterial>;
-    for (const [t, c] of Object.entries(TERRAIN_COLORS)) out[t as Terrain | "gold"] = new THREE.MeshStandardMaterial({ color: c, flatShading: true, roughness: 0.95 });
-    out.sea = new THREE.MeshStandardMaterial({ color: WATER, flatShading: true, roughness: 0.4, transparent: true, opacity: 0.85 });
-    out.frame = new THREE.MeshStandardMaterial({ color: "#5a4030", flatShading: true, roughness: 0.95 });
-    return out;
+/** One geometry per land tile, cached by id and terrain and disposed with the board. */
+function useLandGeometries(tiles: TileInfo[]): Map<HexId, THREE.BufferGeometry> {
+  const cache = useRef(new Map<string, THREE.BufferGeometry>());
+  const out = useMemo(() => {
+    const map = new Map<HexId, THREE.BufferGeometry>();
+    const live = new Set<string>();
+    for (const t of tiles) {
+      if (t.kind !== "land") continue;
+      const key = `${t.id}:${t.terrain ?? "-"}`;
+      live.add(key);
+      let g = cache.current.get(key);
+      if (!g) {
+        const spec: SlabSpec = { kind: "land", terrain: t.terrain, seed: t.id };
+        g = buildSlab(spec).geometry;
+        cache.current.set(key, g);
+      }
+      map.set(t.id, g);
+    }
+    for (const [key, g] of cache.current) {
+      if (!live.has(key)) {
+        g.dispose();
+        cache.current.delete(key);
+      }
+    }
+    return map;
+  }, [tiles]);
+  useEffect(() => {
+    const c = cache.current;
+    return () => {
+      for (const g of c.values()) g.dispose();
+      c.clear();
+    };
   }, []);
+  return out;
+}
+
+interface SeaSet {
+  readonly geometries: THREE.BufferGeometry[];
+  readonly base: Float32Array[];
+}
+
+/** Three seeded sea variants shared by every sea tile (docs/props.md §3: ripple 0.01 R at 0.6 Hz). */
+function useSeaGeometries(): SeaSet {
+  const set = useMemo<SeaSet>(() => {
+    const geometries: THREE.BufferGeometry[] = [];
+    const base: Float32Array[] = [];
+    for (let v = 0; v < SEA_VARIANTS; v++) {
+      const g = buildSlab({ kind: "sea", terrain: null, seed: `sea:${v}` }).geometry;
+      geometries.push(g);
+      base.push(Float32Array.from(g.attributes.position!.array as Float32Array));
+    }
+    return { geometries, base };
+  }, []);
+  useEffect(() => () => set.geometries.forEach((g) => g.dispose()), [set]);
+  return set;
+}
+
+function SeaRipple({ sea, idle }: { sea: SeaSet; idle: boolean }) {
+  useFrame(({ clock }) => {
+    if (!idle) return;
+    const t = clock.getElapsedTime() * Math.PI * 2 * 0.6;
+    sea.geometries.forEach((g, v) => {
+      const pos = g.attributes.position as THREE.BufferAttribute;
+      const arr = pos.array as Float32Array;
+      const base = sea.base[v]!;
+      for (let i = 0; i < arr.length; i += 3) {
+        const y = base[i + 1]!;
+        if (y < SEA_SLAB_HEIGHT - 0.04) continue; // walls' feet stay put
+        arr[i + 1] = y + Math.sin(t + base[i]! * 3.1 + base[i + 2]! * 2.3) * 0.01;
+      }
+      pos.needsUpdate = true;
+      g.computeVertexNormals();
+    });
+  });
+  return null;
 }
 
 function Token({ n, x, z, y, bounceKey, dim }: { n: number; x: number; z: number; y: number; bounceKey: number | null; dim: boolean }) {
   const group = useRef<THREE.Group>(null);
+  const hot = n === 6 || n === 8;
   const texture = useMemo(() => tokenTexture(n), [n]);
   const materials = useMemo(() => {
-    const side = new THREE.MeshStandardMaterial({ color: "#b8905f", roughness: 0.9 });
-    const top = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.8, transparent: true });
-    return [side, top, side];
-  }, [texture]);
+    const side = new THREE.MeshStandardMaterial({ color: hot ? TOKEN_HOT : TOKEN_CLAY, roughness: 0.9, flatShading: true });
+    const top = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.85, transparent: true });
+    return { side, top, body: [side, top, side] };
+  }, [texture, hot]);
   const lastKey = useRef<number | null>(null);
   const started = useRef(0);
   useFrame(({ clock }) => {
@@ -63,12 +135,16 @@ function Token({ n, x, z, y, bounceKey, dim }: { n: number; x: number; z: number
     const t = Math.min(1, (now - started.current) / 400);
     const lift = bounceKey !== null && t < 1 ? Math.sin(t * Math.PI) * 0.1 : 0;
     g.position.y = y + lift;
-    (materials[1] as THREE.MeshStandardMaterial).opacity += ((dim ? 0.35 : 1) - (materials[1] as THREE.MeshStandardMaterial).opacity) * 0.2;
+    materials.top.opacity += ((dim ? 0.35 : 1) - materials.top.opacity) * 0.2;
   });
   return (
-    <group ref={group} position={[x, y, z]}>
-      <mesh material={materials} castShadow>
-        <cylinderGeometry args={[0.3, 0.3, 0.04, 32]} />
+    <group ref={group} position={[x, y, z]} name={`token:${n}`}>
+      <mesh material={materials.body} position={[0, TOKEN_HEIGHT * 0.375, 0]} castShadow>
+        <cylinderGeometry args={[TOKEN_RADIUS, TOKEN_RADIUS, TOKEN_HEIGHT * 0.75, 24]} />
+      </mesh>
+      {/* Raised rim 0.01 R above the recessed face. */}
+      <mesh material={materials.side} position={[0, TOKEN_HEIGHT * 0.75, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[TOKEN_RADIUS - 0.012, 0.012, 6, 24]} />
       </mesh>
     </group>
   );
@@ -99,7 +175,7 @@ function GoldGlitter({ x, z, y }: { x: number; z: number; y: number }) {
           ref={(el) => {
             if (el) specks.current.push(el);
           }}
-          position={[dx, 0.02, dz]}
+          position={[dx, 0.03, dz]}
           rotation={[-Math.PI / 2, 0, 0]}
         >
           <circleGeometry args={[0.035, 5]} />
@@ -110,10 +186,12 @@ function GoldGlitter({ x, z, y }: { x: number; z: number; y: number }) {
   );
 }
 
-export function Tiles({ tiles, robberHex, rolled, rollKey, blockedHex, shadows }: { tiles: TileInfo[]; robberHex: HexId; rolled: number | null; rollKey: number | null; blockedHex: HexId | null; shadows: boolean }) {
-  const land = useSlabGeometry(SLAB_HEIGHT);
-  const sea = useSlabGeometry(SEA_HEIGHT);
-  const materials = useTerrainMaterials();
+export function Tiles({ tiles, robberHex, rolled, rollKey, blockedHex, shadows, idle = false }: { tiles: TileInfo[]; robberHex: HexId; rolled: number | null; rollKey: number | null; blockedHex: HexId | null; shadows: boolean; idle?: boolean }) {
+  const materials = useSlabMaterials();
+  const land = useLandGeometries(tiles);
+  const sea = useSeaGeometries();
+  const frame = useMemo(() => buildSlab({ kind: "frame", terrain: null, seed: "frame" }).geometry, []);
+  useEffect(() => () => frame.dispose(), [frame]);
   const shaking = useRef<THREE.Group>(null);
   const shakeStart = useRef(0);
   const shakeKey = useRef<string | null>(null);
@@ -133,19 +211,26 @@ export function Tiles({ tiles, robberHex, rolled, rollKey, blockedHex, shadows }
 
   return (
     <group name="tiles">
+      <SeaRipple sea={sea} idle={idle} />
       {tiles.map((tile) => {
         const c = hexWorld(tile.id);
         const j = tileJitter(tile.id);
         const isSea = tile.kind === "sea";
         const isFrame = tile.kind === "frame";
-        const mat = isSea ? materials.sea : isFrame ? materials.frame : materials[tile.terrain ?? "wasteland"];
-        const top = (isSea ? SEA_HEIGHT : SLAB_HEIGHT) * j.height;
+        let geometry: THREE.BufferGeometry | undefined;
+        let turn = 0;
+        if (isSea) {
+          const v = seaVariant(tile.id);
+          geometry = sea.geometries[v.variant];
+          turn = (v.turns * Math.PI) / 3;
+        } else if (isFrame) geometry = frame;
+        else geometry = land.get(tile.id);
+        if (!geometry) return null;
+        const height = (isSea || isFrame ? SEA_SLAB_HEIGHT : LAND_HEIGHT) * j.height;
         const blocked = blockedHex === tile.id;
-        const slab = (
-          <mesh geometry={isSea ? sea : land} material={mat} position={[c.x, isSea ? -0.04 : 0, c.z]} rotation={[j.tiltX, 0, j.tiltZ]} scale={[1, j.height, 1]} receiveShadow={shadows} castShadow={shadows} />
-        );
-        const token = tile.token !== null && !isSea ? <Token n={tile.token} x={c.x} z={c.z} y={top + 0.02} bounceKey={rolled === tile.token && tile.id !== robberHex ? rollKey : null} dim={blocked} /> : null;
-        const glitter = tile.terrain === "gold" ? <GoldGlitter x={c.x} z={c.z} y={top} /> : null;
+        const slab = <mesh geometry={geometry} material={isSea ? materials.sea : materials.land} position={[c.x, 0, c.z]} rotation={[0, j.rotation + turn, 0]} scale={[1, j.height, 1]} receiveShadow={shadows} castShadow={shadows && !isSea} name={`tile:${tile.id}`} />;
+        const token = tile.token !== null && tile.kind === "land" ? <Token n={tile.token} x={c.x} z={c.z} y={height - RECESS_DEPTH * j.height} bounceKey={rolled === tile.token && tile.id !== robberHex ? rollKey : null} dim={blocked} /> : null;
+        const glitter = tile.terrain === "gold" ? <GoldGlitter x={c.x} z={c.z} y={height} /> : null;
         return blocked ? (
           <group key={tile.id} ref={shaking}>
             {slab}

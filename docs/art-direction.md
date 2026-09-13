@@ -4,6 +4,8 @@ Original medieval tabletop look for Katan (docs/phase7.md §6, docs/phase7-5.md 
 
 ## §1 Palette
 
+The tokens below are the DOM's and the 2D thumbnails'. The 3D diorama follows the brighter tile and prop palette in `docs/props.md` (§1–§6), kept in `apps/web/src/board3d/palette.ts`.
+
 | Token | Hex | Use |
 |---|---|---|
 | walnut | `#3b2a1e` | table surface (3D) and page background |
@@ -51,6 +53,6 @@ Player colours are heraldic tinctures:
 
 ## §4 Pieces
 
-* Roads: timber planks with two stakes. Settlements: thatched cottages (parchment walls, straw roof, player-colour door and base ring). Cities: stone keeps with a banner in the player's colour. Ships: hull plus a triangular sail in the player's colour. Robber: hooded figure with a sack. Pirate: black-sailed ship.
-* Harbors: a wooden pier with a hanging sign showing the ratio and the resource icon.
+* Roads: flat planks with a clay top and player-coloured sides. Settlements: thatched cottages (plaster walls, a door and two windows) on a base ring in the player's colour. Cities: stone keeps with crenellations, a second tower, a gatehouse and a flag in the player's colour. Ships: hull plus a curved sail in the player's colour on a base ring. Robber: hooded figure with a face plate and a sack. Pirate: black-sailed ship. Geometry per piece in `docs/props.md` §4–§5.
+* Harbors: a plank pier on posts with a gallows post and a hanging sign showing the ratio and the resource.
 * Pieces are drawn at about 1.5× true scale so they read from the default camera.

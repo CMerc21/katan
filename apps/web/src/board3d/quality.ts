@@ -16,15 +16,17 @@ export interface QualityPreset {
   /** Cap on the canvas pixel ratio; the canvas renders at `min(devicePixelRatio, dpr)` (see `resolveDpr`). */
   readonly dpr: number;
   readonly idleMotion: boolean;
+  /** Shadow map size (docs/props.md §6: 2048 on High); 0 when shadows are off. */
+  readonly shadowMap: number;
 }
 
 /** The hard cap on the render pixel ratio, whatever the display reports. */
 export const MAX_DPR = 2;
 
 export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
-  high: { shadows: true, postfx: true, propDensity: 1, dpr: MAX_DPR, idleMotion: true },
-  medium: { shadows: true, postfx: false, propDensity: 0.7, dpr: MAX_DPR, idleMotion: true },
-  low: { shadows: false, postfx: false, propDensity: 0.4, dpr: 1, idleMotion: false },
+  high: { shadows: true, postfx: true, propDensity: 1, dpr: MAX_DPR, idleMotion: true, shadowMap: 2048 },
+  medium: { shadows: true, postfx: false, propDensity: 0.7, dpr: MAX_DPR, idleMotion: true, shadowMap: 1024 },
+  low: { shadows: false, postfx: false, propDensity: 0.4, dpr: 1, idleMotion: false, shadowMap: 0 },
 };
 
 /** Where the active preset came from: the user's setting, auto-detection, or a watchdog step-down. */

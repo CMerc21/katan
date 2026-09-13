@@ -21,8 +21,9 @@ import { AnimatedPirate, AnimatedRobber, DiceTray3D, Projector, projectWorld, ty
 import { Harbor } from "./Harbor";
 import { INTERACTION_LAYER, InteractionLayer, NO_PICK, computeTargets, targetLabel, targetName, type CrownPick, type TargetMode } from "./Interaction";
 import { boardBounds, hexWorld, edgeWorld, vertexWorld, SLAB_HEIGHT, type World } from "./layout3d";
+import { KEY_LIGHT, FILL_GROUND, FILL_SKY } from "./palette";
 import { CityFigure, RoadFigure, SettlementFigure, ShipFigure } from "./Pieces";
-import { Props } from "./Props";
+import { Props, type PropHex } from "./Props";
 import { FrameWatchdog, QUALITY_PRESETS, detectQuality, readDeviceInfo, type Quality } from "./quality";
 import { woodTexture } from "./textures";
 import { Tiles, type TileInfo } from "./Tiles";
@@ -64,24 +65,30 @@ export interface Board3DProps {
   children?: ReactNode;
 }
 
-function Lights({ shadows, bounds }: { shadows: boolean; bounds: { cx: number; cz: number; radius: number } }) {
+/** Key and fill (docs/props.md §6): a warm directional key from azimuth −40°, elevation 42°, with PCF soft shadows, and a sky/ground hemisphere fill. */
+export const KEY_AZIMUTH = (-40 * Math.PI) / 180;
+export const KEY_ELEVATION = (42 * Math.PI) / 180;
+
+function Lights({ shadows, shadowMap, bounds }: { shadows: boolean; shadowMap: number; bounds: { cx: number; cz: number; radius: number } }) {
   const r = bounds.radius * 1.6;
+  const d = r * 1.8;
   return (
     <>
-      <hemisphereLight args={["#cfe3f0", "#4a3a2a", 0.55]} />
+      <hemisphereLight args={[FILL_SKY, FILL_GROUND, 0.5]} />
       <directionalLight
-        position={[bounds.cx - r * 0.9, r * 1.1, bounds.cz - r * 0.6]}
-        intensity={2.1}
-        color="#fff1d6"
+        position={[bounds.cx + d * Math.cos(KEY_ELEVATION) * Math.sin(KEY_AZIMUTH), d * Math.sin(KEY_ELEVATION), bounds.cz + d * Math.cos(KEY_ELEVATION) * Math.cos(KEY_AZIMUTH)]}
+        intensity={1.6}
+        color={KEY_LIGHT}
         castShadow={shadows}
-        shadow-mapSize={[2048, 2048]}
-        shadow-bias={-0.0006}
+        shadow-mapSize={[shadowMap || 1024, shadowMap || 1024]}
+        shadow-bias={-0.0005}
+        shadow-normalBias={0.01}
         shadow-camera-left={-r}
         shadow-camera-right={r}
         shadow-camera-top={r}
         shadow-camera-bottom={-r}
         shadow-camera-near={0.5}
-        shadow-camera-far={r * 4}
+        shadow-camera-far={d * 2.5}
       />
     </>
   );
@@ -93,7 +100,7 @@ function Table({ bounds, shadows, onTap, onDoubleTap }: { bounds: { cx: number; 
   return (
     <mesh position={[bounds.cx, -0.02, bounds.cz]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow={shadows} layers={INTERACTION_LAYER} onClick={onTap} onDoubleClick={onDoubleTap} name="table">
       <planeGeometry args={[size, size]} />
-      <meshStandardMaterial map={texture} roughness={0.9} color="#a58a70" />
+      <meshStandardMaterial map={texture} roughness={0.85} />
     </mesh>
   );
 }
@@ -130,14 +137,15 @@ export function Board3D(props: Board3DProps) {
     () => [
       ...hexIds.map((id) => {
         const t = view.board.hexes[id]!;
-        return { id, kind: "land" as const, terrain: t.terrain as Terrain | "gold", token: t.token };
+        return { id, kind: "land" as const, terrain: t.terrain as Terrain, token: t.token };
       }),
       ...view.board.sea.map((id) => ({ id, kind: "sea" as const, terrain: null, token: null })),
       ...view.board.frame.map((id) => ({ id, kind: "frame" as const, terrain: null, token: null })),
     ],
     [hexIds, view.board],
   );
-  const landHexes = useMemo(() => tiles.filter((t) => t.kind === "land" && t.terrain).map((t) => ({ id: t.id, terrain: t.terrain as Terrain | "gold" })), [tiles]);
+  const propHexes = useMemo<PropHex[]>(() => tiles.filter((t) => (t.kind === "land" && t.terrain) || t.kind === "sea").map((t) => ({ id: t.id, terrain: t.kind === "sea" ? "sea" : (t.terrain as Terrain) })), [tiles]);
+  const robberCentred = view.board.hexes[view.robberHex]?.token === null;
   const landSet = useMemo(() => new Set(hexIds), [hexIds]);
   const bounds = useMemo(() => boardBounds([...hexIds, ...view.board.sea]), [hexIds, view.board.sea]);
   const centre = useMemo<World>(() => ({ x: bounds.cx, z: bounds.cz }), [bounds]);
@@ -242,11 +250,11 @@ export function Board3D(props: Board3DProps) {
       >
         <color attach="background" args={["#2a1c13"]} />
         <CameraRig bounds={bounds} resetToken={resetToken} focus={focus} hero={hero} />
-        <Lights shadows={preset.shadows} bounds={bounds} />
+        <Lights shadows={preset.shadows} shadowMap={preset.shadowMap} bounds={bounds} />
         <Table bounds={bounds} shadows={preset.shadows} onTap={() => (onSkip ? onSkip() : onCancelMode?.())} onDoubleTap={() => setResetToken((t) => t + 1)} />
         <group name="board">
-          <Tiles tiles={tiles} robberHex={view.robberHex} rolled={rolled} rollKey={rollKey} blockedHex={blockedHex} shadows={preset.shadows} />
-          <Props hexes={landHexes} density={preset.propDensity} idle={preset.idleMotion} shadows={preset.shadows} />
+          <Tiles tiles={tiles} robberHex={view.robberHex} rolled={rolled} rollKey={rollKey} blockedHex={blockedHex} shadows={preset.shadows} idle={preset.idleMotion} />
+          <Props hexes={propHexes} density={preset.propDensity} idle={preset.idleMotion} shadows={preset.shadows} />
           {view.board.ports.map((port) => (
             <Harbor key={port.edge} port={port} centre={centre} owned={port.vertices.some((v) => myVertices.has(v))} shadows={preset.shadows} land={landSet} />
           ))}
@@ -259,8 +267,8 @@ export function Board3D(props: Board3DProps) {
             ])}
           </group>
           <WayfarersBoard view={view} shadows={preset.shadows} idle={preset.idleMotion} centre={centre} land={landSet} />
-          <CrownBoard view={view} shadows={preset.shadows} freshKnight={freshKnight} />
-          <AnimatedRobber hex={view.robberHex} shadows={preset.shadows} />
+          <CrownBoard view={view} shadows={preset.shadows} freshKnight={freshKnight} bounds={bounds} />
+          <AnimatedRobber hex={view.robberHex} shadows={preset.shadows} centred={robberCentred} />
           {view.pirateHex !== null && <AnimatedPirate hex={view.pirateHex} shadows={preset.shadows} />}
           <InteractionLayer targets={targets} color={meColor} onAction={onAction} {...(onPickShip ? { onPickShip } : {})} {...(onPickStep ? { onPickStep } : {})} {...(onPickKnight ? { onPickKnight } : {})} {...(onPick ? { onPick } : {})} />
           <DiceTray3D bounds={bounds} dice={view.lastRoll} rollKey={rollKey} shadows={preset.shadows} eventDie={eventDie} redDie={view.scenario?.crown === true} />
@@ -271,8 +279,8 @@ export function Board3D(props: Board3DProps) {
         {onDegrade && <Watchdog onDegrade={() => onDegrade(quality)} />}
         {preset.postfx && (
           <EffectComposer enabled multisampling={0}>
-            <Vignette offset={0.32} darkness={0.5} />
-            <TiltShift2 blur={0.12} taper={0.7} start={[0, 0.42]} end={[0, 0.58]} samples={6} />
+            <Vignette offset={0.3} darkness={0.45} />
+            <TiltShift2 blur={0.1} taper={0.35} start={[0, 0.5]} end={[1, 0.5]} direction={[0, 1]} samples={6} />
           </EffectComposer>
         )}
       </Canvas>

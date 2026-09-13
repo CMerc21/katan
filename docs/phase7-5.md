@@ -4,12 +4,14 @@ Companion to `docs/phase7.md` and `docs/art-direction.md`. The board in play is 
 
 ## 1. Look
 
-- **Tiles:** `ExtrudeGeometry` hex slabs (height 0.18 × radius, bevelled top edge) on a walnut table plane with a canvas-baked grain. Seeded tilt (±0.5°) and height jitter (±2%) per tile (`tileJitter`). Sea tiles are thinner, lower and translucent.
-- **Props:** `propsForHex(hex, terrain, density)` lays out a seeded cluster per land tile (pines and oaks with a stump and sometimes a hut, sheep with fences on a mound, wheat rows with a windmill, kilns with a brick pile and cart, faceted peaks with snow and a mine, dunes with a cactus and a ribcage, gold nuggets with a sluice). Every static kind is one merged, vertex-coloured geometry drawn as an `InstancedMesh`; windmills rotate and kilns puff smoke as separate animated components. A standard board is under 40 draw calls for props.
-- **Materials:** flat-shaded `MeshStandardMaterial`; the only textures are the table grain, token discs, harbour signs and die faces, all baked on a canvas at runtime.
-- **Light:** one warm directional key (upper left of the default view) with PCF soft shadows, a cool hemispheric fill. Vignette and tilt-shift post-processing on High only.
-- **Pieces:** thatched cottages and stone keeps (with a flag) on a base ring in the player's colour, timber planks with two stakes, hulls with a triangular sail, the hooded robber with a sack, all at 1.5× true scale.
-- **Tokens:** clay discs with an embossed numeral and pips (6/8 in red with a gilt ring). **Harbours:** a pier of planks on posts and a billboard sign.
+The tile and prop brief in `docs/props.md` is the target for everything below; it translates the reference renders in `docs/art/reference/` into geometry.
+
+- **Tiles:** crisp-edged hex slabs with a 0.03 R corner radius (`slab.ts`), land in two layers (0.12 R terrain colour over 0.10 R earth brown, a tan band on mountains), a circular centre recess for the token, and a seeded low-poly relief on the top face. Sea slabs are 0.15 R, one colour with a lighter faceted top that ripples; the frame is a flat walnut slab. Seeded rotation (±0.4°) and height jitter (±1.5%) per tile (`tileJitter`).
+- **Props:** `propsForHex(hex, terrain, density)` lays out a seeded cluster per tile from the brief's recipes (pines, oaks, a log cabin, log piles, stumps; sheep, a stone hut, fences; wheat rows around the recess and a windmill; terraced mounds, a kiln, a brick stack, a cart; snow peaks, a mine, nuggets; a saguaro, rocks, bones; crests and a gull on the sea; reeds on lakes; a sluice on gold). Each terrain's hero prop is always present; props keep off the recess and a 0.06 R edge margin and stand on the slab's relief. Every static kind is one merged, face-coloured geometry drawn as an `InstancedMesh`; windmills turn, kilns puff smoke, sheep bob, wheat sways and the gull circles as animated components. A standard board is under 40 draw calls for props.
+- **Materials:** flat-shaded `MeshStandardMaterial`; the only textures are the table grain, token faces, harbour signs and the event die's fleet glyph, all baked on a canvas at runtime. Dice pips are geometry.
+- **Light:** a warm directional key from azimuth −40°, elevation 42° with PCF soft shadows (2048 map on High, 1024 on Medium), a sky/ground hemisphere fill, a walnut table. Vignette and tilt-shift post-processing on High only.
+- **Pieces:** thatched cottages, stone keeps with two towers, a gatehouse and a flag, ships with a curved sail, all on a base ring in the player's colour; flat roads with a clay top and player-coloured sides; the hooded robber with a face plate and a sack; knights in three levels; the metropolis spire; the barbarian longship on a track at the far edge. All at 1.5× true scale.
+- **Tokens:** clay discs (red for 6 and 8) with a raised rim and a recessed face carrying the numeral and pips, sitting in the slab's recess. **Harbours:** two posts and a plank pier over the water with a gallows post and a hanging sign.
 
 ## 2. Scene structure
 
@@ -51,6 +53,7 @@ The editor (Phase 8) renders its canvas with this scene in a top-down framing wi
 
 - **Numerals are canvas sprites**, not text geometry, so no font is fetched at runtime.
 - **Accessible overlay buttons** were added on top of the raycast layer; they are not in the spec but keep the board usable without a mouse and make the tests deterministic.
-- **Sea ripple and gulls** wait for boards that have sea tiles (Phase 8/9); the sea material is in place.
+- **Sea ripple and gulls** are in (docs/props.md §3): the three shared sea variants ripple 0.01 R at 0.6 Hz while idle motion is on, and a gull circles some sea tiles at Medium and above.
+- **Deviations from the tile and prop brief** are listed in `docs/props.md` §7 (road length, DOM colours, wall levels, the island pennant).
 - **Frame watchdog** warms up again for 5 s after each step-down so a second can follow a first, but the new preset's own shader compiles never count.
 - Post-processing multisampling is off (SwiftShader and mobile).
