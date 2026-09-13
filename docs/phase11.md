@@ -30,7 +30,13 @@ The core stays free of `crown` checks: commodities enter the base rules through 
 
 ## 4. Bots
 
-PLACEHOLDER_BOTS
+`packages/bots/src/crown.ts` holds every Crown & Castle heuristic; medium and hard call it from the same hook points as the Wayfarers code (`crownBeforeRoll`, `crownBeforeBuild`, `crownBuild`, `crownDiscard`, `chooseCrownPrompt`, `crownPositionBonus` in hard's `positionScore`); easy takes a random crown action often enough that games end.
+
+- **Improvement plan**: the primary track is the one with the most commodity income (pips of own cities on meadow / mountain / forest, holdings and current level; science and politics get a small bias); goals are level 3 on it (the ability), then 4 when nobody else is at 4+, 5 to overtake a level-4 holder or secure an own metropolis; a second track to 3. `BUILD_IMPROVEMENT` whenever affordable, cheapest wanted level first; city choice favours commodity terrain.
+- **Knights**: fair share = ⌈cities ÷ players⌉ once any city exists; fleet risk = expected rolls to the attack ((7 − fleet) × 2). Urgent at fleet ≥ 5 when short: activate, Warlord, build, promote; otherwise build below fair share, activate when short and the fleet is near or grain is spare, promote with spare wool and ore, wall with spare clay. Chase the robber when its hex is worth ≥ 2 pips and defence stays whole. Move / displace only onto the Longest Road holder's road, and only when a simulation on `viewToState` confirms the road breaks.
+- **Progress cards** are scored and the best positive play made: Warlord at fleet ≥ 6 (≥ 5 when short), Alchemist for the best own total (played when it yields ≥ 2), Saboteur / Wedding when trailing, Merchant always (a point), Medicine / Smith / Engineer / Master Merchant / Spy / Deserter / Intrigue with the best payload, Bishop on the leader's best hex, Crane only when a level then becomes affordable, Irrigation / Mining at yield ≥ 2, monopolies for ≥ 2 cards or a completed build, Diplomat only to strip the Longest Road, Inventor for ≥ 2 own pips, Road Building for the road card or when nothing is reachable. One card before the roll (Warlord first).
+- **Prompts**: downgrade the city with the fewest pips (walled ones kept), the metropolis on the most pips, discard / spy by a card-value table, the deserter victim gives up its lowest inactive knight, free knights and retreats go to own hexes or the Longest Road holder's road, Commercial Harbor gives a commodity of an unwanted track, wedding gifts are surplus first. Discards keep the primary track's commodities; commodity trades only complete a build or a level.
+- Tournament (hard / hard vs medium / medium, rotated): hard wins 22–18 in the test's 40 games and 46–34 over 80; mixed games give hard 40 % of its seats, medium 30 %, easy none. The base lookahead's habit of never building the first of two roads was the main handicap; the crown hybrid falls back to medium's action tail after the lookahead.
 
 ## 5. UI
 

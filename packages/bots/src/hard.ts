@@ -245,13 +245,17 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
   if (later) return later;
   // Crown & Castle (docs/phase11.md §10): once nothing scores as a settlement or city, the medium crown rules
   // (improvements, knights when short, activation, commodity trades, promotions, walls) come first, then the
-  // lookahead's pick, then medium's road, trade and offer tail: the one-ply search never builds the first of two
-  // roads toward a spot and the base game's dev cards, which used to absorb spare cards, do not exist here.
+  // lookahead's pick unless it is a maritime trade, then medium's road, trade and offer tail, and only then the
+  // lookahead's trade. The one-ply search never builds the first of two roads toward a spot and the base game's
+  // dev cards, which used to absorb spare cards, do not exist here: without this the hard bot sits on wood and
+  // clay and burns them 4:1 while medium turns them into roads and settlements.
   if (view.crown) {
     const crownNow = crownBuild(view, legal, rng);
     if (crownNow) return crownNow;
-    if (bestAction) return bestAction;
-    return chooseLateTurnAction(view, legal, rng);
+    if (bestAction && bestAction.type !== "MARITIME_TRADE") return bestAction;
+    const late = chooseLateTurnAction(view, legal, rng);
+    if (late.type !== "END_TURN") return late;
+    return bestAction ?? late;
   }
   if (bestAction) return bestAction;
   const shipMove = chooseShipMove(view, legal, rng);
