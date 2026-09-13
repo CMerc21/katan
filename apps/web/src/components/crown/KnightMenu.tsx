@@ -43,7 +43,7 @@ export function KnightMenu({ view, me, vertex, hand, legal, onDispatch, onMode, 
   const displaceReason = displace ? null : (restReason ?? "No weaker opposing knight in reach");
   const chaseReason = chase ? null : (restReason ?? (c.attacks === 0 ? "The robber stays home until the barbarians have attacked once" : "The robber is not next to this knight"));
   return (
-    <div className="parchment z-20 min-w-[13rem] rounded-md p-2" role="group" aria-label="Knight" data-testid="knight-menu">
+    <div className="hud-panel hud-dark z-20 min-w-[13rem] rounded-md p-2" role="group" aria-label="Knight" data-testid="knight-menu">
       <p className="mb-1 flex items-center justify-between px-1 text-xs font-semibold uppercase tracking-wide text-ink-soft">
         <span>
           {KNIGHT_LEVEL_LABEL[knight.level]} knight · {knight.active ? (ready ? "ready" : "active, has acted") : "inactive"}

@@ -7,7 +7,7 @@
  * are off.
  */
 
-export type SoundKind = "dice" | "card" | "piece" | "robber" | "turn" | "win";
+export type SoundKind = "dice" | "card" | "piece" | "robber" | "turn" | "win" | "tick" | "open";
 
 let ctx: AudioContext | null = null;
 
@@ -77,9 +77,39 @@ export function playSound(kind: SoundKind): void {
       [523, 659, 784, 1047].forEach((f, i) => tone(c, f, t + i * 0.16, 0.5, "triangle", 0.07));
       tone(c, 1319, t + 0.7, 0.9, "triangle", 0.06);
       break;
+    // HUD cues (docs/phase12.md §8): a soft tick when a numeral bumps, a short breath when a panel opens.
+    case "tick":
+      tone(c, 1760, t, 0.04, "sine", 0.025);
+      break;
+    case "open":
+      noise(c, t, 0.08, 0.02, 2400);
+      tone(c, 880, t, 0.08, "sine", 0.02);
+      break;
     default: {
       const exhaustive: never = kind;
       throw new Error(String(exhaustive));
     }
   }
+}
+
+/**
+ * Listen for the HUD's `hud:tick` / `hud:open` window events and play the
+ * matching cue while `enabled()` says sound is on. Returns the unsubscribe.
+ */
+export function installHudSounds(enabled: () => boolean): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  let last = 0;
+  const onTick = () => {
+    const now = performance.now();
+    if (!enabled() || now - last < 60) return; // many numerals may bump in one render
+    last = now;
+    playSound("tick");
+  };
+  const onOpen = () => enabled() && playSound("open");
+  window.addEventListener("hud:tick", onTick);
+  window.addEventListener("hud:open", onOpen);
+  return () => {
+    window.removeEventListener("hud:tick", onTick);
+    window.removeEventListener("hud:open", onOpen);
+  };
 }

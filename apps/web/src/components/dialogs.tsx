@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { COMMODITIES, RESOURCES, isHiddenCount, type Action, type Commodity, type CommodityHand, type Hand, type Resource } from "@katan/engine";
 import type { RedactedState, SeatInfo } from "@/driver/types";
 import { RESOURCE_LABEL, cardLabel, playerName } from "@/game/labels";
@@ -18,7 +18,7 @@ const goodsTotal = (c: CommodityHand) => COMMODITIES.reduce((n, k) => n + c[k], 
 
 export function HandoffOverlay({ name, onReady }: { name: string; onReady: () => void }) {
   return (
-    <div className="parchment fixed inset-0 z-50 grid place-items-center" role="dialog" aria-modal="true" aria-label="Pass the device">
+    <div className="hud-dark fixed inset-0 z-50 grid place-items-center bg-[#1a1512] text-[var(--hud-text)]" role="dialog" aria-modal="true" aria-label="Pass the device">
       <div className="text-center">
         <p className="text-lg text-ink-soft">Pass the device to</p>
         <p className="font-display mt-1 text-4xl font-semibold">{name}</p>
@@ -92,7 +92,7 @@ export function StealPopover({
   onSteal: (targetPlayerId: string) => void;
 }) {
   return (
-    <div className="parchment z-20 rounded-md p-2" role="group" aria-label="Steal from">
+    <div className="hud-panel hud-dark z-20 rounded-md p-2" role="group" aria-label="Steal from">
       <p className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-ink-soft">Steal from</p>
       <div className="flex flex-col gap-1">
         {targets.map((id) => {
@@ -213,6 +213,8 @@ export function TradeDialog({
   onDispatch,
   onClose,
   seats,
+  give: giveProp,
+  onGive,
 }: {
   view: RedactedState;
   me: string;
@@ -221,9 +223,14 @@ export function TradeDialog({
   onDispatch: (action: Action) => void;
   onClose: () => void;
   seats?: SeatInfo[] | undefined;
+  /** Phase 12: the offer's "give" side may be controlled so the resource tray can add to it. */
+  give?: Hand | undefined;
+  onGive?: ((hand: Hand) => void) | undefined;
 }) {
   const [tab, setTab] = useState<"players" | "bank">("players");
-  const [give, setGive] = useState<Hand>(emptyHand);
+  const [giveLocal, setGiveLocal] = useState<Hand>(emptyHand);
+  const give = giveProp ?? giveLocal;
+  const setGive = onGive ?? setGiveLocal;
   const [receive, setReceive] = useState<Hand>(emptyHand);
   const [bankGive, setBankGive] = useState<Resource | Commodity | null>(null);
   const [bankReceive, setBankReceive] = useState<Resource | Commodity | null>(null);
@@ -248,7 +255,7 @@ export function TradeDialog({
   const bankAction = bankGive && bankReceive ? maritime.find((a) => a.give === bankGive && a.receive === bankReceive && a.giveCount === bestRatio(bankGive)) : undefined;
 
   return (
-    <Modal title="Trade" onClose={onClose} wide>
+    <TradePanel title="Trade" onClose={onClose}>
       <div className="mb-3 flex gap-1 border-b border-line" role="tablist">
         {(["players", "bank"] as const).map((t) => (
           <button
@@ -364,7 +371,28 @@ export function TradeDialog({
           </div>
         </>
       )}
-    </Modal>
+    </TradePanel>
+  );
+}
+
+/** The trade UI as a dark panel above the tray (docs/phase12.md §5): the board and the tray stay clickable. */
+function TradePanel({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div role="dialog" aria-label={title} className="hud-panel hud-dark fixed bottom-[124px] left-1/2 z-30 w-full max-w-xl -translate-x-1/2 rounded-lg p-4" data-testid="trade-dialog">
+      <div className="ink-rule mb-3 flex items-start justify-between gap-4 pb-2">
+        <h2 className="font-display text-xl font-semibold">{title}</h2>
+        <Button variant="quiet" size="sm" aria-label="Close" onClick={onClose}>
+          ✕
+        </Button>
+      </div>
+      <p className="mb-2 text-xs text-ink-soft">Tip: click a card in your tray to add it to the offer.</p>
+      {children}
+    </div>
   );
 }
 
@@ -439,8 +467,8 @@ export function EndedOverlay({ view, onPlayAgain, seats }: { view: RedactedState
   const winner = view.winner ? playerName(view, view.winner) : "Nobody";
   const winnerPlayer = view.players.find((p) => p.id === view.winner);
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/60 p-4" role="dialog" aria-modal="true" aria-label="Game over">
-      <div className="parchment w-full max-w-md rounded-lg p-6">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true" aria-label="Game over">
+      <div className="hud-panel hud-dark w-full max-w-md rounded-lg p-6">
         <p className="text-sm uppercase tracking-wide text-ink-soft">Game over</p>
         <div className="mt-1 flex items-center gap-3">
           {winnerPlayer && <Avatar spec={seats?.find((s) => s.playerId === winnerPlayer.id)?.avatar} color={winnerPlayer.color} name={winnerPlayer.name} size={72} className="piece-pop" />}

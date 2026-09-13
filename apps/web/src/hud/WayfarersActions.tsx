@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The bottom bar's Wayfarers buttons (docs/phase10.md §5), each shown only
+ * The module strip's Wayfarers buttons (docs/phase10.md §5, docs/phase12.md), each shown only
  * when its variant is on: Fish (opens the spend sheet), Guard and Rebuild
  * (raiders; board target modes), Caravan (board mode on the legal road
  * edges), and the wagon controls (step-by-step vertex picking with Go and
@@ -14,7 +14,7 @@ import { CARAVAN_LENGTH, MAX_GUARDS, WAGON_FREE_STEPS, WAGON_GOODS, type Action,
 import type { RedactedState } from "@/driver/types";
 import { wagonMoveFor, type TargetMode } from "@/board3d/Interaction";
 import { WAGON_GOOD_LABEL, currentPlayerId } from "@/game/labels";
-import { Button } from "../ui";
+import { Button } from "@/components/ui";
 
 export interface WagonControls {
   /** Stops picked so far after the wagon's own vertex. */

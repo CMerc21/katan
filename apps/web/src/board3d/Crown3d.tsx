@@ -5,8 +5,9 @@
  * knights as three-level figurines in the player's colour (grey while
  * inactive) with a pipped shield, a crenellated ring wall around walled
  * cities, the metropolis spire with a gold crown rising from the keep, the
- * rotund merchant beside his cart, and the barbarian longship advancing
- * along a track at the board's far edge. Everything is primitives; nothing
+ * rotund merchant beside his cart, and the barbarian longship that the
+ * on-table track (`src/board/props/BarbarianTrack`) sails along its markers.
+ * Everything is primitives; nothing
  * is loaded. `CrownBoard` renders whatever the view holds; the figures are
  * exported for the interaction layer's ghosts.
  */
@@ -14,11 +15,11 @@
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { FLEET_STEPS, type HexId, type KnightLevel, type PlayerColor, type Track, type VertexId } from "@katan/engine";
+import type { HexId, KnightLevel, PlayerColor, Track, VertexId } from "@katan/engine";
 import type { RedactedState } from "@/driver/types";
 import { PLAYER_FILL, TRACK_COLOR } from "@/game/theme";
-import { easeInOut, easeOutBack, progress } from "./geo";
-import { SLAB_HEIGHT, hexWorld, vertexWorld, type Bounds } from "./layout3d";
+import { easeOutBack, progress } from "./geo";
+import { SLAB_HEIGHT, hexWorld, vertexWorld } from "./layout3d";
 import * as P from "./palette";
 import { BaseRing, Mat, PIECE_SCALE } from "./Pieces";
 
@@ -411,56 +412,10 @@ export function LongshipFigure({ shadows = true }: { shadows?: boolean }) {
   );
 }
 
-/** The fleet track along the board's far edge: a stone marker per step and the longship at the fleet's position. */
-function FleetTrack({ bounds, position, shadows }: { bounds: Bounds; position: number; shadows: boolean }) {
-  const z = bounds.minZ - 0.9;
-  const span = Math.min(3.2, (bounds.maxX - bounds.minX) * 0.7);
-  const x0 = bounds.cx - span / 2;
-  const at = (i: number) => x0 + (span * i) / FLEET_STEPS;
-  const ship = useRef<THREE.Group>(null);
-  const from = useRef<number | null>(null);
-  const to = useRef(position);
-  const start = useRef(0);
-  useEffect(() => {
-    if (to.current !== position) {
-      from.current = to.current;
-      to.current = position;
-      start.current = performance.now();
-    }
-  }, [position]);
-  useFrame(({ clock }) => {
-    const g = ship.current;
-    if (!g) return;
-    const bob = Math.sin(clock.getElapsedTime() * 1.3) * 0.008;
-    const f = from.current;
-    if (f === null) {
-      g.position.set(at(to.current), bob, z);
-      return;
-    }
-    const t = Math.min(1, (performance.now() - start.current) / 700);
-    const k = easeInOut(t);
-    g.position.set(at(f) + (at(to.current) - at(f)) * k, bob, z);
-    if (t >= 1) from.current = null;
-  });
-  return (
-    <group name="fleet-track">
-      {Array.from({ length: FLEET_STEPS + 1 }, (_, i) => (
-        <mesh key={i} position={[at(i), 0.01, z]} receiveShadow={shadows}>
-          <cylinderGeometry args={[i === FLEET_STEPS ? 0.12 : 0.07, i === FLEET_STEPS ? 0.13 : 0.08, 0.02, 8]} />
-          <Mat color={i === FLEET_STEPS ? P.BRICK : P.KEEP_STONE} />
-        </mesh>
-      ))}
-      <group ref={ship} position={[at(position), 0, z]}>
-        <LongshipFigure shadows={shadows} />
-      </group>
-    </group>
-  );
-}
-
 // ---------------------------------------------------------------------------
 
 /** Everything Crown & Castle adds to the board, from the rendered view. */
-export function CrownBoard({ view, shadows, freshKnight, bounds }: { view: RedactedState; shadows: boolean; freshKnight: VertexId | null; bounds: Bounds }) {
+export function CrownBoard({ view, shadows, freshKnight }: { view: RedactedState; shadows: boolean; freshKnight: VertexId | null }) {
   const c = view.crown;
   if (!c || !view.scenario?.crown) return null;
   const colorOf = new Map(view.players.map((p) => [p.id, p.color] as const));
@@ -483,7 +438,6 @@ export function CrownBoard({ view, shadows, freshKnight, bounds }: { view: Redac
           <MerchantFigure shadows={shadows} />
         </group>
       )}
-      <FleetTrack bounds={bounds} position={Math.min(FLEET_STEPS, Math.max(0, c.fleet))} shadows={shadows} />
     </group>
   );
 }
@@ -504,7 +458,6 @@ export function crownPieceList(view: RedactedState): { key: string; piece: strin
     }
   }
   if (c.merchant) out.push({ key: "merchant", piece: "merchant", color: colorOf(c.merchant.playerId), text: `${nameOf(c.merchant.playerId)} merchant on ${c.merchant.hex}` });
-  out.push({ key: "longship", piece: "longship", text: `Barbarian fleet at step ${c.fleet} of ${FLEET_STEPS}` });
   return out;
 }
 

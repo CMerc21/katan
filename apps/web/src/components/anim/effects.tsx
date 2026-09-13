@@ -1,18 +1,17 @@
 "use client";
 
 /**
- * DOM-level animations for the event queue (docs/phase7.md §2.2): the turn
- * banner (heraldic ribbon), the dice tray, flying cards between anchors, the
- * dev card reveal, and the "thinking…" tag. All CSS transitions; no library.
+ * DOM-level animations for the event queue (docs/phase7.md §2.2): flying
+ * cards between anchors, the dev card reveal, confetti and the "thinking…"
+ * tag. The turn banner and the dice tray moved to `src/hud` (Phase 12).
+ * All CSS transitions; no library.
  */
 
 import { useEffect, useMemo, useState } from "react";
-import type { DevCardType, EventCardKind, EventDie, PlayerColor, Resource } from "@katan/engine";
-import type { RedactedState, SeatInfo } from "@/driver/types";
+import type { DevCardType, PlayerColor, Resource } from "@katan/engine";
+import type { RedactedState } from "@/driver/types";
 import type { Step } from "@/game/eventQueue";
-import { EVENT_CARD_LABEL, EVENT_DIE_LABEL } from "@/game/labels";
-import { BONE, COMMODITY_COLOR, FLEET_COLOR, GILT, INK, LEATHER, PLAYER_FILL, PLAYER_TEXT } from "@/game/theme";
-import { Avatar } from "../Avatar";
+import { PLAYER_FILL, PLAYER_TEXT } from "@/game/theme";
 import { CardBack, DevCardFace, ResourceCardFace } from "../cards";
 import { useAnchors, type Point } from "./anchors";
 
@@ -22,151 +21,10 @@ function asResource(x: string | null | undefined): Resource | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// Turn banner
-
-export function TurnBanner({ step, view, seats }: { step: Step | null; view: RedactedState; seats: SeatInfo[] | undefined }) {
-  const event = step?.kind === "event" && step.event.kind === "turnStarted" ? step.event : null;
-  const [shown, setShown] = useState<{ id: string; key: number } | null>(null);
-  useEffect(() => {
-    if (!event) return;
-    setShown({ id: event.playerId, key: event.seq });
-    const t = setTimeout(() => setShown(null), Math.max(300, step?.duration ?? 700));
-    return () => clearTimeout(t);
-  }, [event, step?.duration]);
-  if (!shown) return null;
-  const p = view.players.find((x) => x.id === shown.id);
-  if (!p) return null;
-  const seat = seats?.find((s) => s.playerId === p.id);
-  return (
-    <div key={shown.key} className="ribbon pointer-events-none fixed left-1/2 top-16 z-30 flex -translate-x-1/2 items-center gap-3 px-8 py-2" style={{ background: PLAYER_FILL[p.color], color: PLAYER_TEXT[p.color] }} data-testid="turn-banner" role="status">
-      <Avatar spec={seat?.avatar} color={p.color} name={p.name} size={36} />
-      <span className="font-display text-xl tracking-wide">{p.id === view.viewer ? "Your turn" : `${p.name}'s turn`}</span>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Thinking tag under a bot's avatar (rendered by the players panel through this hook)
 
 export function thinkingPlayer(step: Step | null): string | null {
   return step?.kind === "thinking" ? step.playerId : null;
-}
-
-// ---------------------------------------------------------------------------
-// Dice
-
-function Die({ n, rolling, delay, red = false }: { n: number; rolling: boolean; delay: number; red?: boolean }) {
-  const pips: Record<number, [number, number][]> = {
-    1: [[50, 50]],
-    2: [
-      [28, 28],
-      [72, 72],
-    ],
-    3: [
-      [28, 28],
-      [50, 50],
-      [72, 72],
-    ],
-    4: [
-      [28, 28],
-      [72, 28],
-      [28, 72],
-      [72, 72],
-    ],
-    5: [
-      [28, 28],
-      [72, 28],
-      [50, 50],
-      [28, 72],
-      [72, 72],
-    ],
-    6: [
-      [28, 24],
-      [72, 24],
-      [28, 50],
-      [72, 50],
-      [28, 76],
-      [72, 76],
-    ],
-  };
-  return (
-    <svg viewBox="0 0 100 100" width={34} height={34} className={rolling ? "die-tumble" : "die-settle"} style={{ animationDelay: `${delay}ms` }} aria-label={`${red ? "red die" : "die"} ${n}`} data-testid={red ? "red-die" : undefined}>
-      <rect x="6" y="6" width="88" height="88" rx="16" fill={red ? PLAYER_FILL.red : BONE} stroke={INK} strokeWidth={4} />
-      {(pips[n] ?? []).map(([x, y], i) => (
-        <circle key={i} cx={x} cy={y} r={8} fill={red ? BONE : INK} />
-      ))}
-    </svg>
-  );
-}
-
-/** Crown & Castle's event die (docs/rules.md §16.2): a black sail for the fleet, the track's commodity colour otherwise. */
-function EventDieFace({ event, rolling, delay }: { event: EventDie; rolling: boolean; delay: number }) {
-  const fill = event === "fleet" ? FLEET_COLOR : COMMODITY_COLOR[event === "trade" ? "cloth" : event === "politics" ? "coin" : "paper"];
-  return (
-    <svg viewBox="0 0 100 100" width={34} height={34} className={rolling ? "die-tumble" : "die-settle"} style={{ animationDelay: `${delay}ms` }} aria-label={`event die ${EVENT_DIE_LABEL[event]}`} data-testid="event-die" data-event={event}>
-      <rect x="6" y="6" width="88" height="88" rx="16" fill={BONE} stroke={INK} strokeWidth={4} />
-      {event === "fleet" ? (
-        <>
-          <path d="M50 18 V64 L78 56 Z" fill={fill} />
-          <path d="M22 66 H78 L70 80 H30 Z" fill="#8a6a44" stroke={INK} strokeWidth={2} />
-        </>
-      ) : event === "trade" ? (
-        <path d="M22 34 Q36 24 50 34 T78 34 V70 Q64 80 50 70 T22 70 Z" fill={fill} stroke={INK} strokeWidth={2} />
-      ) : event === "politics" ? (
-        <>
-          <circle cx="50" cy="52" r="26" fill={fill} stroke={INK} strokeWidth={2} />
-          <circle cx="50" cy="52" r="16" fill="none" stroke="#7a4a1f" strokeWidth={3} />
-        </>
-      ) : (
-        <>
-          <rect x="30" y="22" width="40" height="58" fill="#f8f4ea" stroke={INK} strokeWidth={2} />
-          <path d="M38 38 H62 M38 50 H62 M38 62 H56" stroke={fill} strokeWidth={3} />
-        </>
-      )}
-    </svg>
-  );
-}
-
-/** The event deck's drawn card (docs/rules.md §15.1) shown in place of the dice. */
-function EventCard({ total, event, rolling }: { total: number; event: EventCardKind | null; rolling: boolean }) {
-  return (
-    <div className={`flex h-12 w-9 flex-col items-center justify-center rounded border-2 ${rolling ? "die-settle" : ""}`} style={{ background: BONE, borderColor: event ? GILT : INK, color: INK }} aria-label={`card ${total}${event ? `, ${EVENT_CARD_LABEL[event]}` : ""}`} data-testid="event-card" data-event={event ?? undefined}>
-      <span className="font-display text-lg font-semibold leading-none">{total}</span>
-      {event && <span className="mt-0.5 text-[7px] leading-tight text-center" style={{ color: "#6f1519" }}>{EVENT_CARD_LABEL[event]}</span>}
-    </div>
-  );
-}
-
-export function DiceTray({ step, view }: { step: Step | null; view: RedactedState }) {
-  const rolling = step?.kind === "event" && step.event.kind === "diceRolled";
-  const dice = rolling && step.event.kind === "diceRolled" ? step.event.dice : view.lastRoll;
-  const [showing, setShowing] = useState(false);
-  // Under the event deck a roll carries its card; keep the last one to show between rolls.
-  const drawn = rolling && step.event.kind === "diceRolled" ? (step.event.card ?? null) : null;
-  const [card, setCard] = useState<{ total: number; event: EventCardKind | null } | null>(null);
-  useEffect(() => {
-    if (rolling) setShowing(true);
-    if (drawn) setCard(drawn);
-  }, [rolling, drawn]);
-  // Crown & Castle (docs/rules.md §16.2): the event die lands beside the number dice and the first die is red.
-  const crown = view.scenario?.crown === true;
-  const eventDie: EventDie | null = rolling && step.event.kind === "diceRolled" ? (step.event.event ?? null) : (view.crown?.lastEvent ?? null);
-  if (!dice || (!showing && !view.lastRoll)) return null;
-  const deck = view.scenario?.variants.eventDeck === true;
-  if (deck && card) {
-    return (
-      <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-1.5 rounded-lg px-2 py-1.5" style={{ background: LEATHER, boxShadow: "inset 0 0 0 2px rgba(0,0,0,.35), 0 2px 4px rgba(0,0,0,.4)" }} data-testid="dice-tray" aria-label={`drew ${card.total}`}>
-        <EventCard total={card.total} event={card.event} rolling={!!rolling} />
-      </div>
-    );
-  }
-  return (
-    <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-1.5 rounded-lg px-2 py-1.5" style={{ background: LEATHER, boxShadow: "inset 0 0 0 2px rgba(0,0,0,.35), 0 2px 4px rgba(0,0,0,.4)" }} data-testid="dice-tray" aria-label={`dice ${dice[0]} and ${dice[1]}`}>
-      <Die n={dice[0]} rolling={!!rolling} delay={0} red={crown} />
-      <Die n={dice[1]} rolling={!!rolling} delay={120} />
-      {crown && eventDie && <EventDieFace event={eventDie} rolling={!!rolling} delay={240} />}
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
