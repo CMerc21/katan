@@ -182,7 +182,8 @@ function applyRoll(state: GameState, playerId: PlayerId): void {
   });
 
   if (total === 7) {
-    const noRobber = hooks.some((h) => h.onSeven?.(state) === "noRobber");
+    // Every module sees the seven (the raider counter, Robber's Rest, the first-attack rule); any may keep the robber home.
+    const noRobber = hooks.map((h) => h.onSeven?.(state)).includes("noRobber");
     startDiscards(state, noRobber ? { kind: "action" } : { kind: "moveRobber", via: "seven", returnTo: "action" });
   } else {
     const ctx = produce(state, total);
