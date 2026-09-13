@@ -21,6 +21,7 @@ import {
   resourceNeed,
   threat,
   vertexScore,
+  victoryTarget,
 } from "./eval";
 import { best, ensureLegal, ofType, pick, resourceTrades, type BotPolicy, type RedactedState, type Rng } from "./types";
 import { chooseGuard, choosePrompt, cityBonus, linkBonus, wayfarersAfterBuild, wayfarersBeforeBuild, withBoot } from "./wayfarers";
@@ -189,7 +190,8 @@ export function respondToTrade(view: RedactedState, legal: Action[], rng: Rng): 
   const before = handTotal(need.missing);
   const after = RESOURCES.reduce((n, r) => n + Math.max(0, need.cost[r] - (hand[r] - trade.receive[r] + trade.give[r])), 0);
   const givesAwayShort = RESOURCES.some((r) => trade.receive[r] > 0 && hand[r] - trade.receive[r] < need.cost[r]);
-  const leaderAsking = threat(view).leader?.id === trade.from && publicVP(view.players.find((p) => p.id === trade.from)!) >= 8;
+  // Crown & Castle (docs/phase11.md §10): "close to winning" is relative to the scenario's target (8 of 10 in the base game).
+  const leaderAsking = threat(view).leader?.id === trade.from && publicVP(view.players.find((p) => p.id === trade.from)!) >= victoryTarget(view) - 2;
   // Wayfarers (docs/phase10.md §2): an offer carrying the old boot (-1 VP) is taken only when it completes the build.
   if (trade.boot === true && after > 0) return reject ?? pick(rng, legal);
   if (after < before && !givesAwayShort && !leaderAsking) return withBoot(legal, accept);
@@ -211,7 +213,6 @@ export function longestRoadGain(view: RedactedState, edge: string, playerId: str
 export function chooseTurnAction(view: RedactedState, legal: Action[], rng: Rng): Action {
   const me = view.viewer;
   const p = meOf(view);
-  const hand = myHand(view);
   const need = resourceNeed(view, me);
 
   // Wayfarers (docs/phase10.md §4): fish, caravans, rebuilds and deliveries first (free or clearly profitable).
@@ -252,6 +253,16 @@ export function chooseTurnAction(view: RedactedState, legal: Action[], rng: Rng)
   // Wayfarers (docs/phase10.md §4): guards, wagon moves and boot-passing offers before roads and purchases.
   const later = wayfarersAfterBuild(view, legal, rng);
   if (later) return later;
+  return chooseLateTurnAction(view, legal, rng);
+}
+
+/** The tail of a turn once nothing is left to build: roads and ships that open something, purchases, trades, one offer, end. */
+export function chooseLateTurnAction(view: RedactedState, legal: Action[], rng: Rng): Action {
+  const me = view.viewer;
+  const hand = myHand(view);
+  const need = resourceNeed(view, me);
+  const cities = ofType(legal, "BUILD_CITY");
+  const settlements = ofType(legal, "BUILD_SETTLEMENT");
   const links = [
     ...ofType(legal, "BUILD_ROAD").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me) + longestRoadGain(view, a.edge, me) + linkBonus(view, a.edge, me) })),
     ...ofType(legal, "BUILD_SHIP").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me, "ship") + longestRoadGain(view, a.edge, me) })),

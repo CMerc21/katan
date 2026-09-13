@@ -341,6 +341,11 @@ export function publicVP(p: RedactedPlayer): number {
   return p.publicVP + (p.privateVP ?? 0);
 }
 
+/** The scenario's winning score (10 in the base game; Crown & Castle plays to 13, docs/phase11.md §10). */
+export function victoryTarget(view: RedactedState): number {
+  return view.scenario?.victoryPoints ?? 10;
+}
+
 /** §6.3 threat: the strongest opponent and how close they are to special cards. */
 export function threat(view: RedactedState): { leader: RedactedPlayer | null; leaderVP: number; roadThreat: string | null; armyThreat: string | null } {
   const opponents = view.players.filter((p) => p.id !== view.viewer);

@@ -17,8 +17,8 @@ import {
   type EdgeId,
   type VertexId,
 } from "@katan/engine";
-import { afford, edgeTowardScore, geo, handTotal, hexValueFor, myHand, productionOf, publicVP, resourceNeed, scarcity, settlementCandidates, threat, vertexScore } from "./eval";
-import { bestSetupLink, chooseGold, chooseRobberHex, chooseShipMove, chooseSpecialBuild, discardKeepingTarget, longestRoadGain, offeredThisTurn, respondToTrade } from "./medium";
+import { afford, edgeTowardScore, geo, handTotal, hexValueFor, myHand, productionOf, publicVP, resourceNeed, scarcity, settlementCandidates, threat, vertexScore, victoryTarget } from "./eval";
+import { bestSetupLink, chooseGold, chooseLateTurnAction, chooseRobberHex, chooseShipMove, chooseSpecialBuild, discardKeepingTarget, longestRoadGain, offeredThisTurn, respondToTrade } from "./medium";
 import { best, ensureLegal, isResourceTrade, ofType, pick, type BotPolicy, type RedactedState, type Rng } from "./types";
 import { choosePrompt, linkBonus, positionBonus, wayfarersAfterBuild, wayfarersBeforeBuild, withBoot } from "./wayfarers";
 import { crownBeforeBuild, crownBeforeRoll, crownBuild, crownPositionBonus, usefulCommodityTrades } from "./crown";
@@ -165,7 +165,8 @@ export function positionScore(view: RedactedState, playerId: string): number {
   for (const r of RESOURCES) production += prod[r] * weights[r];
   const targets = plan(view, playerId);
   const planScore = targets.reduce((n, t) => n + t.value, 0);
-  const endgame = vp >= 8 ? 3 : 1;
+  // Crown & Castle (docs/phase11.md §10): the endgame starts two points short of the scenario's target (8 in the base game).
+  const endgame = vp >= victoryTarget(view) - 2 ? 3 : 1;
   const hand = playerId === view.viewer ? myHand(view) : null;
   const need = resourceNeed(view, playerId);
   const closeness = hand ? -handTotal(need.missing) : 0;
@@ -242,10 +243,17 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
   if (bestAction && (bestAction.type === "BUILD_SETTLEMENT" || bestAction.type === "BUILD_CITY")) return bestAction;
   const later = wayfarersAfterBuild(view, legal, rng);
   if (later) return later;
+  // Crown & Castle (docs/phase11.md §10): once nothing scores as a settlement or city, the medium crown rules
+  // (improvements, knights when short, activation, commodity trades, promotions, walls) come first, then the
+  // lookahead's pick, then medium's road, trade and offer tail: the one-ply search never builds the first of two
+  // roads toward a spot and the base game's dev cards, which used to absorb spare cards, do not exist here.
+  if (view.crown) {
+    const crownNow = crownBuild(view, legal, rng);
+    if (crownNow) return crownNow;
+    if (bestAction) return bestAction;
+    return chooseLateTurnAction(view, legal, rng);
+  }
   if (bestAction) return bestAction;
-  // Crown & Castle (docs/phase11.md §10): the medium rules as a safety net when the lookahead found nothing.
-  const crownLater = crownBuild(view, legal, rng);
-  if (crownLater) return crownLater;
   const shipMove = chooseShipMove(view, legal, rng);
   if (shipMove) return shipMove;
 
@@ -301,9 +309,9 @@ function respondToTradeHard(view: RedactedState, legal: Action[], rng: Rng): Act
   const trade = view.pendingTrade;
   const accept = legal.find((a) => a.type === "ACCEPT_TRADE");
   if (!trade || !accept) return respondToTrade(view, legal, rng);
-  // Decline anything that helps a leader close on 10.
+  // Decline anything that helps a leader close on the target (Crown & Castle plays to 13, docs/phase11.md §10).
   const from = view.players.find((p) => p.id === trade.from)!;
-  if (publicVP(from) >= 8) return legal.find((a) => a.type === "REJECT_TRADE") ?? pick(rng, legal);
+  if (publicVP(from) >= victoryTarget(view) - 2) return legal.find((a) => a.type === "REJECT_TRADE") ?? pick(rng, legal);
   // Wayfarers (docs/phase10.md §2): the medium rule handles an offer that carries the old boot.
   if (trade.boot === true) return respondToTrade(view, legal, rng);
   // Score both sides by expected production access: accept if my gain ≥ theirs.

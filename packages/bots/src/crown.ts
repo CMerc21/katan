@@ -223,6 +223,16 @@ export function fleetRisk(view: RedactedState): { fleet: number; rolls: number; 
   return { fleet, rolls, risk };
 }
 
+function activeDefenceOf(view: RedactedState, playerId: string): number {
+  return (crownOf(view)?.knights ?? []).filter((k) => k.owner === playerId && k.active).reduce((n, k) => n + k.level, 0);
+}
+
+function isExposed(view: RedactedState, playerId: string): boolean {
+  const cp = crownPlayerOf(view, playerId);
+  const metropolises = new Set(Object.values(cp?.metropolises ?? {}).filter((v): v is VertexId => v !== null));
+  return player(view, playerId).cities.some((v) => !metropolises.has(v));
+}
+
 export function defence(view: RedactedState, playerId: string): Defence {
   const crown = crownOf(view);
   const { fleet, rolls, risk } = fleetRisk(view);
@@ -235,9 +245,7 @@ export function defence(view: RedactedState, playerId: string): Defence {
   }
   const cities = view.players.reduce((n, p) => n + p.cities.length, 0);
   const fair = cities === 0 ? 0 : Math.max(1, Math.ceil(cities / view.players.length));
-  const cp = crownPlayerOf(view, playerId);
-  const metropolises = new Set(Object.values(cp?.metropolises ?? {}).filter((v): v is VertexId => v !== null));
-  const exposed = player(view, playerId).cities.some((v) => !metropolises.has(v));
+  const exposed = isExposed(view, playerId);
   return { active, inactive, fair, fleet, rolls, risk, short: Math.max(0, fair - active), exposed };
 }
 
@@ -725,7 +733,7 @@ export function usefulCommodityTrades(view: RedactedState, legal: Action[]): Tra
   for (const a of ofType(legal, "MARITIME_TRADE")) {
     if (isCommodity(a.give)) {
       if (isCommodity(a.receive)) continue;
-      if (need.missing[a.receive] === 0 || handTotal(need.missing) > 2) continue;
+      if (need.missing[a.receive] === 0 || handTotal(need.missing) !== 1) continue;
       const track = trackOf(a.give);
       // Never delay a wanted improvement: keep what the next level costs unless the ability is already bought.
       const level = crownPlayerOf(view, me)?.tracks[track] ?? 0;
@@ -920,6 +928,32 @@ export function chooseCrownPrompt(view: RedactedState, legal: Action[], rng: Rng
 // ---------------------------------------------------------------------------
 // Position terms for the hard bot (docs/phase5.md §6.6)
 
+/** Weights of the crown terms in `positionScore` (tuned on the hard-vs-medium tournament, docs/phase11.md §10). */
+export const CROWN_WEIGHTS = {
+  /** Per improvement level. */
+  level: 1.2,
+  /** A level-3 ability. */
+  ability: 2,
+  /** A metropolis the bot is about to place (its 2 VP at the VP weight). */
+  pendingMetropolis: 20,
+  /** Active defence up to the fair share: base + risk-scaled part. */
+  activeBase: 0.6,
+  activeRisk: 0.4,
+  /** Active defence beyond the fair share. */
+  activeExtra: 0.3,
+  /** A knight in reserve (per level), far from / near the attack. */
+  inactiveFar: 0.25,
+  inactiveNear: 0.15,
+  /** Being the single strongest defender once the fleet is at 3 or more (the Defender chip). */
+  topDefender: 1.5,
+  /** Commodity pips per turn from cities on the primary / other tracks. */
+  incomePrimary: 0.35,
+  incomeOther: 0.35,
+  /** A commodity beyond the next level's cost. */
+  spareCommodity: 0.2,
+  wall: 0.3,
+};
+
 /**
  * Track levels (1.2 each, +2 for a level-3 ability, a pending metropolis at
  * its VP value), active defence against the fair share with a fleet-risk
@@ -930,30 +964,38 @@ export function crownPositionBonus(view: RedactedState, playerId: string): numbe
   const crown = crownOf(view);
   const cp = crownPlayerOf(view, playerId);
   if (!crown || !cp) return 0;
+  const W = CROWN_WEIGHTS;
   let bonus = 0;
   for (const t of TRACKS) {
     const level = cp.tracks[t];
-    bonus += level * 1.2;
-    if (level >= 3) bonus += 2;
+    bonus += level * W.level;
+    if (level >= 3) bonus += W.ability;
     if (level >= METROPOLIS_LEVEL && cp.metropolises[t] === null) {
       const holder = crown.metropolis[t];
       const holderLevel = holder === null ? 0 : (crown.players[holder]?.tracks[t] ?? 0);
-      if (holder === null || (level >= MAX_LEVEL && holderLevel < MAX_LEVEL)) bonus += 20;
+      if (holder === null || (level >= MAX_LEVEL && holderLevel < MAX_LEVEL)) bonus += W.pendingMetropolis;
     }
   }
   const d = defence(view, playerId);
   const potential = d.active + (d.fleet >= 5 ? 0.3 : 0.8) * d.inactive;
-  bonus += Math.min(d.active, d.fair) * (0.6 + 0.4 * d.risk);
-  bonus += Math.max(0, d.active - d.fair) * 0.3;
-  bonus += d.inactive * (d.fleet >= 5 ? 0.3 : 0.5);
+  bonus += Math.min(d.active, d.fair) * (W.activeBase + W.activeRisk * d.risk);
+  bonus += Math.max(0, d.active - d.fair) * W.activeExtra;
+  // A knight in reserve is worth less than the wool and ore it cost unless the fair share is short.
+  bonus += d.inactive * (d.fleet >= 5 ? W.inactiveNear : W.inactiveFar);
   if (potential < d.fair) bonus -= (d.fair - potential) * d.risk * (d.exposed ? 1 : 0.5);
   if (d.active > 0 && d.fleet >= 3) {
-    const topOpponent = Math.max(0, ...view.players.filter((p) => p.id !== playerId).map((p) => defence(view, p.id).active));
-    if (d.active > topOpponent) bonus += 1.5;
+    const topOpponent = Math.max(0, ...view.players.filter((p) => p.id !== playerId).map((p) => activeDefenceOf(view, p.id)));
+    if (d.active > topOpponent) bonus += W.topDefender;
   }
-  bonus += commodityTotal(cp.commodities) * 0.2;
+  // Commodities are worth their share of the next level, spares a little.
+  for (const t of TRACKS) {
+    const held = cp.commodities[TRACK_COMMODITY[t]];
+    const cost = cp.tracks[t] >= MAX_LEVEL ? Infinity : cp.tracks[t] + 1;
+    bonus += Math.min(held, cost) * (Number.isFinite(cost) ? (W.level / cost) * 0.8 : W.spareCommodity) + Math.max(0, held - cost) * W.spareCommodity;
+  }
   const income = commodityIncome(view, playerId);
-  bonus += (income.trade + income.politics + income.science) * 0.35;
-  bonus += cp.walls.length * 0.3;
+  const plan = improvementPlan(view, playerId);
+  for (const t of TRACKS) bonus += income[t] * (t === plan.primary ? W.incomePrimary : W.incomeOther);
+  bonus += cp.walls.length * W.wall;
   return bonus;
 }

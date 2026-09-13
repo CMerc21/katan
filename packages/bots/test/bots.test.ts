@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createGame, legalActions, nextActor, redact, rng, type GameState } from "@katan/engine";
+import { createGame, legalActions, nextActor, redact, rng, type Action, type GameEvent, type GameState, type Scenario } from "@katan/engine";
 import { BOT_LEVELS, botStep, createBot, playBotGame, type BotLevel } from "../src/index";
 
 const FOUR = [
@@ -227,6 +227,102 @@ describe("docs/phase10.md §9 bots on the Wayfarers scenarios", () => {
     const scenario = builtInScenario("greatLake");
     const a = playBotGame({ seed: "det-lake", players: FOUR, scenario, levels: ["hard", "medium", "easy", "medium"] });
     const b = playBotGame({ seed: "det-lake", players: FOUR, scenario, levels: ["hard", "medium", "easy", "medium"] });
+    expect(a.final.phase.kind).toBe("ended");
+    expect(b.actions).toEqual(a.actions);
+    expect(b.final).toEqual(a.final);
+  }, 60_000);
+});
+
+describe("docs/phase11.md §10 bots under Crown & Castle", () => {
+  const LEVELS: BotLevel[] = ["hard", "medium", "easy", "medium"];
+
+  /** `playBotGame` with the event stream kept, so fleet attacks, downgrades and Defender chips can be counted exactly (the derived log is capped). */
+  async function playCrownGame(seed: string, levels: readonly BotLevel[], scenario: Scenario) {
+    const { applyActionWithEvents } = await import("@katan/engine");
+    const policies = new Map<string, ReturnType<typeof createBot>>();
+    FOUR.forEach((p, i) => policies.set(p.id, createBot(levels[i]!)));
+    let state = createGame({ seed, players: FOUR, scenario });
+    const actions: Action[] = [];
+    const events: GameEvent[] = [];
+    while (state.phase.kind !== "ended" && state.turn < 600 && actions.length < 20_000) {
+      const actor = nextActor(state);
+      const action = botStep(state, actor, policies.get(actor)!);
+      const result = applyActionWithEvents(state, action);
+      state = result.state;
+      actions.push(action);
+      events.push(...result.events);
+    }
+    return { final: state, actions, events, turns: state.turn };
+  }
+
+  it("crownStandard: 50 mixed games finish with a winner; improvements, knights, attacks, downgrades, Defender chips and progress cards all happen", async () => {
+    const { builtInScenario } = await import("@katan/engine");
+    const scenario = builtInScenario("crownStandard");
+    const counts = { improvements: 0, knightsBuilt: 0, knightsActivated: 0, attacks: 0, downgrades: 0, defenderChips: 0, progressPlayed: 0, metropolises: 0 };
+    for (let i = 0; i < 50; i++) {
+      if (i % 5 === 0) await new Promise((r) => setTimeout(r, 0));
+      const rotated = LEVELS.map((_, j) => LEVELS[(j + i) % 4]!);
+      const g = await playCrownGame(`crown-${i}`, rotated, scenario);
+      expect(g.final.phase.kind, `crownStandard seed ${i} stalled at turn ${g.turns}`).toBe("ended");
+      expect(g.final.winner).not.toBeNull();
+      counts.improvements += g.actions.filter((a) => a.type === "BUILD_IMPROVEMENT").length;
+      counts.knightsBuilt += g.actions.filter((a) => a.type === "BUILD_KNIGHT").length;
+      counts.knightsActivated += g.actions.filter((a) => a.type === "ACTIVATE_KNIGHT").length;
+      counts.progressPlayed += g.actions.filter((a) => a.type === "PLAY_PROGRESS").length;
+      counts.attacks += g.events.filter((e) => e.kind === "fleetAttacked").length;
+      counts.downgrades += g.events.filter((e) => e.kind === "cityDowngraded").length;
+      counts.defenderChips += g.events.filter((e) => e.kind === "defenderAwarded" && e.chip).length;
+      counts.metropolises += g.events.filter((e) => e.kind === "metropolisPlaced").length;
+    }
+    expect(counts.improvements).toBeGreaterThan(100);
+    expect(counts.knightsBuilt).toBeGreaterThan(20);
+    expect(counts.knightsActivated).toBeGreaterThan(20);
+    expect(counts.attacks).toBeGreaterThan(0);
+    expect(counts.downgrades).toBeGreaterThan(0);
+    expect(counts.defenderChips).toBeGreaterThan(0);
+    expect(counts.progressPlayed).toBeGreaterThan(20);
+    expect(counts.metropolises).toBeGreaterThan(0);
+  }, 600_000);
+
+  it("tournament: hard beats medium over 40 games of crownStandard (two seats each, rotated)", async () => {
+    const { builtInScenario } = await import("@katan/engine");
+    const scenario = builtInScenario("crownStandard");
+    const levels: BotLevel[] = ["hard", "hard", "medium", "medium"];
+    const wins = { hard: 0, medium: 0, easy: 0 };
+    for (let i = 0; i < 40; i++) {
+      if (i % 5 === 0) await new Promise((r) => setTimeout(r, 0));
+      const rotated = levels.map((_, j) => levels[(j + i) % 4]!);
+      const g = playBotGame({ seed: `crown-tourney-${i}`, players: FOUR, scenario, levels: rotated, maxTurns: 600 });
+      expect(g.final.phase.kind, `crownStandard tourney seed ${i} stalled at turn ${g.turns}`).toBe("ended");
+      const seat = FOUR.findIndex((p) => p.id === g.final.winner);
+      if (seat >= 0) wins[rotated[seat]!] += 1;
+    }
+    expect(wins.hard, `hard ${wins.hard} vs medium ${wins.medium}`).toBeGreaterThan(wins.medium);
+  }, 600_000);
+
+  it("tidesCrown (Gold Coast with Crown & Castle): 50 mixed games finish with a winner", async () => {
+    const { builtInScenario } = await import("@katan/engine");
+    const scenario: Scenario = { ...builtInScenario("goldCoast"), id: "tidesCrown", modules: { tides: true, crown: true }, victoryPoints: 13 };
+    let ships = 0;
+    let improvements = 0;
+    for (let i = 0; i < 50; i++) {
+      if (i % 5 === 0) await new Promise((r) => setTimeout(r, 0));
+      const rotated = LEVELS.map((_, j) => LEVELS[(j + i) % 4]!);
+      const g = playBotGame({ seed: `tides-crown-${i}`, players: FOUR, scenario, levels: rotated, maxTurns: 600 });
+      expect(g.final.phase.kind, `tidesCrown seed ${i} stalled at turn ${g.turns}`).toBe("ended");
+      expect(g.final.winner).not.toBeNull();
+      ships += g.actions.filter((a) => a.type === "BUILD_SHIP").length;
+      improvements += g.actions.filter((a) => a.type === "BUILD_IMPROVEMENT").length;
+    }
+    expect(ships).toBeGreaterThan(0);
+    expect(improvements).toBeGreaterThan(0);
+  }, 600_000);
+
+  it("is deterministic on crownStandard", async () => {
+    const { builtInScenario } = await import("@katan/engine");
+    const scenario = builtInScenario("crownStandard");
+    const a = playBotGame({ seed: "det-crown", players: FOUR, scenario, levels: LEVELS, maxTurns: 600 });
+    const b = playBotGame({ seed: "det-crown", players: FOUR, scenario, levels: LEVELS, maxTurns: 600 });
     expect(a.final.phase.kind).toBe("ended");
     expect(b.actions).toEqual(a.actions);
     expect(b.final).toEqual(a.final);
