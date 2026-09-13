@@ -43,11 +43,19 @@ Shared behaviour: `startDiscards` / the `discard` phase carry a `returnTo` phase
 
 ## 4. Bots
 
-PLACEHOLDER_BOTS
+`packages/bots/src/wayfarers.ts` holds every variant heuristic; medium and hard call it from marked hook points (`choosePrompt`, before/after-build hooks in the turn action, `vertexBonus` inside `vertexScore`, `linkBonus` for road choice, `positionBonus` in hard's `positionScore`); easy takes the before-build hook 70 % of the time and otherwise plays as before.
+
+- Prompts: `placeCastle` → the own settlement with the most pips; `neighborlyHelp` → the most-held resource when holding ≥ 5 cards and the receiver is not the leader, else nothing; unknown prompt kinds fall back to a random legal answer.
+- Fishing: spend greedily, most expensive affordable first (free development card or free city, free road toward the best `edgeTowardScore` edge, a needed bank resource, a steal from the leader, and the 2-fish robber move only when the robber sits on an own producing hex). The boot variants of accept/offer are preferred whenever the engine lists them; responders decline boot-carrying offers unless the trade completes their build.
+- Rivers: +0.8 per river edge in `vertexScore`, a river-edge road preference once the bot has two bridges; Harbormaster: +1.5 on harbour vertices and harbour settlements are upgraded first; Caravans: oasis pips count, a caravan is always extended when legal (spice has no other use), preferring the edge with the most own roads and buildings around it; Raiders: raided own hexes are rebuilt whenever legal, and from counter ≥ 10 guards go on the bot's coastal producing hexes whose strength exceeds their defence, unless a settlement or city is affordable right now; Wagons: a multi-source BFS over every player's roads drives deliver → load (a good some opponent city demands, only when a target is reachable) → move toward the nearest useful city, paying grain or a toll only when the move completes the job.
 
 ## 5. Editor and client
 
-PLACEHOLDER_UI
+- `src/components/wayfarers/`: `FishSheet` (the five favours with costs and reasons; player / resource pickers; board modes `fishRobber`, `fishRoad`, `fishCity`), `NeighborlyDialog`, `WayfarersActions` (bottom-bar buttons `fish`, `guard`, `rebuild`, `caravan`, `wagon` with step-by-step path picking and `wagon-go`, `wagon-load` / `wagon-deliver` with a good picker), `Badges` (fish, boot, coins, chips, castle, guards, rebuilt, spice, deliveries, cargo; the raider strip "Raiders x/15" and the event deck count). The trade dialog and the accept popover gain "pass the old boot" checkboxes when the legal list carries the boot variant; the dice tray shows the drawn event card under the event deck.
+- `src/board3d/Wayfarers3d.tsx`: lake water with ripples, fishing buoys with tokens, river ribbons and bridges, oasis pools with a palm, camels along caravan tracks, guards ringed around hexes, castle keeps, ash-and-stakes raided overlays, animated wagons with cargo cubes, city goods and demand signs; `Interaction` target modes `guard | rebuild | caravan | wagon | fishRobber | fishRoad | fishCity` (castle prompts need no mode) with `data-target` values and an sr-only piece list (`lake`, `fishing-ground`, `castle`, `guard`, `raided`, `wagon`, `caravan`). `board2d/Thumbnail` draws rivers, oases and fishing tokens.
+- `eventQueue.ts` (`applyWayfarersEvent`) applies every Wayfarers event to the rendered view (a one-event `freeBuild` marker makes the build that follows a fish spend cost nothing); five reconstruction tests compare the rendered view with `redact()` on each Wayfarers built-in and on the "Everything" scenario.
+- Editor: see §1 and `docs/phase8.md` §4 — tools **River** (R), **Fishing ground** (G, token typed 2–12), **Oasis** (O), the lake as terrain 8, a Markers section to clear layers, the Scenario section's **Crown & Castle** toggle and **Variants** list with a plain-language summary per variant, and `scenarioSummary` blurbs in `/boards` and the picker.
+- Lobby / picker: `BoardPicker` badges scenarios as `tides`, `crown` or `wayfarers`; blurbs come from `scenarioSummary`.
 
 ## 6. Tests
 
