@@ -65,7 +65,7 @@ describe("docs/rules.md §14 Tides", () => {
       expect(hasErrors(validateScenario(s))).toBe(false);
       const game = createGame({ seed: "x", players: FOUR, scenario: s });
       expect(game.scenario).toEqual(scenarioRules(s));
-      expect(game.board.seaPlayable).toBe(true);
+      expect(game.board.seaPlayable).toBe(s.modules.tides === true);
       expect(game.board.islands.length).toBeGreaterThan(0);
       expect(game.boardKind).toBe("custom");
     }

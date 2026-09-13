@@ -5,14 +5,22 @@
  * with the seeded generator, except the gold fields, which are pinned.
  */
 
-import type { Terrain } from "./board";
-import type { BoardDefinition, HexDef } from "./definition";
-import { hexId, neighbor, type HexCoord } from "./geometry";
-import { standardHexes } from "./frames";
+import { PORT_KINDS, boundaryEdgesInOrder, portEdgesInOrder, type PortKind, type Resource, type Terrain } from "./board";
+import type { BoardDefinition, EdgeDef, HarborDef, HexDef } from "./definition";
+import { hexEdge, hexId, neighbor, type HexCoord } from "./geometry";
+import { largeFrame, standardFrame, standardHexes } from "./frames";
 import type { Scenario } from "./scenario";
 
-export type BuiltInScenarioId = "acrossTheStrait" | "archipelago" | "goldCoast";
-export const BUILT_IN_SCENARIO_IDS: readonly BuiltInScenarioId[] = ["acrossTheStrait", "archipelago", "goldCoast"];
+export type BuiltInScenarioId =
+  | "acrossTheStrait"
+  | "archipelago"
+  | "goldCoast"
+  | "greatLake"
+  | "riverCountry"
+  | "coastalWatch"
+  | "saltRoad"
+  | "crownStandard";
+export const BUILT_IN_SCENARIO_IDS: readonly BuiltInScenarioId[] = ["acrossTheStrait", "archipelago", "goldCoast", "greatLake", "riverCountry", "coastalWatch", "saltRoad", "crownStandard"];
 
 export function isBuiltInScenarioId(value: unknown): value is BuiltInScenarioId {
   return typeof value === "string" && (BUILT_IN_SCENARIO_IDS as readonly string[]).includes(value);
@@ -105,8 +113,122 @@ export function goldCoastBoard(): BoardDefinition {
   return { ...def, presets: { terrainPool: pool } };
 }
 
+// ---------------------------------------------------------------------------
+// Phase 10 and 11 built-ins (docs/phase10.md §8, docs/phase11.md §13)
+
+function harbor(edge: string, kind: PortKind): HarborDef {
+  return kind === "any" ? { edge, ratio: 3 } : { edge, ratio: 2, resource: kind as Resource };
+}
+
+/** The standard frame with a lake in place of the wasteland and three fishing grounds on the coast between the harbours. */
+export function greatLakeBoard(): BoardDefinition {
+  const base = standardFrame();
+  const ordered = boundaryEdgesInOrder();
+  const grounds: EdgeDef[] = [
+    { edge: ordered[5] as string, kind: "fishingGround", token: 5 },
+    { edge: ordered[15] as string, kind: "fishingGround", token: 9 },
+    { edge: ordered[25] as string, kind: "fishingGround", token: 8 },
+  ];
+  const pool: Terrain[] = [
+    ...Array<Terrain>(4).fill("forest"),
+    ...Array<Terrain>(3).fill("claypit"),
+    ...Array<Terrain>(4).fill("meadow"),
+    ...Array<Terrain>(4).fill("farmland"),
+    ...Array<Terrain>(3).fill("mountain"),
+  ];
+  return {
+    ...base,
+    name: "The Great Lake",
+    hexes: base.hexes.map((h): HexDef => (h.at.q === 0 && h.at.r === 0 ? { at: h.at, kind: "land", terrain: "lake" } : h)),
+    harbors: portEdgesInOrder().map((e, i) => harbor(e, PORT_KINDS[i] as PortKind)),
+    edges: grounds,
+    presets: { terrainPool: pool },
+  };
+}
+
+/** The standard frame with a river winding from the south coast to the north coast along the middle column. */
+export function riverCountryBoard(): BoardDefinition {
+  const base = standardFrame();
+  const river: EdgeDef[] = [];
+  for (let r = 2; r >= -2; r--) {
+    river.push({ edge: hexEdge({ q: 0, r }, 0), kind: "river" });
+    river.push({ edge: hexEdge({ q: 0, r }, 1), kind: "river" });
+  }
+  return { ...base, name: "River Country", edges: river };
+}
+
+/** The standard island ringed by sea, watched by raiders. */
+export function coastalWatchBoard(): BoardDefinition {
+  const land = standardHexes();
+  return { ...definition("Coastal Watch", land, [], 4, 1), harbors: portEdgesInOrder().map((e, i) => harbor(e, PORT_KINDS[i] as PortKind)) };
+}
+
+/** The large frame with three oases spread across it, for six caravan masters and their wagons. */
+export function saltRoadBoard(): BoardDefinition {
+  const base = largeFrame();
+  const oases = new Set(["0,0", "3,-3", "-2,3"]);
+  return {
+    ...base,
+    name: "Salt Road",
+    hexes: base.hexes.map((h): HexDef => (oases.has(hexId(h.at)) ? { ...h, extras: { oasis: true } } : h)),
+  };
+}
+
+export function crownStandardBoard(): BoardDefinition {
+  return { ...standardFrame(), name: "Crown & Castle" };
+}
+
 export function builtInScenario(id: BuiltInScenarioId): Scenario {
   switch (id) {
+    case "greatLake":
+      return {
+        id,
+        name: "The Great Lake",
+        board: greatLakeBoard(),
+        modules: {},
+        variants: { fishing: true, harbormaster: true },
+        victoryPoints: 12,
+        specialRules: ["A lake lies where the wasteland was: fish bite on 2, 3, 11 and 12.", "Three fishing grounds line the coast.", "The first to three harbour points takes the Harbormaster (2 points)."],
+      };
+    case "riverCountry":
+      return {
+        id,
+        name: "River Country",
+        board: riverCountryBoard(),
+        modules: {},
+        variants: { rivers: true, eventDeck: true },
+        victoryPoints: 12,
+        specialRules: ["A river crosses the island: roads along it cost an extra clay.", "Bridge Builder is worth a point; the Poor Settler costs two.", "The event deck replaces the dice."],
+      };
+    case "coastalWatch":
+      return {
+        id,
+        name: "Coastal Watch",
+        board: coastalWatchBoard(),
+        modules: {},
+        variants: { raiders: true },
+        victoryPoints: 12,
+        specialRules: ["Every seven brings the raiders closer; they land when the counter reaches 15.", "Post guards on coastal hexes to hold them.", "Your castle is safe; rebuilding a raided hex is worth a point."],
+      };
+    case "saltRoad":
+      return {
+        id,
+        name: "Salt Road",
+        board: saltRoadBoard(),
+        modules: {},
+        variants: { caravans: true, wagons: true },
+        victoryPoints: 13,
+        specialRules: ["Three oases yield spice; spend it to lead caravans along your roads.", "Wagons carry goods between cities for points.", "Room for six players."],
+      };
+    case "crownStandard":
+      return {
+        id,
+        name: "Crown & Castle — Standard",
+        board: crownStandardBoard(),
+        modules: { crown: true },
+        victoryPoints: 13,
+        specialRules: ["Cities yield commodities; build improvements and knights.", "The barbarian fleet attacks on the seventh step.", "No development cards: progress cards instead."],
+      };
     case "acrossTheStrait":
       return {
         id,

@@ -34,13 +34,15 @@ function resolveTerrains(def: BoardDefinition, rng: Rng): Map<HexId, Terrain> {
     for (const h of land) out.set(hexId(h.at), h.terrain as Terrain);
     return out;
   }
+  // Painted hexes keep their terrain (docs/phase8.md §2); the rest draw from the pool minus what is painted.
   const assigned = land.filter((h) => h.terrain !== undefined).map((h) => h.terrain as Terrain);
+  const open = land.filter((h) => h.terrain === undefined);
   const pool = def.presets?.terrainPool ? [...def.presets.terrainPool] : terrainPool(land.length);
-  const fill = trimPool(subtract(pool, assigned), Math.max(0, land.length - assigned.length));
-  const all = [...assigned, ...fill].slice(0, land.length);
-  while (all.length < land.length) all.push(pool[all.length % pool.length] ?? "meadow");
-  const shuffled = rng.shuffle(all);
-  land.forEach((h, i) => out.set(hexId(h.at), shuffled[i] as Terrain));
+  const fill = trimPool(subtract(pool, assigned), open.length);
+  while (fill.length < open.length) fill.push(pool[fill.length % pool.length] ?? "meadow");
+  const shuffled = rng.shuffle(fill);
+  for (const h of land) if (h.terrain !== undefined) out.set(hexId(h.at), h.terrain);
+  open.forEach((h, i) => out.set(hexId(h.at), shuffled[i] as Terrain));
   return out;
 }
 

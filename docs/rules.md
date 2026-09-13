@@ -282,3 +282,81 @@ The pirate is a second blocker that lives on sea hexes; a scenario may leave it 
 ### §14.6 Setup on the main island
 
 When the scenario restricts setup to the main island, both setup settlements must touch a hex of that island. Later settlements may go anywhere the rules allow.
+
+## §15 Wayfarers (variants module)
+
+Wayfarers is a set of independent switches a scenario may combine (`scenario.variants`). Each applies only when it is on; with every switch off nothing in this section applies. Raiders (§15.5) cannot be combined with Crown & Castle (§16).
+
+### §15.1 Event deck
+
+The dice are replaced by a deck of 36 cards whose numbers follow the two-dice distribution (one 2, two 3s, three 4s, four 5s, five 6s, six 7s, five 8s, four 9s, three 10s, two 11s, one 12). A roll draws the top card; its number counts as the total for §6–§7. Five cards also carry an event, resolved after the number: the **12** is *Plentiful harvest* (every player takes one resource of their choice from the bank, in seat order from the current player, as for gold in §14.3); the **2** is *Bounty* (the current player takes one resource of their choice); one **7** is *Robber's rest* (players over the limit still discard, but the robber does not move); one **3** is *Neighborly help* (every player other than the one with the fewest victory points may, in seat order from the current player, give that player one card; ties for fewest go to the earliest seat from the current player); one **11** is *Tax collector* (every player holding eight or more cards puts one card of their choice back in the bank). The deck is shuffled from the seed; the fifth card from the bottom is the reshuffle marker: after the roll that draws it, the deck is rebuilt and shuffled again.
+
+### §15.2 Fishing
+
+A **lake** is a land terrain that produces nothing and carries no number token; the robber starts there when the board has no wasteland. A **fishing ground** is a coastal edge with its own number token. Fish are counted as points. The fish bag holds thirty tokens: eleven worth 1, ten worth 2, eight worth 3, and the **old boot**. Tokens are drawn from the top of the seeded bag; an empty bag draws nothing.
+
+When a fishing ground's number is rolled, each settlement on either vertex of its edge draws one token and each city two, in seat order from the current player. On any roll of 2, 3, 11 or 12, each settlement adjacent to a lake draws one token and each city two, unless the robber stands on that lake.
+
+On their own turn, in the action phase, a player may spend fish any number of times: **2** fish move the robber to a lake or a wasteland (another one than where it stands; no steal); **3** fish take one random card from any other player; **4** fish take one resource of choice from the bank; **5** fish build a road for free on a legal edge; **7** fish draw a development card for free, or, when the deck is empty, upgrade one of the player's settlements to a city for free.
+
+The old boot is worth −1 victory point to whoever holds it. Its holder may pass it along with a domestic trade (§9.1), either attached to their own offer or to their acceptance of another player's offer, to a player whose victory points (counted without the boot) are at least the holder's. The boot counts at the win check.
+
+### §15.3 Rivers
+
+River segments are edges of the board. A road built on a river edge is a **bridge** and costs one extra clay. The player with the most bridges, at least three, holds **Bridge Builder** (1 VP); another player takes it only by exceeding the holder's count, and if the holder is exceeded by two players who tie, nobody holds it. A settlement or city is **riverside** when at least one edge at its vertex is a river segment. At the end of a player's turn they receive one gold coin per riverside settlement and two per riverside city. The unique player with the fewest coins holds the **Poor Settler** (−2 VP); a tie for fewest leaves it with nobody. Both chips are re-evaluated whenever a road is built or coins are awarded.
+
+### §15.4 Harbormaster
+
+Each settlement on a harbour vertex is worth one harbour point and each city two. The first player to reach three harbour points takes the **Harbormaster** (2 VP); another player takes it only by exceeding the holder's points.
+
+### §15.5 Raiders
+
+Immediately after placing their second setup settlement, each player chooses one of their settlements to be their **castle** (1 VP). The castle vertex is never counted by the raiders and can neither be captured nor raided; it may still become a city.
+
+A raider counter starts at 0. Every time a seven is rolled, before the robber moves, it advances by the number of cities on the board. When it reaches 15 the raiders **land**: every coastal land hex (a land hex with at least one neighbour that is not land) is attacked with strength equal to one per settlement and two per city on its vertices (castle vertices count zero); its defence is the number of guards standing on it. A hex whose strength exceeds its defence is **raided**: it produces nothing until rebuilt, and the guards on it are removed. A hex with zero strength is ignored. The counter then resets to 0.
+
+A **guard** costs one ore and one wool and is placed on a land hex the player has a building on; a player may have at most six guards; several guards may share a hex. Any player may, in their action phase, pay one ore and one wool to **rebuild** a raided hex; it produces again and the rebuilder scores 1 VP.
+
+### §15.6 Caravans
+
+An **oasis** is a land hex marked in the editor; it keeps a number token but yields **spice** instead of its resource: one per adjacent settlement and two per adjacent city when its number is rolled (blocked by the robber; the spice bank holds 19). Oases give no starting resources. Each oasis is the start of a **caravan track** of up to three edges. In the action phase the current player may pay one spice to extend a caravan by one edge onto one of their own roads that continues the track: for an empty track any of the oasis's six edges, otherwise an edge sharing a vertex with the track's last edge and not already on it. Every road on a caravan track, or sharing a vertex with one, counts double for Longest Road (§10.1). A settlement or city on a vertex of a caravan track receives one extra resource whenever an adjacent producing hex's number is rolled (subject to the bank).
+
+### §15.7 Wagons
+
+Each player's **wagon** starts on their second setup settlement. In the action phase the wagon moves along roads of any player, from vertex to vertex; the first two steps of a turn are free and each further step costs one grain. Entering a vertex where an opponent's wagon stands requires a toll of one resource paid to that wagon's owner. At the end of every turn each city on the board stocks one good (marble, glass, sand or tools; the kind is fixed per city from the seed, at most two goods waiting), and every city shows a demand for one kind of good, rotating after each delivery. A wagon standing at a city may load a waiting good (it carries at most two) and, standing at a city of another player, may deliver a good it carries for one victory point, or two when the good matches that city's demand.
+
+## §16 Crown & Castle (cities module)
+
+Crown & Castle is on when a scenario enables it. There are no development cards and no Largest Army; the deck is empty. The scenario's target is normally 13 victory points.
+
+### §16.1 Commodities
+
+Three commodities join the five resources: **cloth**, **coin** and **paper**, twelve of each in the bank. A city on a meadow yields one wool and one cloth, on a mountain one ore and one coin, on a forest one wood and one paper; on farmland and clay pits a city still yields two of the resource, and settlements are unchanged. Commodities are paid in seat order from the current player while the bank lasts. Commodities count toward the hand limit (§7.1), may be discarded and stolen like resources, and trade with the bank at 4:1, or at 2:1 for a player at trade level 3.
+
+### §16.2 The event die
+
+Every roll adds an event die with three **fleet** faces and one **trade**, **politics** and **science** face; the first number die is the red die. A fleet face advances the barbarian fleet (§16.6). A track face lets every player whose improvement level on that track is at least the red die minus one draw a progress card of that track (a red 1 never pays; level 5 draws on 2–6). A player holding more than four progress cards (revealed victory point cards do not count) discards down to four at once, returning cards to the bottom of their deck.
+
+### §16.3 City improvements
+
+Each player advances three tracks — trade (paid in cloth), politics (coin) and science (paper) — from level 0 to 5; level n costs n cards of the track's commodity. A player needs at least one city (a metropolis counts) to build an improvement. Level 3 grants an ability: trade level 3 trades commodities with the bank at 2:1; politics level 3 allows knights of level 3; science level 3 gives the player one resource of their choice whenever a roll other than a seven brings them nothing. Level 4 and 5 relate to metropolises (§16.7).
+
+### §16.4 Progress cards
+
+Three hidden decks of eighteen cards, one per track, shuffled from the seed. A player may play any number of progress cards on their turn, but at most one before rolling. Constitution and Printer are victory point cards: they are revealed when drawn and score one point each permanently. The other cards do what their name says: Merchant (place the merchant on a hex you have a building on; you trade that hex's resource at 2:1 while it stays, and it is worth 1 VP), Trade Monopoly (every other player gives you one of a named commodity), Resource Monopoly (every other player gives you up to two of a named resource), Master Merchant (take two random cards from a player with more victory points), Merchant Fleet (trade one named resource or commodity at 2:1 this turn), Commercial Harbor (every other player holding a commodity must swap one of their choice for one of your resources, once each), Bishop (move the robber and take one random card from every player with a building on the new hex), Deserter (a player of your choice removes one of their knights and you place one of the same level, inactive, on your network), Diplomat (remove an open road — one with a free end — of any player; your own may be placed again elsewhere), Intrigue (remove an opposing knight standing on a vertex your roads touch), Saboteur (every player with more victory points than you discards half their cards), Spy (look at a player's progress cards and take one), Warlord (activate all your knights for free), Wedding (every player with more victory points gives you two cards of their choice), Alchemist (choose both number dice before rolling; the event die is still random), Crane (your next improvement costs one commodity less), Engineer (build a city wall for free), Inventor (swap the number tokens of two hexes numbered 3, 4, 5, 9, 10 or 11), Irrigation (two grain per farmland hex you have a building on), Medicine (upgrade a settlement to a city for two ore and one grain), Mining (two ore per mountain hex you have a building on), Road Building (two free roads), Smith (promote up to two of your knights one level for free; level 3 still needs politics level 3).
+
+### §16.5 Knights
+
+Knights are pieces at vertices connected to the player's roads; each player has two knights of each level (1 basic, 2 strong, 3 mighty). Building a knight costs one wool and one ore and places a level-1 knight, inactive. Activating costs one grain; a knight activated this turn cannot act until the next turn. Promoting costs one wool and one ore per level, and the next level's piece must be in supply; level 3 needs politics level 3. Each active knight that has not acted this turn may do one of: **move** to a free vertex on the player's road network reachable along their own roads; **displace** a weaker opposing knight there (its owner moves it to a free vertex on their own network reachable from where it stood, or loses it); **chase** the robber off a hex adjacent to the knight (the player moves it and steals as in §7.2–§7.3); or, by standing on a vertex of an opponent's road, **break** that road for Longest Road. Acting deactivates the knight. No settlement may be placed on a vertex holding a knight, and a road cannot connect through a vertex holding an opposing knight. The robber does not move on a seven until the fleet has attacked once; discards still apply.
+
+### §16.6 The barbarian fleet
+
+The fleet track has seven steps. Each fleet face on the event die advances it; on the seventh step the fleet attacks. Its strength is the number of cities on the board (metropolises included); the realm's defence is the sum of the levels of every active knight. If the defence is at least the strength, the player with the single highest defence (above zero) becomes **Defender of the Realm** (1 VP; six chips exist); if several tie for highest, each instead draws a progress card of the track where they are most advanced. If the defence is below the strength, every player with the lowest defence among those who have a city without a metropolis loses one city of their choice, which becomes a settlement again (its wall is lost). After any attack every knight becomes inactive and the track resets.
+
+### §16.7 City walls and metropolises
+
+A wall costs two clay and goes on one of the player's cities (one per city, three per player); each wall raises that player's discard limit (§7.1) by two. A wall is lost with its city. The first player to reach level 4 on a track places that track's **metropolis** on one of their cities (2 VP; it cannot be lost to the barbarians). A player who reaches level 5 on that track takes the metropolis from a holder at level 4 (never from another player at level 5).
+
+### §16.8 Victory
+
+Settlements 1, cities 2, each metropolis 2 more, Longest Road 2, each Defender chip 1, each revealed victory point progress card 1, the merchant 1 while held. The first player to reach the scenario's target on their own turn wins (§11).

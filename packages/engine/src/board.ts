@@ -115,14 +115,19 @@ export function landHexIds(board: Board): HexId[] {
   return Object.keys(board.hexes);
 }
 
-/** §3.6: the standard frame's boundary edges ordered by the angle of their midpoint. */
-export function portEdgesInOrder(): EdgeId[] {
+/** §3.6: the standard frame's 30 boundary edges ordered by the angle of their midpoint. */
+export function boundaryEdgesInOrder(): EdgeId[] {
   const withAngle = GEOMETRY.boundaryEdges.map((e) => {
     const m = edgeMidpoint(e);
     return { e, angle: Math.atan2(m.y, m.x) };
   });
   withAngle.sort((a, b) => a.angle - b.angle || (a.e < b.e ? -1 : 1));
-  const ordered = withAngle.map((x) => x.e);
+  return withAngle.map((x) => x.e);
+}
+
+/** §3.6: the nine port edges of the standard frame. */
+export function portEdgesInOrder(): EdgeId[] {
+  const ordered = boundaryEdgesInOrder();
   return PORT_EDGE_INDICES.map((i) => ordered[i] as EdgeId);
 }
 

@@ -76,6 +76,14 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 * `Scenario` + `validateScenario`, built-in scenarios (Across the Strait, Archipelago, Gold Coast), ships (`BUILD_SHIP`/`MOVE_SHIP`), the pirate (`MOVE_ROBBER { target }`), gold fields (`chooseGold` phase, `CHOOSE_GOLD`), islands and the island bonus, longest route, setup restriction (`docs/rules.md` §14), `scenarios` table + `save-scenario`/`delete-scenario`/`fork-scenario`, scenario picker, editor Scenario section, 3D ships/pirate/gold. Details in `docs/phase9.md`.
 
+### Phase 10 — Wayfarers (variants module) (done)
+
+* Seven independent variants under `scenario.variants` (`docs/rules.md` §15): event deck, fishing (lake, fishing grounds, fish, the old boot), rivers (bridges, Bridge Builder, Poor Settler), harbormaster, raiders (castles, guards, raids), caravans (oases, spice, tracks), wagons (goods, deliveries). Engine modules in `packages/engine/src/modules/wayfarers/`, plugged in through the hook list (`docs/modules.md`). Board definitions gained `edges` (rivers, fishing grounds), the `lake` terrain and `extras.oasis`; the editor has tools for each and a variant toggle list. Built-ins: The Great Lake, River Country, Coastal Watch, Salt Road. Details in `docs/phase10.md`.
+
+### Phase 11 — Crown & Castle (cities module) (done)
+
+* `scenario.modules.crown` (`docs/rules.md` §16): commodities, the event die, improvement tracks, progress cards, knights as board pieces, the barbarian fleet, walls and metropolises, 13 VP. Engine in `packages/engine/src/modules/crown/`; no development cards in this module. Built-in: Crown & Castle — Standard. Details in `docs/phase11.md`.
+
 ## Conventions
 
 * Commit per meaningful step with a message in the form `phaseN: <what>`.
@@ -104,7 +112,9 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 * `game.ts` — `createGame`.
 * `redact.ts` — `redact(state, playerId)`, the only thing a client should ever receive.
 * `definition.ts` — `BoardDefinition` and its guard. `pools.ts` — terrain/token/harbour pools scaled to any land count. `validation.ts` — `validateBoard` (error/warning codes). `generation.ts` — `resolveBoard` (definition + seed → `Board`). `frames.ts` — built-in boards.
-* `scenario.ts` — `Scenario`, `ScenarioRules`, `isScenario`, `validateScenario`. `scenarios.ts` — the built-in Tides scenarios.
+* `scenario.ts` — `Scenario`, `ScenarioRules`, `isScenario`, `validateScenario`, `scenarioSummary`. `scenarios.ts` — the built-in scenarios (Tides, Wayfarers, Crown & Castle).
+* `guards.ts` — phase/turn/payment guards shared by the core and the modules. `turnHelpers.ts` — gold, discards, random steals, city upgrades, Road Building, shared the same way.
+* `modules/` — the hook list (`hooks.ts`: `ModuleHooks`, `registerModule`, `activeModules`), prompts (`prompt.ts`), module state shapes and card lists (`types.ts`), `wayfarers/<variant>.ts` (one file per Phase 10 variant) and `crown/` (Phase 11). The core never tests a scenario flag; see `docs/modules.md`.
 
 `pnpm lint` enforces engine purity (no host/framework imports, no `Date`, no `Math.random`) via `eslint.config.js`.
 

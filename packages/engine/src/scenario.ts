@@ -148,6 +148,31 @@ export function validateScenario(s: Scenario): ValidationIssue[] {
   return issues;
 }
 
+/** Short labels for the modules and variants a scenario switches on (for pickers and lobbies). */
+export const VARIANT_LABEL: Readonly<Record<VariantName, string>> = {
+  eventDeck: "Event deck",
+  fishing: "Fishing",
+  rivers: "Rivers",
+  harbormaster: "Harbormaster",
+  raiders: "Raiders",
+  caravans: "Caravans",
+  wagons: "Wagons",
+};
+
+export function scenarioModuleLabels(s: Pick<Scenario, "modules" | "variants">): string[] {
+  const out: string[] = [];
+  if (s.modules.tides) out.push("Tides");
+  if (s.modules.crown) out.push("Crown & Castle");
+  for (const v of VARIANT_NAMES) if (s.variants?.[v]) out.push(VARIANT_LABEL[v]);
+  return out;
+}
+
+/** "Tides · Fishing · 12 points to win" */
+export function scenarioSummary(s: Pick<Scenario, "modules" | "variants" | "victoryPoints">): string {
+  const labels = scenarioModuleLabels(s);
+  return `${labels.length ? labels.join(" · ") + " · " : ""}${s.victoryPoints} points to win`;
+}
+
 export function scenarioHasErrors(s: Scenario): boolean {
   return hasErrors(validateScenario(s));
 }

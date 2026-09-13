@@ -13,6 +13,7 @@ import {
   BUILT_IN_SCENARIO_IDS,
   builtInBoard,
   builtInScenario,
+  scenarioSummary,
   createRng,
   hasErrors,
   resolveBoard,
@@ -129,11 +130,11 @@ function blurbOf(choice: BoardChoice): string {
     case "builtin":
       return BUILT_IN_BLURB[choice.id];
     case "scenario":
-      return `Tides · ${builtInScenario(choice.id).victoryPoints} points to win`;
+      return scenarioSummary(builtInScenario(choice.id));
     case "stored":
       return choice.board.source === "draft" ? "Draft on this device" : choice.board.isPublic ? "Public board" : "Your board";
     case "storedScenario":
-      return `${choice.scenario.source === "draft" ? "Draft scenario" : choice.scenario.isPublic ? "Public scenario" : "Your scenario"} · ${choice.scenario.scenario.victoryPoints} points`;
+      return `${choice.scenario.source === "draft" ? "Draft scenario" : choice.scenario.isPublic ? "Public scenario" : "Your scenario"} · ${scenarioSummary(choice.scenario.scenario)}`;
     default: {
       const exhaustive: never = choice;
       return String(exhaustive);
