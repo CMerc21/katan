@@ -37,7 +37,6 @@ export function variantOn(view: RedactedState, name: VariantName): boolean {
 export function choosePrompt(view: RedactedState, legal: Action[], rng: Rng): Action {
   const phase = view.phase;
   if (phase.kind !== "modulePrompt") return pick(rng, legal);
-  const me = view.viewer;
   switch (phase.prompt.kind) {
     case "placeCastle": {
       // docs/phase10.md §5: the castle is immune to raids, so protect the best producer.
@@ -422,6 +421,7 @@ export function chooseWagonAction(view: RedactedState, legal: Action[], rng: Rng
   const end = (m: MoveWagon): VertexId => m.path[m.path.length - 1] as VertexId;
   const candidates = moves.filter((m) => {
     const to = end(m);
+    if (!Number.isFinite(plan.score(to))) return false; // leads nowhere useful
     // Grain and tolls are worth paying only when the step finishes the job this turn.
     if ((m.grain ?? 0) > 0 || m.toll !== undefined) return plan.done.has(to);
     return true;

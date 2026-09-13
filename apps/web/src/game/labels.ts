@@ -5,14 +5,20 @@
 
 import {
   COSTS,
+  FISH_COST,
   RESOURCES,
   type Action,
   type DevCardType,
+  type EventCardKind,
+  type FishOption,
   type Hand,
   type ModulePromptKind,
   type PortKind,
   type Resource,
   type RuleErrorCode,
+  type VariantChip,
+  type VariantName,
+  type WagonGood,
 } from "@katan/engine";
 import type { RedactedState } from "@/driver/types";
 
@@ -270,7 +276,109 @@ export function actionLabel(action: Action): string {
       return "Build ship";
     case "MOVE_SHIP":
       return "Move ship";
+    // Wayfarers (docs/phase10.md)
+    case "SPEND_FISH":
+      return `Spend ${FISH_COST[action.option]} fish: ${FISH_OPTION_LABEL[action.option].toLowerCase()}`;
+    case "NEIGHBORLY_GIVE":
+      return action.resource === null ? "Give nothing" : `Give ${RESOURCE_LABEL[action.resource].toLowerCase()}`;
+    case "BUILD_CASTLE":
+      return "Raise castle";
+    case "BUILD_KNIGHT":
+      return action.hex !== undefined ? "Post guard" : "Hire knight";
+    case "REBUILD_HEX":
+      return "Rebuild hex";
+    case "EXTEND_CARAVAN":
+      return `Lead caravan ${action.caravan + 1}`;
+    case "MOVE_WAGON":
+      return `Move wagon ${action.path.length - 1} step${action.path.length === 2 ? "" : "s"}`;
+    case "LOAD_COMMODITY":
+      return `Load ${WAGON_GOOD_LABEL[action.good].toLowerCase()}`;
+    case "DELIVER":
+      return `Deliver ${WAGON_GOOD_LABEL[action.good].toLowerCase()}`;
     default:
       return action.type;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Wayfarers copy (docs/phase10.md, docs/rules.md §15). Sentence case; original wording.
+
+export const VARIANT_LABEL: Record<VariantName, string> = {
+  eventDeck: "Event deck",
+  fishing: "Fishing",
+  rivers: "Rivers",
+  harbormaster: "Harbormaster",
+  raiders: "Raiders",
+  caravans: "Caravans",
+  wagons: "Wagons",
+};
+
+/** One line per variant for tooltips and help. */
+export const VARIANT_HELP: Record<VariantName, string> = {
+  eventDeck: "A 36-card deck replaces the dice; five cards carry an event",
+  fishing: "Settlements by the lake or a fishing ground catch fish to spend on favours; the old boot costs a point",
+  rivers: "Roads on a river are bridges (one extra clay); riverside buildings earn coins, and the poorest holds the Poor Settler",
+  harbormaster: "Three harbour points (1 per settlement, 2 per city on a harbour) take the Harbormaster, worth 2",
+  raiders: "Every seven brings the raiders closer; guards defend coastal hexes, your castle is safe, rebuilding scores a point",
+  caravans: "Oases yield spice; spend it to lead a caravan along your roads for double-length roads and bonus production",
+  wagons: "Your wagon carries goods between cities along anyone's roads; deliveries to another player's city score",
+};
+
+export const EVENT_CARD_LABEL: Record<EventCardKind, string> = {
+  plentifulHarvest: "Plentiful harvest",
+  robbersRest: "Robber's rest",
+  neighborlyHelp: "Neighborly help",
+  taxCollector: "Tax collector",
+  bounty: "Bounty",
+};
+
+export const EVENT_CARD_HELP: Record<EventCardKind, string> = {
+  plentifulHarvest: "Everyone takes one resource of their choice",
+  robbersRest: "The robber stays where it is; discards still happen",
+  neighborlyHelp: "Everyone may give one card to the poorest player",
+  taxCollector: "Players with eight or more cards put one back",
+  bounty: "The current player takes one resource of their choice",
+};
+
+export const FISH_OPTION_LABEL: Record<FishOption, string> = {
+  moveRobber: "Send the robber away",
+  steal: "Steal a card",
+  bankResource: "Take a resource",
+  freeRoad: "Build a road for free",
+  freeDevCard: "Draw a development card",
+};
+
+export const FISH_OPTION_HELP: Record<FishOption, string> = {
+  moveRobber: "Move the robber to a lake or wasteland; nobody is robbed",
+  steal: "Take one random card from any other player",
+  bankResource: "Take one resource of your choice from the bank",
+  freeRoad: "Place a road on any legal edge without paying",
+  freeDevCard: "Draw a development card for free, or upgrade a settlement when the deck is empty",
+};
+
+export const CHIP_LABEL: Record<VariantChip, string> = {
+  bridgeBuilder: "Bridge Builder",
+  poorSettler: "Poor Settler",
+  harbormaster: "Harbormaster",
+};
+
+export const CHIP_VP: Record<VariantChip, number> = { bridgeBuilder: 1, poorSettler: -2, harbormaster: 2 };
+
+export const WAGON_GOOD_LABEL: Record<WagonGood, string> = {
+  marble: "Marble",
+  glass: "Glass",
+  sand: "Sand",
+  tools: "Tools",
+};
+
+/** What a target mode asks the player to click on the board. */
+export const MODE_HINT: Record<string, string> = {
+  moveShip: "Pick the ship, then where it sails",
+  guard: "Choose a hex you touch for the guard",
+  rebuild: "Choose the raided hex to rebuild",
+  caravan: "Choose the road the caravan follows",
+  wagon: "Click the next stop along a road, then Go",
+  fishRobber: "Choose where the robber rests",
+  fishRoad: "Choose the free road's edge",
+  fishCity: "Choose the settlement to upgrade",
+};
