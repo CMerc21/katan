@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyAction, applyActionWithEvents } from "../src/actions";
 import type { GameEvent } from "../src/events";
-import { GEOMETRY, type EdgeId, type VertexId } from "../src/geometry";
+import { GEOMETRY, type VertexId } from "../src/geometry";
 import { legalActions } from "../src/legal";
 import { improvementCost } from "../src/modules/crown/improvements";
 import { knightAt } from "../src/modules/crown/knights";
@@ -289,7 +289,7 @@ describe("docs/phase11.md §4 progress cards", () => {
   it("docs/phase11.md §4 Deserter: the chosen player removes a knight of theirs, and the player places one of the same level for free (if a piece and a place exist)", () => {
     const { state: base, path } = network(2);
     const [, n1, n2] = path as [VertexId, VertexId, VertexId];
-    let s = giveProgress(base, A, "deserter", "deserter", "deserter");
+    let s = giveProgress(base, A, "deserter", "deserter");
     s = addKnight(addKnight(s, B, V4, 2, true), B, V6, 1, false);
     expect(listed(s, A, "deserter")).toEqual([{ targetPlayerId: B }]);
     expectRule(() => applyAction(s, { type: "PLAY_PROGRESS", playerId: A, card: "deserter", payload: { targetPlayerId: C } }), "NO_KNIGHT");
@@ -309,11 +309,7 @@ describe("docs/phase11.md §4 progress cards", () => {
     expect(chooseEvents).toEqual([{ seq: expect.any(Number), kind: "knightRemoved", playerId: B, vertex: V4, reason: "deserter" }]);
     expect(knightAt(chosen, V4)).toBeNull();
     expect(chosen.phase).toEqual({ kind: "modulePrompt", prompt: { kind: "placeFreeKnight", playerId: A, level: 2, active: false }, returnTo: ACTION_PHASE });
-    expect(legalActions(chosen, A)).toEqual([
-      { type: "PLACE_FREE_KNIGHT", playerId: A, vertex: n1 },
-      { type: "PLACE_FREE_KNIGHT", playerId: A, vertex: n2 },
-      { type: "PLACE_FREE_KNIGHT", playerId: A, vertex: null },
-    ]);
+    expect(legalActions(chosen, A)).toEqual([...[n1, n2].sort().map((vertex) => ({ type: "PLACE_FREE_KNIGHT", playerId: A, vertex })), { type: "PLACE_FREE_KNIGHT", playerId: A, vertex: null }]);
     expectRule(() => applyAction(chosen, { type: "PLACE_FREE_KNIGHT", playerId: A, vertex: V4 }), "INVALID_CHOICE");
     const { state: placed, events: placeEvents } = applyActionWithEvents(chosen, { type: "PLACE_FREE_KNIGHT", playerId: A, vertex: n1 });
     expect(placeEvents).toEqual([{ seq: expect.any(Number), kind: "knightBuilt", playerId: A, vertex: n1 }]);
@@ -547,11 +543,12 @@ describe("docs/phase11.md §4 progress cards", () => {
   });
 
   it("docs/phase11.md §4 Engineer builds a city wall for free (the limit of three still applies)", () => {
-    let s = place(holding(A, ACTION_PHASE, "engineer", "engineer"), A, { cities: [V1, V3], settlements: [V4] });
+    let s = place(holding(A, ACTION_PHASE, "engineer"), A, { cities: [V1, V3], settlements: [V4] });
     expect(listed(s, A, "engineer")).toEqual([{ vertex: V1 }, { vertex: V3 }]);
     expectRule(() => applyAction(s, { type: "PLAY_PROGRESS", playerId: A, card: "engineer", payload: { vertex: V4 } }), "NOT_A_CITY");
     expectRule(() => applyAction(s, { type: "PLAY_PROGRESS", playerId: A, card: "engineer", payload: { vertex: "x" } }), "INVALID_PAYLOAD");
-    const { state: walled, events } = play(s, A, "engineer", { vertex: V1 });
+    const { state: built, events } = play(s, A, "engineer", { vertex: V1 });
+    const walled = giveProgress(built, A, "engineer"); // the single Engineer went under its deck; deal it again
     expect(crownOf(walled).players[A]!.walls).toEqual([V1]);
     expect(events[1]).toMatchObject({ kind: "wallBuilt", playerId: A, vertex: V1, free: true });
     expect(getPlayer(walled, A).hand).toEqual(getPlayer(s, A).hand);
@@ -625,9 +622,10 @@ describe("docs/phase11.md §4 progress cards", () => {
   });
 
   it("docs/phase11.md §4 Road Building places two free roads", () => {
-    const { state: base, path } = network(1);
+    const path = vertexPath(V1, 3);
     const [, n1, n2] = path as [VertexId, VertexId, VertexId];
-    const s = giveProgress(base, A, "roadBuilding", "roadBuilding");
+    const base = place(inPhase(crownGame(), ACTION_PHASE, A), A, { settlements: [V1], roads: [edgeBetween(V1, n1)] });
+    const s = giveProgress(base, A, "roadBuilding");
     expect(listed(s, A, "roadBuilding")).toEqual([undefined]);
     const { state: building, events } = play(s, A, "roadBuilding");
     expect(events.map((e) => e.kind)).toEqual(["progressPlayed"]);
@@ -698,7 +696,10 @@ describe("docs/phase11.md §4 progress cards", () => {
     s = place(give(giveCommodities(s, B, { cloth: 1, paper: 1 }), B, { wood: 2, ore: 1 }), B, { settlements: ["-2,2|-1,1|-1,2", "0,-2|1,-2|1,-1"], roads: [edgeBetween(V3, GEOMETRY.vertexNeighbors[V3]![0]!)] });
     s = place(give(s, C, { grain: 3 }), C, { cities: [V3] });
     s = giveProgress(s, C, "merchant", "bishop");
-    s = mut(s, (x) => void (crownOf(x).attacks = 1));
+    s = mut(s, (x) => {
+      crownOf(x).attacks = 1;
+      crownOf(x).players[B]!.defenderChips = 5; // B out-scores A (who also reveals two VP cards): Master Merchant, Saboteur and Wedding have a target
+    });
     s = setTrack(s, A, "politics", 3);
     for (const phase of [ACTION_PHASE, ROLL_PHASE]) {
       // The hand limit is a draw-time rule; a test hand may hold every card at once.
