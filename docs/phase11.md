@@ -4,7 +4,21 @@ Companion to `CLAUDE.md`, `docs/rules.md` (§16 is new), `docs/modules.md` and `
 
 ## 1. Engine structure (`packages/engine/src/modules/crown/`)
 
-PLACEHOLDER_ENGINE
+| File | Contents |
+| --- | --- |
+| `common.ts` | `crownState`, `crownPlayer`, `seatOrder`, the knight / activation / wall costs. |
+| `production.ts` | §1: `yieldOverride` (a city on meadow, mountain or forest yields one resource), `afterProduction` (the matching commodity, paid in seat order from the current player, `commoditiesProduced`; science level-3 aid through `ctx.gold`), `cardCount` / `stealExtra` / `discardExtra` (commodities in hand), the discard instance with commodities. |
+| `trade.ts` | The `maritime` hook: commodities 4:1, 2:1 with trade level 3 or a Merchant Fleet naming the card; resources for commodities at port ratios; resource↔resource 2:1 through the Merchant Fleet or the merchant token (owned, on a hex the owner touches). |
+| `progress.ts` | Decks (`createRng(seed, "crown:deck:<track>")`), `drawProgress` (VP cards revealed at once), thresholds (`drawsOnRed`: level ≥ red − 1, red 1 never), the hand limit (four unrevealed cards; the `discardProgress` prompt and `DISCARD_PROGRESS` return a card to the bottom of its deck). |
+| `progressCards.ts` | The card effects behind `PLAY_PROGRESS { card, payload }` and the `deserter`, `placeFreeKnight`, `spy`, `commercialHarbor` and `giveCards` prompts (§4). |
+| `improvements.ts` | `BUILD_IMPROVEMENT { track }` (n commodities for level n, the crane, at least one city), metropolis award at level 4 and the level-5 steal from a level-4 holder (`placeMetropolis` prompt when more than one city qualifies). |
+| `knights.ts` | §5: `BUILD_KNIGHT { vertex }`, `ACTIVATE_KNIGHT`, `PROMOTE_KNIGHT`, `KNIGHT_MOVE`, `KNIGHT_DISPLACE` (+ the `knightRetreat` prompt / `RETREAT_KNIGHT`), `KNIGHT_CHASE_ROBBER`; `blockedVertices` (opposing knights break roads and Longest Road) and `unbuildableVertices` (no settlement on any knight); per-turn flags. |
+| `fleet.ts` | §6: advance, the attack (strength = cities, defence = active knight levels), the Defender chip or tie draws, raids with the `downgradeCity` prompt / `CHOOSE_DOWNGRADE`, `downgradeCity`. |
+| `walls.ts` | `BUILD_WALL` and the discard threshold 7 + 2 × walls. |
+| `victory.ts` | 2 per metropolis, Defender chips, revealed VP cards, the merchant. |
+| `index.ts` | `init` (state, decks, the empty development deck), `roll` (Alchemist dice, the event die from the action's seeded stream, the red die = the first number die), `afterRoll` (fleet or track draws), `onSeven` (the robber stays home until the first attack), `onTurnStart`, and the `apply` / `extraActions` / `promptActions` dispatch. |
+
+The core stays free of `crown` checks: commodities enter the base rules through `cardCount`, `stealExtra`, `discardExtra`, `discardThreshold` and `maritime`; knights through `blockedVertices` / `unbuildableVertices`; the third die through the `roll` chain.
 
 ## 2. State and redaction
 
