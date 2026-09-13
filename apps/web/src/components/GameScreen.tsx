@@ -249,7 +249,7 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
   // Input is disabled while the queue drains (docs/phase7.md §2.1); legal actions come from the latest server view.
   const interactive = !handoff && !seatIsBot && !draining;
   const activeLegal = interactive ? legal : [];
-  const glint = current?.kind === "event" && current.event.kind === "specialCardMoved" ? current.event.to : null;
+  const glint = current?.kind === "event" && (current.event.kind === "specialCardMoved" || current.event.kind === "chipMoved") ? current.event.to : null;
   const winner = ended && view.winner ? view.players.find((p) => p.id === view.winner) : undefined;
 
   const exit = () => {

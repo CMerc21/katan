@@ -370,8 +370,8 @@ export function WagonFigure({ vertex, color, cargo, ghost = false, shadows = tru
         <boxGeometry args={[0.24, 0.07, 0.14]} />
         <Mat color={TIMBER} ghost={ghost} />
       </mesh>
-      <mesh position={[-0.04, 0.17, 0]}>
-        <cylinderGeometry args={[0.075, 0.075, 0.15, 8, 1, false, 0, Math.PI]} />
+      <mesh position={[-0.04, 0.13, 0]} rotation={[0, 0, Math.PI / 2]}>
+        <cylinderGeometry args={[0.075, 0.075, 0.15, 8, 1, true, 0, Math.PI]} />
         <Mat color={PLAYER_FILL[color]} ghost={ghost} side={THREE.DoubleSide} />
       </mesh>
       {[-0.07, 0.07].flatMap((x) =>
