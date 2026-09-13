@@ -17,6 +17,7 @@ import type { EdgeId, PlayerColor, VertexId } from "@katan/engine";
 import { PLAYER_FILL } from "@/game/theme";
 import { easeOutBack, easeOutCubic, progress } from "./geo";
 import { SEA_HEIGHT, SLAB_HEIGHT, edgeWorld, vertexWorld } from "./layout3d";
+import { usePiece } from "./loadPiece";
 import * as P from "./palette";
 import { RECESS_DEPTH } from "./slab";
 
@@ -294,8 +295,28 @@ export function ShipFigure({ edge, color, ghost = false, shadows = true, black =
   );
 }
 
-/** A hooded figure with a face plate and a sack; the group is positioned by the caller (it hops). */
+/**
+ * The robber: the GLB figure (public/models/robber.glb) in a near-black
+ * material, or the procedural hooded figure until it loads and whenever it
+ * cannot. Same group name, scale and foot origin either way, so placement,
+ * the hover ghost and the hop animation do not care which one is showing.
+ * The group is positioned by the caller (it hops).
+ */
 export function RobberFigure({ ghost = false, shadows = true }: { ghost?: boolean; shadows?: boolean }) {
+  const cast = shadows && !ghost;
+  const model = usePiece("robber", { color: P.ROBBER_MODEL, roughness: 0.8, ghost, castShadow: cast, receiveShadow: shadows });
+  if (model) {
+    return (
+      <group scale={PIECE_SCALE} name="robber">
+        <primitive object={model} />
+      </group>
+    );
+  }
+  return <ProceduralRobberFigure ghost={ghost} shadows={shadows} />;
+}
+
+/** A hooded figure with a face plate and a sack (docs/props.md §4); the fallback when the GLB is unavailable. */
+export function ProceduralRobberFigure({ ghost = false, shadows = true }: { ghost?: boolean; shadows?: boolean }) {
   const cast = shadows && !ghost;
   return (
     <group scale={PIECE_SCALE} name="robber">

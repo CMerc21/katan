@@ -69,6 +69,8 @@ export const ROAD_TOP = "#C9976A";
 export const ROBBER = "#2B2118";
 export const ROBBER_SACK = "#E8B84A";
 export const ROBBER_BASE = "#4a4a48";
+/** The GLB robber (models/robber.glb): near-black, rough. */
+export const ROBBER_MODEL = "#1a1a1a";
 export const HULL = "#8B4A2B";
 export const PIRATE_HULL = "#3A3532";
 export const PIRATE_SAIL = "#1f1a17";
