@@ -11,8 +11,8 @@ type Variant = "primary" | "secondary" | "quiet";
 
 const VARIANT: Record<Variant, string> = {
   primary: "btn-wax rounded-md",
-  secondary: "rounded-md border border-ink bg-parchment/70 text-ink hover:bg-parchment-deep disabled:border-line disabled:text-ink-soft disabled:bg-transparent",
-  quiet: "rounded-md bg-transparent text-ink hover:bg-parchment-deep disabled:text-ink-soft",
+  secondary: "btn-secondary rounded-md border border-ink bg-parchment/70 text-ink hover:bg-parchment-deep disabled:border-line disabled:text-ink-soft disabled:bg-transparent",
+  quiet: "btn-quiet rounded-md bg-transparent text-ink hover:bg-parchment-deep disabled:text-ink-soft",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -150,7 +150,7 @@ export function Stepper({
   );
 }
 
-/** A modal panel. Non-dismissable dialogs pass no `onClose`. */
+/** A modal panel (dark HUD chrome, docs/phase12.md §2). Non-dismissable dialogs pass no `onClose`. */
 export function Modal({
   title,
   children,
@@ -175,13 +175,13 @@ export function Modal({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-ink/60 p-4" role="presentation">
+    <div className="fixed inset-0 z-40 grid place-items-center bg-black/50 p-4" role="presentation">
       <div
         ref={panel}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`parchment w-full ${wide ? "max-w-xl" : "max-w-md"} rounded-lg p-5`}
+        className={`hud-panel hud-dark w-full ${wide ? "max-w-xl" : "max-w-md"} rounded-lg p-5`}
       >
         <div className="ink-rule mb-3 flex items-start justify-between gap-4 pb-2">
           <h2 className="font-display text-xl font-semibold">{title}</h2>

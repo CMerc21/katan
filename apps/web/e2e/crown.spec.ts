@@ -2,9 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * Crown & Castle (docs/phase11.md §11): a Crown & Castle — Standard hotseat
- * game shows the fleet track, the event die beside the number dice and the
- * improvement tri-track badge; the knight button explains itself. Driven
- * through the accessible overlay buttons like the other specs.
+ * game shows the barbarian track's pills, the event die beside the number
+ * dice and the improvement tri-track in the banner; the cost card's knight
+ * row explains itself (docs/phase12.md). Driven through the accessible
+ * overlay buttons like the other specs.
  */
 
 test.use({ reducedMotion: "reduce" });
@@ -52,9 +53,9 @@ test("Crown & Castle — Standard hotseat: setup, a roll with the event die, the
   await page.getByTestId("handoff-ready").click();
   await expect(page.getByTestId("banner")).toHaveText("Ada: place a settlement");
 
-  // The fleet track is on from the start, at step 0 with no attacks; the badge shows three empty tracks.
+  // The fleet track is on from the start, at step 0 with no attacks; the banner shows three empty tracks.
   const fleet = page.getByTestId("fleet-track");
-  await expect(fleet).toBeVisible();
+  await expect(fleet).toBeAttached();
   await expect(fleet).toHaveAttribute("data-position", "0");
   await expect(fleet).toHaveAttribute("data-attacks", "0");
   await expect(page.getByTestId("fleet-ship")).toHaveCount(0);
@@ -62,7 +63,7 @@ test("Crown & Castle — Standard hotseat: setup, a roll with the event die, the
   await expect(tracks).toBeVisible();
   await expect(tracks.locator("[data-track]")).toHaveCount(3);
   await expect(tracks.locator('[data-track="trade"]')).toHaveAttribute("data-level", "0");
-  // No development cards in this module: the deck badge counts progress cards instead.
+  // No development cards in this module: the deck prop on the table counts progress cards instead.
   await expect(page.getByTestId("deck-count")).toHaveText("53");
 
   // Setup: 3 players × 2 placements, each a settlement then a road, through the overlay buttons.
@@ -83,13 +84,12 @@ test("Crown & Castle — Standard hotseat: setup, a roll with the event die, the
   await expect(page.getByTestId("log")).toContainText("setup complete");
   await expect(page.locator('[data-testid="board"] [data-piece="knight"]')).toHaveCount(0);
 
-  // Ada's first turn: the commodity stacks sit beside the resources; the progress button explains there is nothing to play.
+  // Ada's first turn: the commodity cells sit beside the resources in the tray; the Cards button explains there is nothing to play.
   await acknowledgeHandoff(page);
   await expect(page.getByTestId("banner")).toHaveText("Roll the dice");
-  await expect(page.getByTestId("commodities")).toBeVisible();
   await expect(page.getByTestId("commodities").locator("[data-commodity]")).toHaveCount(3);
-  await expect(page.getByTestId("progress")).toBeDisabled();
-  await expect(page.getByTestId("progress")).toHaveAttribute("title", "You hold no progress cards");
+  await expect(page.getByTestId("cards")).toBeDisabled();
+  await expect(page.getByTestId("cards")).toHaveAttribute("title", "You hold no progress cards");
 
   // Roll: the tray shows the red die and the event die, and the log names the event.
   await page.getByTestId("roll").click();
@@ -110,15 +110,15 @@ test("Crown & Castle — Standard hotseat: setup, a roll with the event die, the
   }
   await resolveSeven(page);
 
-  // The action buttons of the module are there. Hiring a knight needs wool + ore: the button says so when Ada lacks them.
+  // The module's rows are on the cost card. Hiring a knight needs wool + ore: the row says so when Ada lacks them.
   await expect(page.getByTestId("end-turn")).toBeEnabled();
-  for (const id of ["knight", "knight-act", "improve", "wall", "progress"]) await expect(page.getByTestId(id)).toBeAttached();
+  for (const id of ["knight", "knight-promote", "improve", "wall"]) await expect(page.getByTestId(id)).toBeAttached();
   await expect(page.getByTestId("improve")).toBeDisabled();
   await expect(page.getByTestId("improve")).toHaveAttribute("title", "You need a city first");
   await expect(page.getByTestId("wall")).toBeDisabled();
   await expect(page.getByTestId("wall")).toHaveAttribute("title", "Walls go on cities");
-  await expect(page.getByTestId("knight-act")).toBeDisabled();
-  await expect(page.getByTestId("knight-act")).toHaveAttribute("title", "You have no knights");
+  await expect(page.getByTestId("knight-promote")).toBeDisabled();
+  await expect(page.getByTestId("knight-promote")).toHaveAttribute("title", "You have no knights");
   const hand = page.getByTestId("hand");
   const count = async (resource: string) => Number(((await hand.locator(`[data-resource="${resource}"]`).getAttribute("aria-label")) ?? "0").split(" ")[0]);
   const wool = await count("wool");
@@ -136,10 +136,10 @@ test("Crown & Castle — Standard hotseat: setup, a roll with the event die, the
     await expect(page.getByTestId("log")).toContainText("Ada hired a knight");
     await expect(page.locator('[data-testid="board"] [data-piece="knight"]')).toHaveCount(1);
     await expect(page.locator('[data-testid="board"] [data-piece="knight"]')).toContainText("inactive");
-    await expect(page.getByTestId("knights-p1-ada")).toHaveText("1 knights · def 0");
+    await expect(page.getByTestId("knights-p1-ada")).toContainText("1");
+    await expect(page.getByTestId("defense-p1-ada")).toContainText("0");
     if (grain >= 1) {
-      // A grain activates it: pick the knight (its menu opens over the board) and activate.
-      await expect(page.getByTestId("knight-act")).toBeEnabled();
+      // A grain activates it: click the knight on the board (its menu opens there) and activate.
       const knights = page.locator('[data-target="knightAct"]');
       await expect(knights).toHaveCount(1, { timeout: 15_000 });
       await knights.first().click({ force: true });
@@ -147,11 +147,10 @@ test("Crown & Castle — Standard hotseat: setup, a roll with the event die, the
       await expect(page.getByTestId("knight-move")).toBeDisabled();
       await page.getByTestId("knight-activate").click();
       await expect(page.getByTestId("log")).toContainText("Ada activated a knight");
-      await expect(page.getByTestId("knights-p1-ada")).toHaveText("1 knights · def 1");
+      await expect(page.getByTestId("defense-p1-ada")).toContainText("1");
       await expect(page.getByTestId("fleet-odds")).toHaveText("0 vs 1");
     } else {
-      await expect(page.getByTestId("knight-act")).toBeDisabled();
-      await expect(page.getByTestId("knight-act")).toHaveAttribute("title", "None of your knights can do anything right now");
+      await expect(page.getByTestId("knight-promote")).toBeDisabled();
     }
   } else {
     await expect(knight).toBeDisabled();

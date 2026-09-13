@@ -25,6 +25,8 @@ import { CityFigure, RoadFigure, SettlementFigure, ShipFigure } from "./Pieces";
 import { Props } from "./Props";
 import { FrameWatchdog, QUALITY_PRESETS, detectQuality, readDeviceInfo, type Quality } from "./quality";
 import { woodTexture } from "./textures";
+import { bankLayout } from "@/board/props/layout";
+import { Icon } from "@/hud/icons";
 import { Tiles, type TileInfo } from "./Tiles";
 import { WayfarersBoard, wayfarersPieceList } from "./Wayfarers3d";
 import { CrownBoard, crownPieceList } from "./Crown3d";
@@ -146,16 +148,23 @@ export function Board3D(props: Board3DProps) {
   // Anchors: hex/vertex/edge → viewport through the camera (flying cards).
   useEffect(() => {
     anchors.setProjector((key) => {
-      const [kind, id] = key.split(":", 2);
       const snap = snapshot.current;
-      if (!id || !snap) return null;
+      if (!snap) return null;
+      // The bank and the deck are props on the table (docs/phase12.md §7): flights aim at their layout spots.
+      if (key === "bank" || key === "deck") {
+        const layout = bankLayout(bounds, view.scenario?.crown ? 8 : 5);
+        const p = projectWorld(snap, key === "bank" ? layout.centre : layout.deck, 0.2);
+        return p.visible ? { x: snap.rect.left + p.x, y: snap.rect.top + p.y } : null;
+      }
+      const [kind, id] = key.split(":", 2);
+      if (!id) return null;
       const world = kind === "hex" ? hexWorld(id) : kind === "vertex" ? vertexWorld(id) : kind === "edge" ? edgeWorld(id).mid : null;
       if (!world) return null;
       const p = projectWorld(snap, world, SLAB_HEIGHT + 0.2);
       return p.visible ? { x: snap.rect.left + p.x, y: snap.rect.top + p.y } : null;
     });
     return () => anchors.setProjector(null);
-  }, [anchors]);
+  }, [anchors, bounds, view.scenario?.crown]);
 
   // Overlay buttons for every target (accessibility and tests).
   const points = useMemo(() => {
@@ -414,8 +423,8 @@ export function Board3D(props: Board3DProps) {
         </div>
       )}
 
-      <button type="button" className="parchment absolute right-2 top-2 z-10 rounded-md px-2 py-1 text-xs" onClick={() => setResetToken((t) => t + 1)} data-testid="reset-view" title="Reset view">
-        Reset view
+      <button type="button" className="hud-icon-btn hud-panel hud-camera" onClick={() => setResetToken((t) => t + 1)} data-testid="reset-view" title="Reset view" aria-label="Reset view">
+        <Icon name="camera" />
       </button>
     </div>
   );

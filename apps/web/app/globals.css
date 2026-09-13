@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../src/styles/hud.css";
 
 /* Tokens (docs/art-direction.md §1) */
 @theme {

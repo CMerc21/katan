@@ -28,6 +28,9 @@ interface UiState {
   builds: { city: boolean; settlement: boolean; road: boolean };
   buyDev: boolean;
   cards: string[];
+  /** Phase 12: the dev cards live behind the round Cards button. */
+  cardsHeld: number;
+  cardsOpen: boolean;
   trade: boolean;
   bankTrade: boolean;
   hand: Record<string, number>;
@@ -62,6 +65,8 @@ function readUi(page: Page): Promise<UiState> {
       },
       buyDev: enabled('[data-testid="buy-dev"]'),
       cards: ["dev-roadBuilding", "dev-knight", "dev-invention", "dev-monopoly"].filter((id) => enabled(`[data-testid="${id}"]`)),
+      cardsHeld: Number(q('[data-testid="cards"]')?.getAttribute("data-count") ?? 0),
+      cardsOpen: q('[data-testid="cards"]')?.getAttribute("aria-pressed") === "true",
       trade: enabled('[data-testid="trade"]'),
       bankTrade: Boolean(q('[data-testid="bank-trade"]')),
       hand: Object.fromEntries(
@@ -76,6 +81,11 @@ function readUi(page: Page): Promise<UiState> {
 
 async function clickId(page: Page, id: string): Promise<void> {
   await page.getByTestId(id).first().click({ timeout: 5000 });
+}
+
+/** The Cards button is enabled during our roll and action phases. */
+function enabledCards(ui: UiState): boolean {
+  return ui.roll || ui.endTurn;
 }
 
 test("a 4-player hotseat game plays from setup to a win with no console errors", async ({ page }) => {
@@ -139,6 +149,11 @@ test("a 4-player hotseat game plays from setup to a win with no console errors",
     if (ui.edge) {
       await page.getByTestId(ui.edge).click();
       seen.add("BUILD_ROAD");
+      continue;
+    }
+    // Open the Cards panel whenever there is something in it, so the greedy reads below see the card buttons.
+    if (ui.cardsHeld > 0 && !ui.cardsOpen && enabledCards(ui)) {
+      await clickId(page, "cards");
       continue;
     }
     if (ui.roll) {
