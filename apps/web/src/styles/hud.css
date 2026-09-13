@@ -131,10 +131,14 @@
   align-items: flex-start;
   gap: 12px;
   min-height: 0;
+  padding-right: 48px; /* the camera button's corner */
 }
 .hud-banner {
   position: relative;
-  width: 400px;
+  /* Basis 288 so four fit on one line at 1280 wide (lines break on the basis, before shrinking); grow to 400. */
+  flex: 1 1 288px;
+  max-width: 400px;
+  min-width: 288px;
   height: 110px;
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
@@ -171,6 +175,13 @@
   height: 100% !important;
   border-radius: 0 !important;
   border: 0 !important;
+}
+.hud-vp .hud-num {
+  color: inherit;
+  font-size: 18px;
+}
+.hud-pill .hud-num {
+  font-size: 12px;
 }
 .hud-vp {
   position: absolute;
@@ -376,7 +387,8 @@
   border-color: transparent;
 }
 .hud-banners[data-compact="true"] .hud-banner {
-  width: 96px;
+  flex-basis: 96px;
+  min-width: 96px;
   grid-template-columns: 72px;
 }
 .hud-banners[data-compact="true"] .hud-ribbon,
@@ -908,7 +920,17 @@
   line-height: 1.35;
   pointer-events: none;
   font-family: var(--font-sans);
-  animation: hud-toast-in 150ms ease-out both;
+  animation: hud-tip-in 150ms ease-out both;
+}
+@keyframes hud-tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .hud-tip b {
   font-family: var(--hud-font);
@@ -1070,7 +1092,8 @@
 
 @media (max-width: 1279px), (max-height: 719px) {
   .hud-banners .hud-banner {
-    width: 96px;
+    flex-basis: 96px;
+    min-width: 96px;
     grid-template-columns: 72px;
   }
   .hud-banners .hud-ribbon,

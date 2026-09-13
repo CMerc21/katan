@@ -15,6 +15,17 @@ async function acknowledgeHandoff(page: Page): Promise<void> {
   if (await ready.isVisible().catch(() => false)) await ready.click();
 }
 
+/** The first legal vertex whose overlay button is not under the cost card or the top banners. */
+async function clearVertex(page: Page) {
+  const vertices = page.locator('[data-testid^="target-vertex-"]');
+  const n = await vertices.count();
+  for (let k = 0; k < n; k++) {
+    const b = await vertices.nth(k).boundingBox();
+    if (b && b.x > 340 && b.y > 150 && b.y < 480) return vertices.nth(k);
+  }
+  return vertices.first();
+}
+
 /** Get through a seven: discards (nobody can owe this early, but stay robust). Before the first attack the robber stays home. */
 async function resolveSeven(page: Page): Promise<void> {
   const discard = page.getByTestId("discard-confirm");
@@ -73,8 +84,8 @@ test("Crown & Castle — Standard hotseat: setup, a roll with the event die, the
     await expect(page.getByTestId("banner")).toHaveText(`${name}: place a settlement`);
     const vertices = page.locator('[data-testid^="target-vertex-"]');
     await expect(vertices.first()).toBeAttached({ timeout: 15_000 });
-    const n = await vertices.count();
-    await vertices.nth(Math.floor(n / 3)).click({ force: true });
+    // A vertex clear of the cost card (docs/phase12.md §4), which covers the table's bottom-left corner.
+    await (await clearVertex(page)).click({ force: true });
     await expect(page.getByTestId("banner")).toHaveText(`${name}: place a road`);
     const edges = page.locator('[data-testid^="target-edge-"]');
     await expect(edges.first()).toBeAttached();

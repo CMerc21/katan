@@ -269,7 +269,7 @@ export function HudLayer(props: HudLayerProps) {
 
         <div className="hud-bottom">
           <div className="relative h-full">
-            <div className="absolute bottom-0" style={{ left: 64 }}>
+            <div className="absolute bottom-0" style={{ left: 48 }}>
               <BuildCostCard rows={rows} mode={mode} onMode={onMode} onDispatch={onDispatch} onImprove={onImprove} />
             </div>
           </div>

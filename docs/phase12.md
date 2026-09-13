@@ -55,7 +55,7 @@ The "Reset view" button became a camera icon at the top-right corner (still `res
 
 ## 7. Decisions and deviations
 
-* The cost card sits at x = 64 px (right of the rail) rather than 16 px: at 720 p the rail's lower buttons and a nine-row card would overlap.
+* The cost card sits right of the rail (x = 64 px) rather than at 16 px: at 720 p the rail's lower buttons and a nine-row card would overlap. It can cover a legal target near the table's bottom-left corner; the camera can be dragged, and the specs click central vertices.
 * Banners shrink (400 → 288 px) before they wrap so four fit at 1280 wide beside the camera button; the spec's flex-wrap remains for five and six players.
 * Roll is a round button in the End turn slot during the roll phase (the spec lists only Trade and End turn); the specs and the greedy full-game policy click `roll`.
 * Wayfarers and Tides have no slot in the spec's layout; their per-player badges ride under the banner's stat block and their actions in the module strip above the tray. The raider counter and event deck count sit in a pill under the top row.
