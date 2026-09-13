@@ -1,15 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { RESOURCES, isHiddenCount, type Action, type Hand, type Resource } from "@katan/engine";
+import { COMMODITIES, RESOURCES, isHiddenCount, type Action, type Commodity, type CommodityHand, type Hand, type Resource } from "@katan/engine";
 import type { RedactedState, SeatInfo } from "@/driver/types";
-import { RESOURCE_LABEL, playerName } from "@/game/labels";
-import { PLAYER_FILL, RESOURCE_COLOR } from "@/game/theme";
+import { RESOURCE_LABEL, cardLabel, playerName } from "@/game/labels";
+import { COMMODITY_COLOR, PLAYER_FILL, RESOURCE_COLOR } from "@/game/theme";
 import { Avatar } from "./Avatar";
+import { CardFace } from "./cards";
 import { Button, Modal, PlayerTag, ResourceChip, Stepper } from "./ui";
 
 const emptyHand = (): Hand => ({ wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 });
 const total = (h: Hand) => RESOURCES.reduce((n, r) => n + h[r], 0);
+const emptyCommodities = (): CommodityHand => ({ cloth: 0, coin: 0, paper: 0 });
+const goodsTotal = (c: CommodityHand) => COMMODITIES.reduce((n, k) => n + c[k], 0);
 
 // ---------------------------------------------------------------------------
 
@@ -29,20 +32,25 @@ export function HandoffOverlay({ name, onReady }: { name: string; onReady: () =>
 
 // ---------------------------------------------------------------------------
 
+/** Crown & Castle (docs/rules.md §16.1): commodities count toward the limit and get their own steppers when held. */
 export function DiscardDialog({
   hand,
   owed,
   onDiscard,
+  commodities,
 }: {
   hand: Hand;
   owed: number;
-  onDiscard: (cards: Hand) => void;
+  onDiscard: (cards: Hand, commodities?: CommodityHand) => void;
+  commodities?: CommodityHand | undefined;
 }) {
   const [chosen, setChosen] = useState<Hand>(emptyHand);
-  const count = total(chosen);
+  const [goods, setGoods] = useState<CommodityHand>(emptyCommodities);
+  const count = total(chosen) + goodsTotal(goods);
+  const withGoods = commodities !== undefined && goodsTotal(commodities) > 0;
   return (
     <Modal title={`Discard ${owed} cards`}>
-      <p className="mb-3 text-sm text-ink-soft">You hold more than 7 cards, so half go back to the bank.</p>
+      <p className="mb-3 text-sm text-ink-soft">You hold more than your limit, so half go back to the bank.</p>
       <div className="space-y-2">
         {RESOURCES.filter((r) => hand[r] > 0).map((r) => (
           <Stepper
@@ -55,12 +63,16 @@ export function DiscardDialog({
             onChange={(n) => setChosen({ ...chosen, [r]: n })}
           />
         ))}
+        {withGoods &&
+          COMMODITIES.filter((k) => commodities[k] > 0).map((k) => (
+            <Stepper key={k} label={cardLabel(k)} accent={COMMODITY_COLOR[k]} value={goods[k]} min={0} max={Math.min(commodities[k], goods[k] + (owed - count))} onChange={(n) => setGoods({ ...goods, [k]: n })} />
+          ))}
       </div>
       <div className="mt-4 flex items-center justify-between">
         <span className="text-sm tabular-nums" aria-live="polite">
           {count} of {owed} chosen
         </span>
-        <Button variant="primary" disabled={count !== owed} reason="Choose the exact number" onClick={() => onDiscard(chosen)} data-testid="discard-confirm">
+        <Button variant="primary" disabled={count !== owed} reason="Choose the exact number" onClick={() => (withGoods ? onDiscard(chosen, goods) : onDiscard(chosen))} data-testid="discard-confirm">
           Discard {owed} cards
         </Button>
       </div>
@@ -213,20 +225,27 @@ export function TradeDialog({
   const [tab, setTab] = useState<"players" | "bank">("players");
   const [give, setGive] = useState<Hand>(emptyHand);
   const [receive, setReceive] = useState<Hand>(emptyHand);
-  const [bankGive, setBankGive] = useState<Resource | null>(null);
-  const [bankReceive, setBankReceive] = useState<Resource | null>(null);
+  const [bankGive, setBankGive] = useState<Resource | Commodity | null>(null);
+  const [bankReceive, setBankReceive] = useState<Resource | Commodity | null>(null);
+  // Crown & Castle (docs/rules.md §16.1, §16.4): commodities trade too, and the legal list knows every 2:1 (trade level 3, the merchant, a Merchant Fleet).
+  const crown = view.scenario?.crown === true;
+  const commodities = view.crown?.players[me]?.commodities ?? emptyCommodities();
+  const bankCards: (Resource | Commodity)[] = crown ? [...RESOURCES, ...COMMODITIES] : [...RESOURCES];
+  const held = (k: Resource | Commodity): number => (k === "cloth" || k === "coin" || k === "paper" ? commodities[k] : hand[k]);
+  const maritime = legal.filter((a): a is Extract<Action, { type: "MARITIME_TRADE" }> => a.type === "MARITIME_TRADE");
+  const bestRatio = (k: Resource | Commodity): number => {
+    const listed = maritime.filter((a) => a.give === k).map((a) => a.giveCount);
+    if (listed.length > 0) return Math.min(...listed);
+    return k === "cloth" || k === "coin" || k === "paper" ? 4 : ratios[k];
+  };
+  const receivable = (k: Resource | Commodity): boolean => bankGive !== null && maritime.some((a) => a.give === bankGive && a.receive === k && a.giveCount === bestRatio(bankGive));
   // Wayfarers, Fishing (docs/rules.md §15.2): the boot's holder may attach it to an offer someone could take.
   const bootOffer = view.wayfarers?.fishing?.boot === me && legal.some((a) => a.type === "OFFER_TRADE" && a.boot === true);
   const [boot, setBoot] = useState(false);
 
   const ratios = ratiosFor(view, me);
   const offerOk = total(give) > 0 && total(receive) > 0 && !RESOURCES.some((r) => give[r] > 0 && receive[r] > 0);
-  const bankAction =
-    bankGive && bankReceive
-      ? legal.find(
-          (a) => a.type === "MARITIME_TRADE" && a.give === bankGive && a.receive === bankReceive && a.giveCount === ratios[bankGive],
-        )
-      : undefined;
+  const bankAction = bankGive && bankReceive ? maritime.find((a) => a.give === bankGive && a.receive === bankReceive && a.giveCount === bestRatio(bankGive)) : undefined;
 
   return (
     <Modal title="Trade" onClose={onClose} wide>
@@ -297,37 +316,50 @@ export function TradeDialog({
         <>
           <h3 className="mb-2 text-sm font-semibold">You give</h3>
           <div className="flex flex-wrap gap-2">
-            {RESOURCES.map((r) => (
+            {bankCards.map((k) => (
               <Button
-                key={r}
+                key={k}
                 size="sm"
-                variant={bankGive === r ? "primary" : "secondary"}
-                disabled={hand[r] < ratios[r]}
-                reason={`Needs ${ratios[r]} ${RESOURCE_LABEL[r].toLowerCase()}`}
-                onClick={() => setBankGive(r)}
+                variant={bankGive === k ? "primary" : "secondary"}
+                disabled={held(k) < bestRatio(k)}
+                reason={`Needs ${bestRatio(k)} ${cardLabel(k).toLowerCase()}`}
+                className="flex items-center gap-1"
+                onClick={() => {
+                  setBankGive(k);
+                  setBankReceive(null);
+                }}
+                data-testid={`bank-give-${k}`}
               >
-                {ratios[r]}:1 {RESOURCE_LABEL[r]}
+                {crown && <CardFace card={k} size={16} />}
+                {bestRatio(k)}:1 {cardLabel(k)}
               </Button>
             ))}
           </div>
           <h3 className="mb-2 mt-4 text-sm font-semibold">You get</h3>
           <div className="flex flex-wrap gap-2">
-            {RESOURCES.map((r) => (
-              <Button
-                key={r}
-                size="sm"
-                variant={bankReceive === r ? "primary" : "secondary"}
-                disabled={r === bankGive || view.bank[r] < 1}
-                reason={view.bank[r] < 1 ? "The bank is out" : "Choose a different resource"}
-                onClick={() => setBankReceive(r)}
-              >
-                {RESOURCE_LABEL[r]}
-              </Button>
-            ))}
+            {bankCards.map((k) => {
+              const stock = k === "cloth" || k === "coin" || k === "paper" ? (view.crown?.bank[k] ?? 0) : view.bank[k];
+              const ok = crown ? receivable(k) : k !== bankGive && stock >= 1;
+              return (
+                <Button
+                  key={k}
+                  size="sm"
+                  variant={bankReceive === k ? "primary" : "secondary"}
+                  disabled={!ok}
+                  reason={stock < 1 ? "The bank is out" : bankGive === null ? "Choose what to give first" : "Choose a different card"}
+                  className="flex items-center gap-1"
+                  onClick={() => setBankReceive(k)}
+                  data-testid={`bank-receive-${k}`}
+                >
+                  {crown && <CardFace card={k} size={16} />}
+                  {cardLabel(k)}
+                </Button>
+              );
+            })}
           </div>
           <div className="mt-4 flex justify-end">
             <Button variant="primary" disabled={!bankAction} reason="Choose what to give and get" onClick={() => bankAction && onDispatch(bankAction)} data-testid="bank-trade">
-              {bankGive && bankReceive ? `Trade ${ratios[bankGive]} ${RESOURCE_LABEL[bankGive].toLowerCase()} for 1 ${RESOURCE_LABEL[bankReceive].toLowerCase()}` : "Trade with the bank"}
+              {bankGive && bankReceive ? `Trade ${bestRatio(bankGive)} ${cardLabel(bankGive).toLowerCase()} for 1 ${cardLabel(bankReceive).toLowerCase()}` : "Trade with the bank"}
             </Button>
           </div>
         </>

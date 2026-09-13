@@ -19,6 +19,13 @@ export type Reply = ({ ok: true } & Record<string, unknown>) | { ok: false; code
 export interface ViewRow {
   view: RedactedState;
   version: number;
+  /**
+   * The server's legal list for this player, when the row carries one.
+   * Crown & Castle's Spy prompt lists the target's cards only here
+   * (docs/phase11.md §13); a client computing legal actions from its
+   * redacted view never sees them.
+   */
+  legal?: Action[];
 }
 
 export interface GameApi {
@@ -40,6 +47,7 @@ const HEARTBEAT_MS = 60_000;
 
 export class SupabaseDriver implements GameDriver {
   private view: RedactedState | null = null;
+  private serverLegal: Action[] | null = null;
   private version = -1;
   private seats: SeatInfo[] = [];
   private connected = new Set<string>();
@@ -104,6 +112,7 @@ export class SupabaseDriver implements GameDriver {
     if (row.version < this.version) return;
     this.version = row.version;
     this.view = row.view;
+    this.serverLegal = row.legal ?? null;
     for (const cb of this.viewListeners) cb(row.view);
   }
 
@@ -141,7 +150,9 @@ export class SupabaseDriver implements GameDriver {
   }
 
   legalActions(): Action[] {
-    return this.view ? legalActionsForView(this.view) : [];
+    if (!this.view) return [];
+    // The server's list wins when the row carries one (hidden-information prompts such as the Spy); otherwise the view's.
+    return this.serverLegal ?? legalActionsForView(this.view);
   }
 
   async dispatch(action: Action): Promise<Result<void, DriverError>> {
@@ -273,9 +284,11 @@ export function seatFromRow(r: SeatRow): SeatInfo {
 export function createSupabaseApi(client: SupabaseClient, userId: string): GameApi {
   return {
     async fetchView(gameId) {
-      const { data, error } = await client.from("game_views").select("view, version").eq("game_id", gameId).maybeSingle();
+      const { data, error } = await client.from("game_views").select("*").eq("game_id", gameId).maybeSingle();
       if (error) throw error;
-      return data ? { view: data.view as RedactedState, version: data.version as number } : null;
+      if (!data) return null;
+      const legal = (data as { legal?: unknown }).legal;
+      return { view: data.view as RedactedState, version: data.version as number, ...(Array.isArray(legal) ? { legal: legal as Action[] } : {}) };
     },
     async fetchSeats(gameId) {
       const { data, error } = await client.from("game_players").select("*").eq("game_id", gameId).order("seat");
@@ -299,8 +312,8 @@ export function createSupabaseApi(client: SupabaseClient, userId: string): GameA
       const channel = client
         .channel(`game:${gameId}`, { config: { presence: { key: playerId } } })
         .on("postgres_changes", { event: "*", schema: "public", table: "game_views", filter: `game_id=eq.${gameId}` }, (payload) => {
-          const row = payload.new as { player_id?: string; view?: RedactedState; version?: number };
-          if (row.player_id === playerId && row.view && typeof row.version === "number") handlers.onView({ view: row.view, version: row.version });
+          const row = payload.new as { player_id?: string; view?: RedactedState; version?: number; legal?: unknown };
+          if (row.player_id === playerId && row.view && typeof row.version === "number") handlers.onView({ view: row.view, version: row.version, ...(Array.isArray(row.legal) ? { legal: row.legal as Action[] } : {}) });
         })
         .on("postgres_changes", { event: "*", schema: "public", table: "game_players", filter: `game_id=eq.${gameId}` }, () => handlers.onSeats())
         .on("presence", { event: "sync" }, () => {

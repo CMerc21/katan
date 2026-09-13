@@ -2,10 +2,10 @@
 
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { useEffect, useRef } from "react";
-import type { PlayerColor, Resource } from "@katan/engine";
-import { RESOURCE_LABEL } from "@/game/labels";
+import type { Commodity, PlayerColor, Resource } from "@katan/engine";
+import { COMMODITY_LABEL, RESOURCE_LABEL } from "@/game/labels";
 import { PLAYER_FILL, PLAYER_TEXT } from "@/game/theme";
-import { ResourceCardFace } from "./cards";
+import { CommodityCardFace, ResourceCardFace } from "./cards";
 
 type Variant = "primary" | "secondary" | "quiet";
 
@@ -81,6 +81,36 @@ export function ResourceChip({
     >
       <ResourceCardFace resource={resource} size={compact ? 22 : 30} />
       {!compact && <span className="text-sm">{RESOURCE_LABEL[resource]}</span>}
+      <span key={animateKey} className={`ml-auto min-w-[1.25rem] text-right text-base font-semibold tabular-nums ${animateKey !== undefined ? "count-bump" : ""}`}>
+        {count}
+      </span>
+    </div>
+  );
+}
+
+/** Crown & Castle (docs/phase11.md §11): a commodity card with a count badge, next to the resources. */
+export function CommodityChip({
+  commodity,
+  count,
+  animateKey,
+  compact = false,
+  anchorRef,
+}: {
+  commodity: Commodity;
+  count: number;
+  animateKey?: string | number;
+  compact?: boolean;
+  anchorRef?: (el: HTMLDivElement | null) => void;
+}) {
+  return (
+    <div
+      ref={anchorRef}
+      className={`flex items-center gap-1.5 rounded-md border border-ink/40 bg-parchment/80 ${compact ? "px-1 py-0.5" : "px-1.5 py-1"}`}
+      aria-label={`${count} ${COMMODITY_LABEL[commodity]}`}
+      data-commodity={commodity}
+    >
+      <CommodityCardFace commodity={commodity} size={compact ? 22 : 30} />
+      {!compact && <span className="text-sm">{COMMODITY_LABEL[commodity]}</span>}
       <span key={animateKey} className={`ml-auto min-w-[1.25rem] text-right text-base font-semibold tabular-nums ${animateKey !== undefined ? "count-bump" : ""}`}>
         {count}
       </span>

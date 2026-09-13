@@ -7,11 +7,11 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import type { DevCardType, EventCardKind, PlayerColor, Resource } from "@katan/engine";
+import type { DevCardType, EventCardKind, EventDie, PlayerColor, Resource } from "@katan/engine";
 import type { RedactedState, SeatInfo } from "@/driver/types";
 import type { Step } from "@/game/eventQueue";
-import { EVENT_CARD_LABEL } from "@/game/labels";
-import { BONE, GILT, INK, LEATHER, PLAYER_FILL, PLAYER_TEXT } from "@/game/theme";
+import { EVENT_CARD_LABEL, EVENT_DIE_LABEL } from "@/game/labels";
+import { BONE, COMMODITY_COLOR, FLEET_COLOR, GILT, INK, LEATHER, PLAYER_FILL, PLAYER_TEXT } from "@/game/theme";
 import { Avatar } from "../Avatar";
 import { CardBack, DevCardFace, ResourceCardFace } from "../cards";
 import { useAnchors, type Point } from "./anchors";
@@ -55,7 +55,7 @@ export function thinkingPlayer(step: Step | null): string | null {
 // ---------------------------------------------------------------------------
 // Dice
 
-function Die({ n, rolling, delay }: { n: number; rolling: boolean; delay: number }) {
+function Die({ n, rolling, delay, red = false }: { n: number; rolling: boolean; delay: number; red?: boolean }) {
   const pips: Record<number, [number, number][]> = {
     1: [[50, 50]],
     2: [
@@ -90,11 +90,39 @@ function Die({ n, rolling, delay }: { n: number; rolling: boolean; delay: number
     ],
   };
   return (
-    <svg viewBox="0 0 100 100" width={34} height={34} className={rolling ? "die-tumble" : "die-settle"} style={{ animationDelay: `${delay}ms` }} aria-label={`die ${n}`}>
-      <rect x="6" y="6" width="88" height="88" rx="16" fill={BONE} stroke={INK} strokeWidth={4} />
+    <svg viewBox="0 0 100 100" width={34} height={34} className={rolling ? "die-tumble" : "die-settle"} style={{ animationDelay: `${delay}ms` }} aria-label={`${red ? "red die" : "die"} ${n}`} data-testid={red ? "red-die" : undefined}>
+      <rect x="6" y="6" width="88" height="88" rx="16" fill={red ? PLAYER_FILL.red : BONE} stroke={INK} strokeWidth={4} />
       {(pips[n] ?? []).map(([x, y], i) => (
-        <circle key={i} cx={x} cy={y} r={8} fill={INK} />
+        <circle key={i} cx={x} cy={y} r={8} fill={red ? BONE : INK} />
       ))}
+    </svg>
+  );
+}
+
+/** Crown & Castle's event die (docs/rules.md §16.2): a black sail for the fleet, the track's commodity colour otherwise. */
+function EventDieFace({ event, rolling, delay }: { event: EventDie; rolling: boolean; delay: number }) {
+  const fill = event === "fleet" ? FLEET_COLOR : COMMODITY_COLOR[event === "trade" ? "cloth" : event === "politics" ? "coin" : "paper"];
+  return (
+    <svg viewBox="0 0 100 100" width={34} height={34} className={rolling ? "die-tumble" : "die-settle"} style={{ animationDelay: `${delay}ms` }} aria-label={`event die ${EVENT_DIE_LABEL[event]}`} data-testid="event-die" data-event={event}>
+      <rect x="6" y="6" width="88" height="88" rx="16" fill={BONE} stroke={INK} strokeWidth={4} />
+      {event === "fleet" ? (
+        <>
+          <path d="M50 18 V64 L78 56 Z" fill={fill} />
+          <path d="M22 66 H78 L70 80 H30 Z" fill="#8a6a44" stroke={INK} strokeWidth={2} />
+        </>
+      ) : event === "trade" ? (
+        <path d="M22 34 Q36 24 50 34 T78 34 V70 Q64 80 50 70 T22 70 Z" fill={fill} stroke={INK} strokeWidth={2} />
+      ) : event === "politics" ? (
+        <>
+          <circle cx="50" cy="52" r="26" fill={fill} stroke={INK} strokeWidth={2} />
+          <circle cx="50" cy="52" r="16" fill="none" stroke="#7a4a1f" strokeWidth={3} />
+        </>
+      ) : (
+        <>
+          <rect x="30" y="22" width="40" height="58" fill="#f8f4ea" stroke={INK} strokeWidth={2} />
+          <path d="M38 38 H62 M38 50 H62 M38 62 H56" stroke={fill} strokeWidth={3} />
+        </>
+      )}
     </svg>
   );
 }
@@ -120,6 +148,9 @@ export function DiceTray({ step, view }: { step: Step | null; view: RedactedStat
     if (rolling) setShowing(true);
     if (drawn) setCard(drawn);
   }, [rolling, drawn]);
+  // Crown & Castle (docs/rules.md §16.2): the event die lands beside the number dice and the first die is red.
+  const crown = view.scenario?.crown === true;
+  const eventDie: EventDie | null = rolling && step.event.kind === "diceRolled" ? (step.event.event ?? null) : (view.crown?.lastEvent ?? null);
   if (!dice || (!showing && !view.lastRoll)) return null;
   const deck = view.scenario?.variants.eventDeck === true;
   if (deck && card) {
@@ -131,8 +162,9 @@ export function DiceTray({ step, view }: { step: Step | null; view: RedactedStat
   }
   return (
     <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-1.5 rounded-lg px-2 py-1.5" style={{ background: LEATHER, boxShadow: "inset 0 0 0 2px rgba(0,0,0,.35), 0 2px 4px rgba(0,0,0,.4)" }} data-testid="dice-tray" aria-label={`dice ${dice[0]} and ${dice[1]}`}>
-      <Die n={dice[0]} rolling={!!rolling} delay={0} />
+      <Die n={dice[0]} rolling={!!rolling} delay={0} red={crown} />
       <Die n={dice[1]} rolling={!!rolling} delay={120} />
+      {crown && eventDie && <EventDieFace event={eventDie} rolling={!!rolling} delay={240} />}
     </div>
   );
 }

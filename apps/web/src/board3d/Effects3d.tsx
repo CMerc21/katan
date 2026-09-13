@@ -10,12 +10,12 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import type { HexId } from "@katan/engine";
+import type { EventDie, HexId } from "@katan/engine";
 import { LEATHER } from "@/game/theme";
 import { easeInOut, easeOutCubic } from "./geo";
 import { SLAB_HEIGHT, hexWorld, type Bounds, type World } from "./layout3d";
 import { PirateFigure, RobberFigure, pirateOffset, robberOffset } from "./Pieces";
-import { dieFaceTexture } from "./textures";
+import { dieFaceTexture, eventDieFaceTexture } from "./textures";
 
 // ---------------------------------------------------------------------------
 // Robber
@@ -163,9 +163,30 @@ export function faceUp(q: THREE.Quaternion): number {
   return best;
 }
 
-function Die({ index, value, rollKey, rest }: { index: number; value: number; rollKey: number | null; rest: THREE.Vector3 }) {
+/** Crown & Castle (docs/rules.md §16.2): the event die's faces 1–3 are the fleet, 4 trade, 5 politics, 6 science. */
+export function eventDieFace(event: EventDie): number {
+  switch (event) {
+    case "fleet":
+      return 1;
+    case "trade":
+      return 4;
+    case "politics":
+      return 5;
+    case "science":
+      return 6;
+    default: {
+      const exhaustive: never = event;
+      throw new Error(String(exhaustive));
+    }
+  }
+}
+
+function Die({ index, value, rollKey, rest, kind = "number", red = false }: { index: number; value: number; rollKey: number | null; rest: THREE.Vector3; kind?: "number" | "event"; red?: boolean }) {
   const mesh = useRef<THREE.Mesh>(null);
-  const materials = useMemo(() => [3, 4, 1, 6, 2, 5].map((n) => new THREE.MeshStandardMaterial({ map: dieFaceTexture(n), roughness: 0.6 })), []);
+  const materials = useMemo(
+    () => [3, 4, 1, 6, 2, 5].map((n) => new THREE.MeshStandardMaterial({ map: kind === "event" ? eventDieFaceTexture(n) : dieFaceTexture(n, red), roughness: 0.6 })),
+    [kind, red],
+  );
   const lastKey = useRef<number | null>(null);
   const start = useRef(0);
   const finalQ = useMemo(() => faceUpQuaternion(value, ((rollKey ?? 0) * 0.7 + index * 1.3) % (Math.PI * 2)), [value, rollKey, index]);
@@ -191,29 +212,33 @@ function Die({ index, value, rollKey, rest }: { index: number; value: number; ro
   );
 }
 
-export function DiceTray3D({ bounds, dice, rollKey, shadows }: { bounds: Bounds; dice: [number, number] | null; rollKey: number | null; shadows: boolean }) {
-  const x = bounds.cx - 0.9;
+/** The dice tray; under Crown & Castle it is wider, the first die is red and the event die lands beside the number dice (docs/phase11.md §11). */
+export function DiceTray3D({ bounds, dice, rollKey, shadows, eventDie = null, redDie = false }: { bounds: Bounds; dice: [number, number] | null; rollKey: number | null; shadows: boolean; eventDie?: EventDie | null; redDie?: boolean }) {
+  const three = eventDie !== null;
+  const x = bounds.cx - (three ? 1.1 : 0.9);
   const z = bounds.maxZ + 1.35;
+  const w = three ? 2.1 : 1.5;
   if (!dice) return null;
   return (
     <group name="dice-tray">
       <mesh position={[x, 0.04, z]} receiveShadow={shadows}>
-        <boxGeometry args={[1.5, 0.08, 0.9]} />
+        <boxGeometry args={[w, 0.08, 0.9]} />
         <meshStandardMaterial color={LEATHER} roughness={0.95} />
       </mesh>
       {[
-        [-0.75, 0],
-        [0.75, 0],
+        [-w / 2, 0],
+        [w / 2, 0],
         [0, -0.45],
         [0, 0.45],
       ].map(([dx, dz], i) => (
         <mesh key={i} position={[x + dx!, 0.1, z + dz!]}>
-          <boxGeometry args={[dx === 0 ? 1.5 : 0.06, 0.12, dz === 0 ? 0.9 : 0.06]} />
+          <boxGeometry args={[dx === 0 ? w : 0.06, 0.12, dz === 0 ? 0.9 : 0.06]} />
           <meshStandardMaterial color="#2e1c10" />
         </mesh>
       ))}
-      <Die index={0} value={dice[0]} rollKey={rollKey} rest={new THREE.Vector3(x - 0.3, 0.08, z)} />
-      <Die index={1} value={dice[1]} rollKey={rollKey} rest={new THREE.Vector3(x + 0.3, 0.08, z + 0.05)} />
+      <Die index={0} value={dice[0]} rollKey={rollKey} rest={new THREE.Vector3(x - (three ? 0.6 : 0.3), 0.08, z)} red={redDie} />
+      <Die index={1} value={dice[1]} rollKey={rollKey} rest={new THREE.Vector3(x + (three ? 0 : 0.3), 0.08, z + 0.05)} />
+      {eventDie !== null && <Die index={2} value={eventDieFace(eventDie)} rollKey={rollKey} rest={new THREE.Vector3(x + 0.62, 0.08, z - 0.03)} kind="event" />}
     </group>
   );
 }

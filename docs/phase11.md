@@ -34,7 +34,11 @@ PLACEHOLDER_BOTS
 
 ## 5. UI
 
-PLACEHOLDER_UI
+- `src/components/crown/`: `CrownBadges` (a tri-track badge per player with level-3 markers and metropolis crowns, commodity / progress / knight / wall / defender / merchant counts, revealed VP cards) and the `FleetTrack` over the board (seven steps, the ship token, attack count, odds, last event die); `CrownActions` (buttons `knight`, `knight-act`, `improve`, `wall`, `progress`, the commodity hand row and the progress hand row where the development cards used to be); `KnightMenu` (activate / promote / move / displace / chase with reasons), `ImprovementSheet`, `ProgressSheet` (player, card and dice pickers; board modes for hex/vertex/edge cards), and the prompt dialogs (`DowngradeDialog`, `MetropolisDialog`, `DeserterDialog`, `FreeKnightDialog`, `RetreatDialog`, `DiscardProgressDialog`, `SpyDialog`, `CommercialSwapDialog`, `GiveCardsDialog`). `DiscardDialog` gains commodity steppers; the trade dialog's bank tab is driven by the legal list (commodities, 2:1 through trade level 3, the merchant or a Merchant Fleet). Dev-card UI is hidden under the module.
+- `src/board3d/Crown3d.tsx`: knight figures (a shield with 1–3 pips, laid back and greyed when inactive), wall rings, metropolis crowns in the track colour, the merchant; `Interaction` target modes `knight | knightAct | knightMove | knightDisplace | wall | metropolis | downgrade | retreat | progress:<card>` with two-step picks for Inventor, Diplomat and Smith, `data-target` values and the sr-only pieces `knight`, `wall`, `metropolis`, `merchant`. The dice tray shows the red die and a third event die (sail / cloth / coin / paper faces), in 3D and in the DOM tray.
+- `eventQueue.ts` (`applyCrownEvent`) applies every Crown event to the rendered view, with crown-aware base cases (commodities in `stole` / `discarded` / `maritimeTrade`, Medicine-priced cities); three reconstruction tests compare the rendered view with `redact()` over long crown games.
+- `SupabaseDriver` prefers the server's legal list when the `game_views` row carries one (`legal jsonb`, migration `0006_game_views_legal.sql`; `refreshViews` writes it), so the Spy prompt works online; the hotseat driver already uses the engine's full list.
+- Cards: `cards.tsx` has commodity faces and progress card faces with track crests; copy lives in `labels.ts` (`PROGRESS_CARD_HELP`, track and commodity labels, event die labels).
 
 ## 6. Tests
 

@@ -5,7 +5,33 @@
  * the screen advances in step with the animation rather than snapping.
  */
 
-import { COSTS, RESOURCES, WAGON_GOODS, describeEvent, eventPlayer, isHiddenCount, type DevCard, type GameEvent, type GameEventKind, type Hand, type RedactedWayfarers, type Resource, type WagonGood } from "@katan/engine";
+import {
+  COSTS,
+  RESOURCES,
+  TRACKS,
+  VP_PROGRESS_CARDS,
+  WAGON_GOODS,
+  describeEvent,
+  edgeVerticesOf,
+  eventPlayer,
+  isHiddenCount,
+  isHiddenProgress,
+  trackOfCard,
+  type Commodity,
+  type CommodityHand,
+  type DevCard,
+  type GameEvent,
+  type GameEventKind,
+  type Hand,
+  type Knight,
+  type KnightLevel,
+  type ProgressCard,
+  type RedactedCrown,
+  type RedactedCrownPlayer,
+  type RedactedWayfarers,
+  type Resource,
+  type WagonGood,
+} from "@katan/engine";
 import type { RedactedState } from "@/driver/types";
 import type { AnimationSpeed } from "./settings";
 
@@ -231,7 +257,7 @@ type W = NonNullable<RedactedWayfarers>;
  * its surcharge). The marker never survives the event after it.
  */
 type FreeBuild = "road" | "bridge" | "devCard" | "city";
-type Rendered = RedactedState & { readonly freeBuild?: FreeBuild };
+type Rendered = RedactedState & { readonly freeBuild?: FreeBuild; readonly crownPending?: CrownPending };
 
 function withWayfarers(view: RedactedState, fn: (w: W) => W): RedactedState {
   if (!view.wayfarers) throw new Error("event needs a Wayfarers variant that is not on");
@@ -445,6 +471,352 @@ function applyWayfarersEvent(view: RedactedState, event: GameEvent, free: FreeBu
   }
 }
 
+// --- Crown & Castle (docs/phase11.md §11): keep the module state in step with its events -----------
+
+/** docs/rules.md §16.5, §16.7, §16.4: the costs the events do not carry. */
+export const KNIGHT_COST: Hand = { wood: 0, clay: 0, wool: 1, grain: 0, ore: 1 };
+export const ACTIVATE_COST: Hand = { wood: 0, clay: 0, wool: 0, grain: 1, ore: 0 };
+export const WALL_COST: Hand = { wood: 0, clay: 2, wool: 0, grain: 0, ore: 0 };
+export const MEDICINE_COST: Hand = { wood: 0, clay: 0, wool: 0, grain: 1, ore: 2 };
+
+/**
+ * Things a later crown event needs to know about an earlier one (the events
+ * themselves do not say whether a knight was free, or which knight is
+ * retreating). Transient markers live exactly as long as the events they
+ * bridge; `settlePending` drops them when something else happens.
+ */
+export interface CrownPending {
+  /** Deserter: `by` places a free knight of this level next (their next `knightBuilt`). */
+  readonly freeKnight?: { readonly by: string; readonly level: KnightLevel };
+  /** Displaced knights waiting for their owner's retreat, by owner. */
+  readonly retreating?: Readonly<Record<string, { readonly level: KnightLevel; readonly active: boolean }>>;
+  /** Smith: the next `knightPromoted` events are free. */
+  readonly freePromotions?: boolean;
+  /** Medicine: the next `built` city is paid with two ore and one grain. */
+  readonly medicine?: boolean;
+  /** Master Merchant: its `stole` events carry the cards; the closing `cardsTaken` is a summary. */
+  readonly masterMerchant?: boolean;
+}
+
+function settlePending(p: CrownPending, kind: GameEventKind): CrownPending | undefined {
+  const out: { -readonly [K in keyof CrownPending]: CrownPending[K] } = { ...p };
+  if (kind !== "knightPromoted") delete out.freePromotions;
+  if (kind !== "built") delete out.medicine;
+  if (kind !== "stole" && kind !== "cardsTaken") delete out.masterMerchant;
+  return Object.keys(out).length === 0 ? undefined : out;
+}
+
+function withPending(view: RedactedState, pending: CrownPending | undefined): RedactedState {
+  const { crownPending: _drop, ...rest } = view as Rendered;
+  void _drop;
+  return pending ? ({ ...rest, crownPending: pending } as Rendered) : rest;
+}
+
+function addPending(view: RedactedState, patch: CrownPending): RedactedState {
+  const current = (view as Rendered).crownPending ?? {};
+  return withPending(view, { ...current, ...patch });
+}
+
+type C = NonNullable<RedactedCrown>;
+
+function asCommodity(x: string | null | undefined): Commodity | null {
+  return x === "cloth" || x === "coin" || x === "paper" ? x : null;
+}
+
+function emptyCommodities(): CommodityHand {
+  return { cloth: 0, coin: 0, paper: 0 };
+}
+
+function oneCommodity(c: Commodity): CommodityHand {
+  return { ...emptyCommodities(), [c]: 1 };
+}
+
+function withCrown(view: RedactedState, fn: (c: C) => C): RedactedState {
+  if (!view.crown) throw new Error("event needs Crown & Castle, which is not on");
+  return { ...view, crown: fn(view.crown) };
+}
+
+function withCrownPlayer(view: RedactedState, id: string, fn: (p: RedactedCrownPlayer) => RedactedCrownPlayer): RedactedState {
+  return withCrown(view, (c) => {
+    const p = c.players[id];
+    if (!p) throw new Error(`event names unknown player ${id}`);
+    return { ...c, players: { ...c.players, [id]: fn(p) } };
+  });
+}
+
+/** Move commodities from one purse to another; `null` on either side is the commodity bank. */
+function moveCommodities(view: RedactedState, from: string | null, to: string | null, cards: CommodityHand): RedactedState {
+  const sub = (h: CommodityHand): CommodityHand => ({ cloth: Math.max(0, h.cloth - cards.cloth), coin: Math.max(0, h.coin - cards.coin), paper: Math.max(0, h.paper - cards.paper) });
+  const add = (h: CommodityHand): CommodityHand => ({ cloth: h.cloth + cards.cloth, coin: h.coin + cards.coin, paper: h.paper + cards.paper });
+  let next = view;
+  next = from === null ? withCrown(next, (c) => ({ ...c, bank: sub(c.bank) })) : withCrownPlayer(next, from, (p) => ({ ...p, commodities: sub(p.commodities) }));
+  next = to === null ? withCrown(next, (c) => ({ ...c, bank: add(c.bank) })) : withCrownPlayer(next, to, (p) => ({ ...p, commodities: add(p.commodities) }));
+  return next;
+}
+
+/** A card enters a progress hand: the viewer's own list, or another player's count (VP cards are face up for everyone). */
+function gainProgress(hand: RedactedCrownPlayer["progress"], card: ProgressCard | null): RedactedCrownPlayer["progress"] {
+  const revealed = card !== null && VP_PROGRESS_CARDS.includes(card);
+  if (isHiddenProgress(hand)) return { count: hand.count + 1, revealed: revealed && card ? [...hand.revealed, card] : hand.revealed };
+  if (card === null) throw new Error("the viewer's own draw must name the card");
+  return [...hand, { card, revealed }];
+}
+
+/** A face-down card leaves a progress hand (the first match, as the engine does); `null` when the card is unknown. */
+function loseProgress(hand: RedactedCrownPlayer["progress"], card: ProgressCard | null): RedactedCrownPlayer["progress"] {
+  if (isHiddenProgress(hand)) return { ...hand, count: Math.max(0, hand.count - 1) };
+  if (card === null) return hand; // an unknown card cannot leave a known hand; the snap fixes it
+  const i = hand.findIndex((h) => h.card === card && !h.revealed);
+  return i < 0 ? hand : [...hand.slice(0, i), ...hand.slice(i + 1)];
+}
+
+function knightAt(c: C, vertex: string): Knight | undefined {
+  return c.knights.find((k) => k.at === vertex);
+}
+
+function withKnight(view: RedactedState, vertex: string, fn: (k: Knight) => Knight): RedactedState {
+  return withCrown(view, (c) => {
+    if (!knightAt(c, vertex)) throw new Error(`no knight at ${vertex}`);
+    return { ...c, knights: c.knights.map((k) => (k.at === vertex ? fn(k) : k)) };
+  });
+}
+
+function removeKnight(view: RedactedState, vertex: string): RedactedState {
+  return withCrown(view, (c) => ({ ...c, knights: c.knights.filter((k) => k.at !== vertex) }));
+}
+
+function placeKnight(view: RedactedState, owner: string, at: string, level: KnightLevel, active: boolean, actedThisTurn: boolean): RedactedState {
+  return withCrown(view, (c) => {
+    if (knightAt(c, at)) throw new Error(`a knight already stands at ${at}`);
+    return { ...c, knights: [...c.knights, { owner, at, level, active, actedThisTurn, builtOnTurn: view.turn }] };
+  });
+}
+
+/** docs/rules.md §16.4 (Deserter): may `playerId` place a knight of `level` — a piece in supply and a free vertex on their roads? */
+function canPlaceFreeKnight(view: RedactedState, playerId: string, level: KnightLevel): boolean {
+  const c = view.crown;
+  const p = view.players.find((x) => x.id === playerId);
+  if (!c || !p) return false;
+  if (c.knights.filter((k) => k.owner === playerId && k.level === level).length >= 2) return false;
+  const taken = new Set<string>([...c.knights.map((k) => k.at), ...view.players.flatMap((x) => [...x.settlements, ...x.cities])]);
+  return [...p.roads, ...p.ships].some((e) => edgeVerticesOf(e).some((v) => !taken.has(v)));
+}
+
+/** docs/rules.md §16.5, §16.4: per-turn flags reset (knights, progress cards, the Merchant Fleet). */
+function crownTurnStarted(view: RedactedState): RedactedState {
+  const next = withCrown(view, (c) => {
+    const players: Record<string, RedactedCrownPlayer> = {};
+    for (const [id, p] of Object.entries(c.players)) players[id] = { ...p, progressPlayedThisTurn: 0, progressPlayedBeforeRoll: false, merchantFleet: null };
+    return { ...c, players, knights: c.knights.map((k) => (k.actedThisTurn ? { ...k, actedThisTurn: false } : k)) };
+  });
+  const p = (next as Rendered).crownPending;
+  if (!p?.freeKnight) return next;
+  const { freeKnight: _gone, ...rest } = p;
+  void _gone;
+  return withPending(next, Object.keys(rest).length ? rest : undefined);
+}
+
+function applyCrownEvent(view: RedactedState, event: GameEvent, pending: CrownPending | undefined): RedactedState {
+  let next = view;
+  switch (event.kind) {
+    case "commoditiesProduced":
+      for (const g of event.gains) next = moveCommodities(next, null, g.playerId, { ...emptyCommodities(), [g.commodity]: g.count });
+      return next;
+    case "progressDrawn":
+      next = withCrown(next, (c) => ({ ...c, decks: { ...c.decks, [event.track]: Math.max(0, c.decks[event.track] - 1) } }));
+      next = withCrownPlayer(next, event.playerId, (p) => ({ ...p, progress: gainProgress(p.progress, event.card) }));
+      return event.card !== null && VP_PROGRESS_CARDS.includes(event.card) ? withVP(next, event.playerId, 1) : next;
+    case "progressPlayed": {
+      const track = trackOfCard(event.card);
+      const beforeRoll = next.phase.kind === "roll";
+      next = withCrown(next, (c) => ({ ...c, decks: { ...c.decks, [track]: c.decks[track] + 1 } }));
+      next = withCrownPlayer(next, event.playerId, (p) => ({
+        ...p,
+        progress: loseProgress(p.progress, event.card),
+        progressPlayedThisTurn: p.progressPlayedThisTurn + 1,
+        progressPlayedBeforeRoll: p.progressPlayedBeforeRoll || beforeRoll,
+        crane: event.card === "crane" ? true : p.crane,
+      }));
+      switch (event.card) {
+        case "roadBuilding": {
+          const p = next.players.find((x) => x.id === event.playerId);
+          const pieces = (p?.pieces.roads ?? 0) + (next.scenario?.tides ? (p?.pieces.ships ?? 0) : 0);
+          return { ...next, phase: { kind: "roadBuilding", remaining: pieces >= 2 ? 2 : 1 } };
+        }
+        case "smith":
+          return addPending(next, { freePromotions: true });
+        case "medicine":
+          return addPending(next, { medicine: true });
+        case "masterMerchant":
+          return addPending(next, { masterMerchant: true });
+        default:
+          return next;
+      }
+    }
+    case "progressDiscarded": {
+      next = withCrownPlayer(next, event.playerId, (p) => ({ ...p, progress: loseProgress(p.progress, event.card) }));
+      // The card goes under its deck; a third party does not learn which.
+      if (event.card === null) return next;
+      const track = trackOfCard(event.card);
+      return withCrown(next, (c) => ({ ...c, decks: { ...c.decks, [track]: c.decks[track] + 1 } }));
+    }
+    case "improvementBuilt": {
+      const commodity = TRACKS.includes(event.track) ? ({ trade: "cloth", politics: "coin", science: "paper" } as const)[event.track] : null;
+      if (!commodity) throw new Error(`unknown track ${event.track}`);
+      const cp = next.crown?.players[event.playerId];
+      if (!cp) throw new Error(`event names unknown player ${event.playerId}`);
+      const cost = cp.crane ? Math.max(1, event.level - 1) : event.level;
+      next = moveCommodities(next, event.playerId, null, { ...emptyCommodities(), [commodity]: cost });
+      return withCrownPlayer(next, event.playerId, (p) => ({ ...p, crane: false, tracks: { ...p.tracks, [event.track]: event.level } }));
+    }
+    case "metropolisPlaced":
+      if (event.from !== null) {
+        next = withCrownPlayer(next, event.from, (p) => ({ ...p, metropolises: { ...p.metropolises, [event.track]: null } }));
+        next = withVP(next, event.from, -2);
+      }
+      next = withCrownPlayer(next, event.playerId, (p) => ({ ...p, metropolises: { ...p.metropolises, [event.track]: event.vertex } }));
+      next = withCrown(next, (c) => ({ ...c, metropolis: { ...c.metropolis, [event.track]: event.playerId } }));
+      return withVP(next, event.playerId, 2);
+    case "knightBuilt": {
+      const free = pending?.freeKnight?.by === event.playerId ? pending.freeKnight : undefined;
+      if (free && pending) {
+        const { freeKnight: _used, ...rest } = pending;
+        void _used;
+        next = withPending(next, Object.keys(rest).length ? rest : undefined);
+        return placeKnight(next, event.playerId, event.vertex, free.level, false, true);
+      }
+      if (next.phase.kind === "action") next = pay(next, event.playerId, KNIGHT_COST);
+      return placeKnight(next, event.playerId, event.vertex, 1, false, true);
+    }
+    case "knightActivated":
+      if (!event.free) next = pay(next, event.playerId, ACTIVATE_COST);
+      return withKnight(next, event.vertex, (k) => ({ ...k, active: true, actedThisTurn: true }));
+    case "knightPromoted":
+      if (!pending?.freePromotions) next = pay(next, event.playerId, KNIGHT_COST);
+      return withKnight(next, event.vertex, (k) => ({ ...k, level: event.level }));
+    case "knightMoved":
+      next = withKnight(next, event.from, (k) => ({ ...k, at: event.to, active: false, actedThisTurn: true }));
+      return next;
+    case "knightDisplaced": {
+      const victim = next.crown ? knightAt(next.crown, event.to) : undefined;
+      if (!victim) throw new Error(`no knight to displace at ${event.to}`);
+      next = removeKnight(next, event.to);
+      next = withKnight(next, event.from, (k) => ({ ...k, at: event.to, active: false, actedThisTurn: true }));
+      return addPending(next, { retreating: { ...(pending?.retreating ?? {}), [victim.owner]: { level: victim.level, active: victim.active } } });
+    }
+    case "knightRetreated": {
+      const spec = pending?.retreating?.[event.playerId];
+      if (spec) {
+        const { [event.playerId]: _done, ...others } = pending?.retreating ?? {};
+        void _done;
+        const { retreating: _r, ...rest } = pending ?? {};
+        void _r;
+        next = withPending(next, Object.keys(others).length ? { ...rest, retreating: others } : Object.keys(rest).length ? rest : undefined);
+      }
+      if (event.to === null) return next;
+      return placeKnight(next, event.playerId, event.to, spec?.level ?? 1, spec?.active ?? false, false);
+    }
+    case "knightRemoved": {
+      const gone = next.crown ? knightAt(next.crown, event.vertex) : undefined;
+      if (gone && gone.owner === event.playerId) next = removeKnight(next, event.vertex);
+      if (event.reason === "deserter") {
+        // The card's player (the current one) places a free knight next, unless they have no piece or no spot for it.
+        const by = next.players[next.currentPlayer]?.id;
+        const level = gone?.level ?? 1;
+        return by !== undefined && canPlaceFreeKnight(next, by, level) ? addPending(next, { freeKnight: { by, level } }) : next;
+      }
+      if (event.reason === "noRetreat" && pending?.retreating?.[event.playerId]) {
+        const { [event.playerId]: _done, ...others } = pending.retreating;
+        void _done;
+        const { retreating: _r, ...rest } = pending;
+        void _r;
+        next = withPending(next, Object.keys(others).length ? { ...rest, retreating: others } : Object.keys(rest).length ? rest : undefined);
+      }
+      return next;
+    }
+    case "knightsDeactivated":
+      // docs/rules.md §16.6: after any attack every knight stands down and the track resets.
+      return withCrown(next, (c) => ({ ...c, fleet: 0, attacks: c.attacks + 1, knights: c.knights.map((k) => (k.active ? { ...k, active: false } : k)) }));
+    case "robberChased":
+      // The rendered phase stays "action" (as after a seven): the robber's move and steal arrive as their own events.
+      return withKnight(next, event.vertex, (k) => ({ ...k, active: false, actedThisTurn: true }));
+    case "wallBuilt":
+      if (!event.free) next = pay(next, event.playerId, WALL_COST);
+      return withCrownPlayer(next, event.playerId, (p) => ({ ...p, walls: [...p.walls, event.vertex] }));
+    case "fleetAdvanced":
+      return withCrown(next, (c) => ({ ...c, fleet: event.position }));
+    case "fleetAttacked":
+      return next; // the awards, downgrades and `knightsDeactivated` follow as their own events
+    case "cityDowngraded":
+      next = withPlayer(next, event.playerId, (p) => {
+        if (!p.cities.includes(event.vertex)) throw new Error("no city to downgrade");
+        return { ...p, cities: p.cities.filter((v) => v !== event.vertex), settlements: [...p.settlements, event.vertex], pieces: { ...p.pieces, cities: p.pieces.cities + 1, settlements: p.pieces.settlements - 1 }, publicVP: p.publicVP - 1 };
+      });
+      return withCrownPlayer(next, event.playerId, (p) => ({ ...p, walls: p.walls.filter((v) => v !== event.vertex) }));
+    case "defenderAwarded":
+      if (!event.chip) return next; // the honour is a progress card, drawn as its own event
+      next = withCrown(next, (c) => ({ ...c, defenderSupply: Math.max(0, c.defenderSupply - 1) }));
+      next = withCrownPlayer(next, event.playerId, (p) => ({ ...p, defenderChips: p.defenderChips + 1 }));
+      return withVP(next, event.playerId, 1);
+    case "merchantPlaced": {
+      const held = next.crown?.merchant?.playerId ?? null;
+      if (event.from !== null) next = withVP(next, event.from, -1);
+      if (held !== event.playerId) next = withVP(next, event.playerId, 1);
+      return withCrown(next, (c) => ({ ...c, merchant: { playerId: event.playerId, hex: event.hex } }));
+    }
+    case "cardsTaken":
+      if (event.what === "progress") {
+        // Spy: the card itself is private; the counts move, a known hand waits for the snap.
+        next = withCrownPlayer(next, event.from, (p) => ({ ...p, progress: loseProgress(p.progress, null) }));
+        return withCrownPlayer(next, event.to, (p) => ({ ...p, progress: isHiddenProgress(p.progress) ? { ...p.progress, count: p.progress.count + event.count } : p.progress }));
+      }
+      if (pending?.masterMerchant) return next; // the `stole` events before it already moved the cards
+      // Wedding: hidden hands move by the count; the cards (resources or commodities) are not in the event.
+      next = withPlayer(next, event.from, (p) => ({ ...p, hand: adjustHand(p.hand, null, -event.count) }));
+      return withPlayer(next, event.to, (p) => ({ ...p, hand: adjustHand(p.hand, null, event.count) }));
+    case "commodityMonopolised":
+      for (const [id, n] of Object.entries(event.taken)) if (n > 0) next = moveCommodities(next, id, event.playerId, { ...emptyCommodities(), [event.commodity]: n });
+      return next;
+    case "resourceMonopolised": {
+      let total = 0;
+      for (const [id, n] of Object.entries(event.taken)) {
+        total += n;
+        next = withPlayer(next, id, (p) => ({ ...p, hand: adjustHand(p.hand, event.resource, -n) }));
+      }
+      return withPlayer(next, event.playerId, (p) => ({ ...p, hand: adjustHand(p.hand, event.resource, total) }));
+    }
+    case "tokensSwapped": {
+      const a = next.board.hexes[event.a];
+      const b = next.board.hexes[event.b];
+      if (!a || !b) throw new Error("token swap on an unknown hex");
+      return { ...next, board: { ...next.board, hexes: { ...next.board.hexes, [event.a]: { ...a, token: b.token }, [event.b]: { ...b, token: a.token } } } };
+    }
+    case "roadRemoved":
+      next = withPlayer(next, event.owner, (p) => {
+        if (!p.roads.includes(event.edge)) throw new Error("no road to remove");
+        return { ...p, roads: p.roads.filter((e) => e !== event.edge), pieces: { ...p.pieces, roads: p.pieces.roads + 1 } };
+      });
+      if (event.relocatedTo !== null) {
+        const to = event.relocatedTo;
+        next = withPlayer(next, event.playerId, (p) => ({ ...p, roads: [...p.roads, to], pieces: { ...p.pieces, roads: p.pieces.roads - 1 } }));
+      }
+      return next;
+    case "alchemistSet":
+      return next; // the chosen dice are not in the event; the view learns them at the snap
+    case "commercialSwap":
+      next = withPlayer(next, event.by, (p) => ({ ...p, hand: adjustHand(p.hand, event.resource, -1) }));
+      next = withPlayer(next, event.with, (p) => ({ ...p, hand: adjustHand(p.hand, event.resource, 1) }));
+      return moveCommodities(next, event.with, event.by, oneCommodity(event.commodity));
+    default:
+      return next;
+  }
+}
+
+/** Test seam: the pending markers a rendered view carries (never read by components). */
+export function crownPendingOf(view: RedactedState): CrownPending | undefined {
+  return (view as Rendered).crownPending;
+}
+
 function appendLog(view: RedactedState, event: GameEvent): RedactedState {
   const text = describeEvent(event, (id) => view.players.find((p) => p.id === id)?.name ?? id);
   if (text === null) return view;
@@ -458,11 +830,13 @@ function appendLog(view: RedactedState, event: GameEvent): RedactedState {
  * to the server view" (docs/phase7.md §2.1).
  */
 export function applyEventToView(view: RedactedState, event: GameEvent): RedactedState {
-  const { freeBuild: free, ...rest } = view as Rendered;
-  let next: RedactedState = { ...rest, eventSeq: event.seq + 1 };
+  const { freeBuild: free, crownPending, ...rest } = view as Rendered;
+  const pending = crownPending ? settlePending(crownPending, event.kind) : undefined;
+  let next: RedactedState = withPending({ ...rest, eventSeq: event.seq + 1 }, pending);
   switch (event.kind) {
     case "turnStarted":
       next = { ...next, currentPlayer: playerIndex(next, event.playerId), turn: event.turn, phase: { kind: "roll" } };
+      if (next.crown) next = crownTurnStarted(next);
       // Wagons (docs/rules.md §15.7): every wagon's free steps come back at the start of a turn.
       if (next.wayfarers?.wagons) {
         const wagons = Object.fromEntries(Object.entries(next.wayfarers.wagons.wagons).map(([id, w]) => [id, { ...w, stepsUsed: 0 }]));
@@ -472,6 +846,8 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
     case "diceRolled":
       // The phase follows the events far enough for costs to be right (a seven's sub-phases never build).
       next = { ...next, lastRoll: event.dice, phase: { kind: "action" } };
+      // Crown & Castle (docs/phase11.md §2): the red die and the event die; the Alchemist's dice are spent.
+      if (next.crown && event.red !== undefined && event.event !== undefined) next = withCrown(next, (c) => ({ ...c, lastRed: event.red ?? null, lastEvent: event.event ?? null, alchemist: null }));
       // The event deck (docs/rules.md §15.1) drew its top card.
       if (event.card && next.wayfarers?.eventDeck) next = { ...next, wayfarers: { ...next.wayfarers, eventDeck: { ...next.wayfarers.eventDeck, count: Math.max(0, next.wayfarers.eventDeck.count - 1) } } };
       break;
@@ -490,18 +866,28 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
         hand: event.cards ? adjustHandBy(p.hand, event.cards, -1) : adjustHand(p.hand, null, -event.count),
       }));
       if (event.cards) next = { ...next, bank: adjustBank(next.bank, event.cards, 1) };
+      // Crown & Castle (docs/phase11.md §1): commodities discarded go back to the commodity bank.
+      if (event.commodities && next.crown) next = moveCommodities(next, event.playerId, null, event.commodities);
       break;
     case "robberMoved":
       next = { ...next, robberHex: event.to };
       break;
     case "stole": {
+      const c = asCommodity(event.resource);
+      if (c !== null && next.crown) {
+        // Crown & Castle (docs/phase11.md §1): a stolen commodity moves between the (public) commodity purses.
+        next = moveCommodities(next, event.from, event.to, oneCommodity(c));
+        break;
+      }
       const r = asResource(event.resource);
       next = withPlayer(next, event.from, (p) => ({ ...p, hand: adjustHand(p.hand, r, -1) }));
       next = withPlayer(next, event.to, (p) => ({ ...p, hand: adjustHand(p.hand, r, 1) }));
       break;
     }
     case "built": {
-      const cost = (free === "road" && event.piece === "road") || (free === "city" && event.piece === "city") ? null : costOf(next, event.piece);
+      // Crown & Castle: Medicine upgrades a settlement for two ore and one grain (docs/rules.md §16.4).
+      const medicine = pending?.medicine === true && event.piece === "city";
+      const cost = (free === "road" && event.piece === "road") || (free === "city" && event.piece === "city") ? null : medicine ? MEDICINE_COST : costOf(next, event.piece);
       next = withPlayer(next, event.playerId, (p) => {
         const hand = cost ? adjustHandBy(p.hand, cost, -1) : p.hand;
         switch (event.piece) {
@@ -600,6 +986,11 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
       if (getR) get[getR] = 1;
       next = withPlayer(next, event.playerId, (p) => ({ ...p, hand: adjustHandBy(adjustHandBy(p.hand, give, -1), get, 1) }));
       next = { ...next, bank: adjustBank(adjustBank(next.bank, give, 1), get, -1) };
+      // Crown & Castle (docs/phase11.md §1): the commodity side of the trade.
+      const giveC = asCommodity(event.give);
+      const getC = asCommodity(event.receive);
+      if (giveC !== null && next.crown) next = moveCommodities(next, event.playerId, null, { ...emptyCommodities(), [giveC]: event.count });
+      if (getC !== null && next.crown) next = moveCommodities(next, null, event.playerId, oneCommodity(getC));
       break;
     }
     case "specialCardMoved": {
@@ -677,7 +1068,7 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
     case "goodsStocked":
       next = applyWayfarersEvent(next, event, free);
       break;
-    // Crown & Castle (docs/phase11.md): the rendered view snaps to the server view at the end of the batch.
+    // Crown & Castle (docs/phase11.md): applied in `applyCrownEvent` so purses, tracks, knights and the fleet move with their events.
     case "commoditiesProduced":
     case "progressDrawn":
     case "progressPlayed":
@@ -706,6 +1097,7 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
     case "roadRemoved":
     case "alchemistSet":
     case "commercialSwap":
+      next = applyCrownEvent(next, event, pending);
       break;
     default: {
       const exhaustive: never = event;

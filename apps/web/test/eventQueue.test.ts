@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyActionWithEvents, boardGeometry, builtInScenario, createGame, edgeVerticesOf, greatLakeBoard, hexEdge, legalActions, nextActor, redact, type Action, type BoardDefinition, type EdgeDef, type GameEvent, type GameState, type HexDef, type Scenario } from "@katan/engine";
+import { applyActionWithEvents, boardGeometry, builtInScenario, createGame, edgeVerticesOf, greatLakeBoard, hexEdge, isHiddenProgress, legalActions, nextActor, redact, type Action, type BoardDefinition, type EdgeDef, type GameEvent, type GameState, type HexDef, type Scenario } from "@katan/engine";
 import type { RedactedState } from "@/driver/types";
 import { EventQueue, applyEventToView, planSteps, scaleDuration, totalDuration, type QueueState, type Step } from "@/game/eventQueue";
 import type { AnimationSpeed } from "@/game/settings";
@@ -424,5 +424,183 @@ describe("docs/phase10.md Wayfarers events apply event by event", () => {
       expectInStep(view, final, tolled);
     }
     for (const k of ["fishDrawn", "fishSpent", "castleBuilt", "guardPlaced", "coinsAwarded", "spiceProduced", "wagonMoved", "goodsStocked"]) expect(seen.has(k), k).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Crown & Castle (docs/phase11.md §11): commodities, tracks, progress cards, knights, walls,
+// metropolises, the fleet and the merchant keep the rendered view in step with the engine.
+
+/** Action types a crown-hungry walk reaches for, in order, each with the chance it is taken when available. */
+const CROWN_PREFERRED: [Action["type"], number][] = [
+  ["CHOOSE_DOWNGRADE", 1],
+  ["PLACE_METROPOLIS", 1],
+  ["DISCARD_PROGRESS", 1],
+  ["CHOOSE_DESERTER", 1],
+  ["PLACE_FREE_KNIGHT", 1],
+  ["RETREAT_KNIGHT", 1],
+  ["SPY_TAKE", 1],
+  ["COMMERCIAL_SWAP", 1],
+  ["GIVE_CARDS", 1],
+  ["CHOOSE_GOLD", 1],
+  ["DISCARD", 1],
+  ["PLAY_PROGRESS", 0.9],
+  ["BUILD_IMPROVEMENT", 0.95],
+  ["BUILD_CITY", 0.9],
+  ["KNIGHT_DISPLACE", 0.7],
+  ["KNIGHT_CHASE_ROBBER", 0.6],
+  ["ACTIVATE_KNIGHT", 0.7],
+  ["PROMOTE_KNIGHT", 0.6],
+  ["BUILD_KNIGHT", 0.6],
+  ["BUILD_WALL", 0.5],
+  ["BUILD_SETTLEMENT", 0.7],
+  ["KNIGHT_MOVE", 0.3],
+  ["MARITIME_TRADE", 0.25],
+  ["BUILD_ROAD", 0.4],
+];
+
+interface CrownWalk {
+  view: RedactedState;
+  final: RedactedState;
+  kinds: Set<string>;
+  /** Players whose hand and purse the viewer could not follow (a hidden transfer, a third party's steal or discard). */
+  hands: Set<string>;
+  /** Players whose progress hand the viewer could not follow (a Spy). */
+  progress: Set<string>;
+  /** A third party discarded (their commodity share is unknown): the commodity bank is uncertain. */
+  bank: boolean;
+  /** A third party discarded a progress card: which deck it went under is unknown. */
+  decks: boolean;
+}
+
+/** Walk a Crown & Castle game with a crown-hungry policy, applying every event to viewer `a`'s rendered view. */
+function walkCrown(seed: string, steps: number, players = PLAYERS): CrownWalk {
+  let state: GameState = createGame({ seed, players, scenario: builtInScenario("crownStandard") });
+  let view = redact(state, "a");
+  const out: CrownWalk = { view, final: view, kinds: new Set(), hands: new Set(), progress: new Set(), bank: false, decks: false };
+  const rnd = lcg(seed.length * 104729 + steps);
+  for (let i = 0; i < steps && state.phase.kind !== "ended"; i++) {
+    const actor = nextActor(state);
+    const legal = legalActions(state, actor);
+    let action: Action | undefined;
+    for (const [type, chance] of CROWN_PREFERRED) {
+      let options = legal.filter((a) => a.type === type);
+      // Prompts with a "nowhere" answer: place the piece when a spot is offered.
+      if (type === "PLACE_FREE_KNIGHT" || type === "RETREAT_KNIGHT") {
+        const placed = options.filter((a) => (a.type === "PLACE_FREE_KNIGHT" || a.type === "RETREAT_KNIGHT") && a.vertex !== null);
+        if (placed.length > 0) options = placed;
+      }
+      if (options.length > 0 && rnd() < chance) {
+        action = options[Math.floor(rnd() * options.length)];
+        break;
+      }
+    }
+    action ??= legal.find((a) => a.type === "ROLL") ?? legal.find((a) => a.type === "END_TURN") ?? legal[Math.floor(rnd() * legal.length)];
+    if (!action) throw new Error("no legal action");
+    const r = applyActionWithEvents(state, action);
+    state = r.state;
+    for (const e of r.events) {
+      out.kinds.add(e.kind);
+      if (e.kind === "cardsTaken" && e.what === "progress") {
+        out.progress.add(e.from);
+        out.progress.add(e.to);
+      } else if (e.kind === "cardsTaken" && action.type === "GIVE_CARDS") {
+        out.hands.add(e.from);
+        out.hands.add(e.to);
+      } else if (e.kind === "stole" && e.resource === null) {
+        out.hands.add(e.from);
+        out.hands.add(e.to);
+      } else if (e.kind === "discarded" && e.cards === null) {
+        out.hands.add(e.playerId);
+        out.bank = true;
+      } else if (e.kind === "progressDiscarded" && e.card === null) {
+        out.decks = true;
+      }
+      view = applyEventToView(view, e);
+    }
+  }
+  out.view = view;
+  out.final = redact(state, "a");
+  return out;
+}
+
+function expectCrownInStep(w: CrownWalk): void {
+  const { view, final } = w;
+  for (const p of final.players) {
+    const r = view.players.find((x) => x.id === p.id)!;
+    expect(r.roads, p.id).toEqual(p.roads);
+    expect(r.settlements, p.id).toEqual(p.settlements);
+    expect(r.cities, p.id).toEqual(p.cities);
+    expect(r.pieces, p.id).toEqual(p.pieces);
+    expect(r.publicVP, p.id).toBe(p.publicVP);
+    if (!w.hands.has(p.id)) expect(r.hand, p.id).toEqual(p.hand);
+  }
+  if (w.hands.size === 0) expect(view.bank).toEqual(final.bank);
+  expect(view.robberHex).toBe(final.robberHex);
+  expect(view.eventSeq).toBe(final.eventSeq);
+  expect(view.turn).toBe(final.turn);
+  for (const [h, tile] of Object.entries(final.board.hexes)) expect(view.board.hexes[h]?.token, h).toBe(tile.token);
+  const c = view.crown!;
+  const f = final.crown!;
+  expect(c.knights).toEqual(f.knights);
+  expect(c.fleet).toBe(f.fleet);
+  expect(c.attacks).toBe(f.attacks);
+  expect(c.defenderSupply).toBe(f.defenderSupply);
+  expect(c.merchant).toEqual(f.merchant);
+  expect(c.metropolis).toEqual(f.metropolis);
+  expect(c.lastEvent).toBe(f.lastEvent);
+  expect(c.lastRed).toBe(f.lastRed);
+  if (!w.bank) expect(c.bank).toEqual(f.bank);
+  if (!w.decks) expect(c.decks).toEqual(f.decks);
+  for (const [id, fp] of Object.entries(f.players)) {
+    const rp = c.players[id]!;
+    expect(rp.tracks, id).toEqual(fp.tracks);
+    expect(rp.walls, id).toEqual(fp.walls);
+    expect(rp.metropolises, id).toEqual(fp.metropolises);
+    expect(rp.defenderChips, id).toBe(fp.defenderChips);
+    expect(rp.crane, id).toBe(fp.crane);
+    expect(rp.progressPlayedThisTurn, id).toBe(fp.progressPlayedThisTurn);
+    expect(rp.progressPlayedBeforeRoll, id).toBe(fp.progressPlayedBeforeRoll);
+    if (!w.hands.has(id)) expect(rp.commodities, id).toEqual(fp.commodities);
+    // The Merchant Fleet's named card and the Alchemist's dice are not in their events: the view learns them at the snap.
+    if (w.progress.has(id)) continue;
+    // Once the game has ended the server reveals every hand; the rendered view still holds counts for the others.
+    if (isHiddenProgress(rp.progress) && !isHiddenProgress(fp.progress)) expect(rp.progress.count, id).toBe(fp.progress.length);
+    else expect(rp.progress, id).toEqual(fp.progress);
+  }
+}
+
+describe("docs/phase11.md §11 Crown & Castle events apply event by event", () => {
+  it("Crown & Castle — Standard: commodities, improvements, knights, walls, progress cards and the fleet over a long walk", () => {
+    const seen = new Set<string>();
+    for (const seed of ["crown-1", "crown-2", "crown-3", "crown-4"]) {
+      const w = walkCrown(seed, 1400, [...PLAYERS, { id: "d", name: "Di" }]);
+      for (const k of w.kinds) seen.add(k);
+      expectCrownInStep(w);
+    }
+    for (const k of ["commoditiesProduced", "improvementBuilt", "knightBuilt", "knightActivated", "knightPromoted", "progressDrawn", "progressPlayed", "fleetAdvanced", "fleetAttacked", "knightsDeactivated", "wallBuilt"]) expect(seen.has(k), k).toBe(true);
+  });
+
+  it("the first attack, a defender award or a sacked city, and a metropolis show up somewhere in the walks", () => {
+    const seen = new Set<string>();
+    for (const seed of ["fleet-1", "fleet-2", "fleet-3"]) {
+      const w = walkCrown(seed, 2000, [...PLAYERS, { id: "d", name: "Di" }]);
+      for (const k of w.kinds) seen.add(k);
+      expectCrownInStep(w);
+    }
+    expect(seen.has("defenderAwarded") || seen.has("cityDowngraded")).toBe(true);
+    expect(seen.has("metropolisPlaced")).toBe(true);
+  });
+
+  it("a Deserter's free knight, a displaced knight's retreat and a Medicine city apply without paying", () => {
+    const seen = new Set<string>();
+    for (const seed of ["cards-1", "cards-2", "cards-3", "cards-4", "cards-5"]) {
+      const w = walkCrown(seed, 1600);
+      for (const k of w.kinds) seen.add(k);
+      expectCrownInStep(w);
+    }
+    for (const k of ["knightMoved", "knightDisplaced", "knightRemoved", "merchantPlaced", "cardsTaken", "resourcesTaken"]) expect(seen.has(k), k).toBe(true);
+    // A displaced knight retreats when its owner has a spot, and is lost otherwise; both paths are exercised across the walks.
+    expect(seen.has("knightRetreated") || seen.has("knightRemoved")).toBe(true);
   });
 });

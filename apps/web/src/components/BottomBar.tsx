@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { COSTS, RESOURCES, isHiddenCount, type Action, type DevCard, type Hand, type Resource } from "@katan/engine";
+import { COSTS, RESOURCES, isHiddenCount, type Action, type DevCard, type Hand, type ProgressCard, type Resource } from "@katan/engine";
 import type { RedactedState, SeatInfo } from "@/driver/types";
 import { COST_TEXT, DEV_CARD_HELP, DEV_CARD_LABEL, MODE_HINT, bannerText, currentPlayerId } from "@/game/labels";
-import type { TargetMode } from "@/board3d/Board3D";
+import type { CrownPick, TargetMode } from "@/board3d/Board3D";
 import { useAnchor } from "./anim/anchors";
 import { Avatar } from "./Avatar";
 import { CardBack, DevCardFace } from "./cards";
@@ -12,6 +12,7 @@ import { TradeResponse } from "./dialogs";
 import { SettingsMenu } from "./SettingsMenu";
 import { Button, ResourceChip } from "./ui";
 import { WayfarersActions, type WagonControls } from "./wayfarers/WayfarersActions";
+import { CrownActions, CrownHandView, ProgressHand } from "./crown/CrownActions";
 
 export interface BottomBarProps {
   view: RedactedState;
@@ -36,11 +37,13 @@ export interface BottomBarProps {
   showGraphics?: boolean;
   /** Wayfarers (docs/phase10.md): the fish sheet opener and the wagon path state. */
   wayfarers?: { onFish: () => void; wagon: WagonControls };
+  /** Crown & Castle (docs/phase11.md §11): the sheet openers and the board picks made so far. */
+  crown?: { onImprove: () => void; onProgress: (card?: ProgressCard) => void; pick: CrownPick };
 }
 
 /** The acting player's bar: banner, hand, dev cards, actions (docs/phase3.md §3.2, §5, §6). */
 export function BottomBar(props: BottomBarProps) {
-  const { view, me, legal, mode, revealed, error, onDispatch, onMode, onTrade, onPickResources, seats, waitingOn, draining = false, onSkip, showGraphics = false, wayfarers } = props;
+  const { view, me, legal, mode, revealed, error, onDispatch, onMode, onTrade, onPickResources, seats, waitingOn, draining = false, onSkip, showGraphics = false, wayfarers, crown } = props;
   const player = view.players.find((p) => p.id === me)!;
   const hand: Hand | null = isHiddenCount(player.hand) ? null : player.hand;
   const devCards: DevCard[] = isHiddenCount(player.devCards) ? [] : player.devCards;
@@ -74,6 +77,9 @@ export function BottomBar(props: BottomBarProps) {
       </div>
 
       {revealed && hand && <HandView hand={hand} />}
+      {/* Crown & Castle (docs/phase11.md §11): commodities beside the resources, progress cards where the development cards were. */}
+      {revealed && crown && view.crown?.players[me] && <CrownHandView commodities={view.crown.players[me].commodities} />}
+      {revealed && crown && <ProgressHand view={view} me={me} legal={legal} draining={draining} onPlay={(card) => crown.onProgress(card)} />}
 
       {revealed && devCards.length > 0 && (
         <div className="flex flex-wrap gap-1.5" aria-label="Development cards">
@@ -105,14 +111,14 @@ export function BottomBar(props: BottomBarProps) {
       )}
 
       {/* Bank and deck anchors: where cards fly from and to. */}
-      <div className="flex items-center gap-1" aria-label="Bank" title={`Deck: ${view.devDeck.count} cards`}>
+      <div className="flex items-center gap-1" aria-label="Bank" title={crown && view.crown ? `Progress decks: ${view.crown.decks.trade} trade, ${view.crown.decks.politics} politics, ${view.crown.decks.science} science` : `Deck: ${view.devDeck.count} cards`}>
         <span ref={bankAnchor} className="grid h-9 w-7 place-items-center rounded border border-ink/40 bg-parchment-deep text-[10px] font-semibold text-ink-soft">
           bank
         </span>
         <span ref={deckAnchor} className="relative">
           <CardBack size={26} />
           <span className="absolute -right-1 -top-1 rounded-full bg-ink px-1 text-[10px] text-parchment" data-testid="deck-count">
-            {view.devDeck.count}
+            {crown && view.crown ? view.crown.decks.trade + view.crown.decks.politics + view.crown.decks.science : view.devDeck.count}
           </span>
         </span>
       </div>
@@ -129,6 +135,7 @@ export function BottomBar(props: BottomBarProps) {
             {phase.kind === "roll" && isCurrent && (
               <>
                 {has("PLAY_KNIGHT") && <Button onClick={() => onDispatch({ type: "PLAY_KNIGHT", playerId: me })}>Play knight first</Button>}
+                {crown && hand && <CrownActions view={view} me={me} hand={hand} legal={legal} mode={mode} pick={crown.pick} onMode={onMode} onDispatch={onDispatch} onImprove={crown.onImprove} onProgress={() => crown.onProgress()} />}
                 <Button variant="primary" onClick={() => onDispatch({ type: "ROLL", playerId: me })} data-testid="roll">
                   Roll dice
                 </Button>
@@ -158,12 +165,16 @@ export function BottomBar(props: BottomBarProps) {
                 {view.scenario?.tides && <BuildButton label="Move ship" active={mode === "moveShip"} reason={has("MOVE_SHIP") ? null : moveShipReason(player)} onClick={() => onMode(mode === "moveShip" ? null : "moveShip")} testId="move-ship" />}
                 <BuildButton label="Build settlement" active={mode === "settlement"} reason={buildReason(view, player, hand, legal, "settlement")} onClick={() => onMode(mode === "settlement" ? null : "settlement")} testId="build-settlement" />
                 <BuildButton label="Build city" active={mode === "city"} reason={buildReason(view, player, hand, legal, "city")} onClick={() => onMode(mode === "city" ? null : "city")} testId="build-city" />
-                <Button disabled={!has("BUY_DEV_CARD")} reason={buyReason(view, hand)} onClick={() => onDispatch({ type: "BUY_DEV_CARD", playerId: me })} data-testid="buy-dev">
-                  Buy development card
-                </Button>
+                {!crown && (
+                  <Button disabled={!has("BUY_DEV_CARD")} reason={buyReason(view, hand)} onClick={() => onDispatch({ type: "BUY_DEV_CARD", playerId: me })} data-testid="buy-dev">
+                    Buy development card
+                  </Button>
+                )}
                 <Button disabled={!!view.pendingTrade} reason="An offer is already open" onClick={onTrade} data-testid="trade">
                   Trade
                 </Button>
+                {/* Crown & Castle (docs/phase11.md §11): knights, improvements, walls and progress cards. */}
+                {crown && <CrownActions view={view} me={me} hand={hand} legal={legal} mode={mode} pick={crown.pick} onMode={onMode} onDispatch={onDispatch} onImprove={crown.onImprove} onProgress={() => crown.onProgress()} />}
                 {/* Wayfarers (docs/phase10.md): fish, guards, rebuilds, caravans and the wagon. */}
                 {wayfarers && <WayfarersActions view={view} me={me} hand={hand} legal={legal} mode={mode} onMode={onMode} onDispatch={onDispatch} onFish={wayfarers.onFish} wagon={wayfarers.wagon} />}
                 {view.pendingTrade?.from === me && <Button onClick={() => onDispatch({ type: "CANCEL_TRADE", playerId: me })}>Withdraw offer</Button>}

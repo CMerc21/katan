@@ -4,14 +4,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { BotLevel } from "@katan/bots";
-import { isHiddenCount, nextActor, viewToState, type Action, type EdgeId, type VertexId } from "@katan/engine";
+import { isHiddenCount, nextActor, viewToState, type Action, type EdgeId, type ProgressCard, type VertexId } from "@katan/engine";
 import type { ConnectionState, GameDriver, SeatInfo } from "@/driver/types";
 import type { Step } from "@/game/eventQueue";
 import { clearDriver } from "@/game/store";
-import { EVENT_CARD_HELP, EVENT_CARD_LABEL, errorText, playerName } from "@/game/labels";
+import { EVENT_CARD_HELP, EVENT_CARD_LABEL, PROGRESS_CARD_LABEL, TRACK_LABEL, errorText, playerName } from "@/game/labels";
 import { effectiveSpeed, useSettings, type Quality } from "@/game/settings";
 import { stepDown } from "@/board3d/quality";
-import type { TargetMode } from "@/board3d/Board3D";
+import type { CrownPick, TargetMode } from "@/board3d/Board3D";
+import { NO_PICK } from "@/board3d/Interaction";
 import { playSound } from "@/game/sound";
 import { useEventQueue } from "@/hooks/useEventQueue";
 import { useGame } from "@/hooks/useGame";
@@ -24,8 +25,14 @@ import { PlayersPanel } from "./PlayersPanel";
 import { Button } from "./ui";
 import { FishSheet } from "./wayfarers/FishSheet";
 import { NeighborlyDialog } from "./wayfarers/NeighborlyDialog";
+// Crown & Castle (docs/phase11.md §11)
+import { FleetTrack } from "./crown/CrownBadges";
+import { CommercialSwapDialog, DeserterDialog, DiscardProgressDialog, DowngradeDialog, FreeKnightDialog, GiveCardsDialog, MetropolisDialog, RetreatDialog, SpyDialog } from "./crown/CrownDialogs";
+import { ImprovementSheet } from "./crown/ImprovementSheet";
+import { KnightMenu } from "./crown/KnightMenu";
+import { ProgressSheet } from "./crown/ProgressSheet";
 
-type Dialog = { kind: "trade" } | { kind: "picker"; card: "invention" | "monopoly" } | { kind: "fish" } | null;
+type Dialog = { kind: "trade" } | { kind: "picker"; card: "invention" | "monopoly" } | { kind: "fish" } | { kind: "improve" } | { kind: "progress"; card: ProgressCard | null } | null;
 
 const ABSENT_MS = 10 * 60 * 1000;
 
@@ -113,6 +120,39 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
         case "gameEnded":
           playSound("win");
           break;
+        // Crown & Castle (docs/phase11.md §11): reuse the existing cues.
+        case "commoditiesProduced":
+        case "progressDrawn":
+        case "progressPlayed":
+        case "cardsTaken":
+        case "commercialSwap":
+        case "commodityMonopolised":
+        case "resourceMonopolised":
+          playSound("card");
+          break;
+        case "knightBuilt":
+        case "knightActivated":
+        case "knightPromoted":
+        case "knightMoved":
+        case "knightDisplaced":
+        case "knightRetreated":
+        case "wallBuilt":
+        case "roadRemoved":
+        case "tokensSwapped":
+          playSound("piece");
+          break;
+        case "fleetAdvanced":
+        case "fleetAttacked":
+        case "robberChased":
+        case "cityDowngraded":
+          playSound("robber");
+          break;
+        case "improvementBuilt":
+        case "metropolisPlaced":
+        case "defenderAwarded":
+        case "merchantPlaced":
+          playSound("turn");
+          break;
         default:
           break;
       }
@@ -144,11 +184,24 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
   const [moveFrom, setMoveFrom] = useState<EdgeId | null>(null);
   // Wayfarers, wagons (docs/phase10.md §7): the stops picked so far in wagon mode.
   const [wagonPath, setWagonPath] = useState<VertexId[]>([]);
+  // Crown & Castle (docs/phase11.md §11): the knight being moved / the first pick of a two-step card, and the open knight menu.
+  const [crownPick, setCrownPick] = useState<CrownPick>(NO_PICK);
+  const [knightMenu, setKnightMenu] = useState<VertexId | null>(null);
   const setMode = useCallback((m: TargetMode) => {
     setModeRaw(m);
     setMoveFrom(null);
     setWagonPath([]);
+    setCrownPick(NO_PICK);
+    setKnightMenu(null);
   }, []);
+  const knightMode = useCallback((m: TargetMode, from: VertexId) => {
+    setModeRaw(m);
+    setMoveFrom(null);
+    setWagonPath([]);
+    setCrownPick({ from, first: null });
+    setKnightMenu(null);
+  }, []);
+  const pickFirst = useCallback((id: string) => setCrownPick((p) => ({ ...p, first: id })), []);
   const pickStep = useCallback((v: VertexId) => setWagonPath((path) => [...path, v]), []);
   const undoStep = useCallback(() => setWagonPath((path) => path.slice(0, -1)), []);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -219,6 +272,11 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
     else if (e.kind === "diceRolled" && e.card?.event) setToast(`${EVENT_CARD_LABEL[e.card.event]}: ${EVENT_CARD_HELP[e.card.event]}`);
     else if (e.kind === "raid") setToast(e.raided.length === 0 ? "The raiders landed and were driven off" : `The raiders landed: ${e.raided.length} hex${e.raided.length === 1 ? "" : "es"} raided`);
     else if (e.kind === "bootPassed") setToast(`${playerName(view, e.to)} now holds the old boot`);
+    // Crown & Castle (docs/phase11.md §11)
+    else if (e.kind === "fleetAttacked") setToast(e.result === "defended" ? `The barbarians attacked (${e.strength} vs ${e.defense}) and were repelled` : `The barbarians attacked (${e.strength} vs ${e.defense}) and sacked the realm`);
+    else if (e.kind === "defenderAwarded") setToast(e.chip ? `${playerName(view, e.playerId)} is Defender of the Realm (+1)` : `${playerName(view, e.playerId)} draws a progress card for the defence`);
+    else if (e.kind === "metropolisPlaced") setToast(`${playerName(view, e.playerId)} ${e.from ? "took" : "founded"} the ${TRACK_LABEL[e.track].toLowerCase()} metropolis (+2)`);
+    else if (e.kind === "progressPlayed" && e.playerId !== view.viewer) setToast(`${playerName(view, e.playerId)} played ${PROGRESS_CARD_LABEL[e.card]}`);
   }, [current, view]);
 
   useEffect(() => {
@@ -246,6 +304,11 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
   const goldChoice = legal.find((a): a is Extract<Action, { type: "CHOOSE_GOLD" }> => a.type === "CHOOSE_GOLD");
   // Wayfarers (docs/phase10.md): the Neighborly help prompt for me.
   const neighborly = view.phase.kind === "modulePrompt" && view.phase.prompt.kind === "neighborlyHelp" && view.phase.prompt.playerId === me ? view.phase.prompt : null;
+  // Crown & Castle (docs/phase11.md §11): the module prompts for me, and my commodities.
+  const crownOn = view.scenario?.crown === true;
+  const prompt = view.phase.kind === "modulePrompt" && view.phase.prompt.playerId === me ? view.phase.prompt.kind : null;
+  const myCommodities = crownOn ? view.crown?.players[me]?.commodities : undefined;
+  const crownHand = crownOn && myCommodities && myHand ? { hand: myHand, commodities: myCommodities } : null;
   // Input is disabled while the queue drains (docs/phase7.md §2.1); legal actions come from the latest server view.
   const interactive = !handoff && !seatIsBot && !draining;
   const activeLegal = interactive ? legal : [];
@@ -283,6 +346,9 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
             onPickShip={setMoveFrom}
             wagonPath={wagonPath}
             onPickStep={pickStep}
+            crownPick={crownPick}
+            onPickKnight={(v) => setKnightMenu((open) => (open === v ? null : v))}
+            onPick={pickFirst}
             meColor={meView.color}
             onAction={run}
             step={current}
@@ -298,11 +364,23 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
                     hex: view.phase.hex,
                     node: <StealPopover view={view} targets={view.phase.targets} onSteal={(targetPlayerId) => run({ type: "STEAL", playerId: me, targetPlayerId })} />,
                   }
-                : null
+                : interactive && crownHand && knightMenu !== null && view.phase.kind === "action"
+                  ? {
+                      vertex: knightMenu,
+                      node: <KnightMenu view={view} me={me} vertex={knightMenu} hand={crownHand.hand} legal={legal} onDispatch={run} onMode={knightMode} onClose={() => setKnightMenu(null)} />,
+                    }
+                  : null
             }
           />
           <DiceTray step={current} view={view} />
           <DevCardReveal step={current} view={view} />
+          {/* Crown & Castle (docs/phase11.md §11): the fleet track along the top edge, and the prompts answered on the board. */}
+          {crownOn && <FleetTrack view={view} />}
+          {interactive && crownOn && prompt === "downgradeCity" && <DowngradeDialog legal={legal} onDispatch={run} />}
+          {interactive && crownOn && prompt === "placeMetropolis" && <MetropolisDialog view={view} legal={legal} onDispatch={run} />}
+          {interactive && crownOn && prompt === "deserter" && <DeserterDialog view={view} legal={legal} onDispatch={run} />}
+          {interactive && crownOn && prompt === "placeFreeKnight" && <FreeKnightDialog legal={legal} onDispatch={run} />}
+          {interactive && crownOn && prompt === "knightRetreat" && <RetreatDialog legal={legal} onDispatch={run} />}
         </main>
         <aside className="parchment flex min-h-0 flex-col" aria-label="Game info">
           <PlayersPanel
@@ -366,6 +444,7 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
         onSkip={skip}
         showGraphics
         {...(view.wayfarers ? { wayfarers: { onFish: () => setDialog({ kind: "fish" }), wagon: { path: wagonPath, onUndo: undoStep } } } : {})}
+        {...(crownOn ? { crown: { onImprove: () => setDialog({ kind: "improve" }), onProgress: (card?: ProgressCard) => setDialog({ kind: "progress", card: card ?? null }), pick: crownPick } } : {})}
       />
 
       <TurnBanner step={current} view={view} seats={seats} />
@@ -373,7 +452,9 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
 
       {handoff && handoffFor && <HandoffOverlay name={playerName(view, handoffFor)} onReady={() => driver.acknowledgeHandoff?.()} />}
 
-      {interactive && owed > 0 && myHand && <DiscardDialog hand={myHand} owed={owed} onDiscard={(cards) => run({ type: "DISCARD", playerId: me, cards })} />}
+      {interactive && owed > 0 && myHand && (
+        <DiscardDialog hand={myHand} owed={owed} commodities={myCommodities} onDiscard={(cards, commodities) => run({ type: "DISCARD", playerId: me, cards, ...(commodities ? { commodities } : {}) })} />
+      )}
 
       {interactive && goldOwed > 0 && goldChoice && <GoldDialog owed={goldChoice.resources.length} legal={legal} onChoose={run} />}
 
@@ -384,6 +465,14 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
       {/* Wayfarers (docs/phase10.md): the fish sheet and the Neighborly help prompt. */}
       {interactive && dialog?.kind === "fish" && <FishSheet view={view} me={me} legal={legal} onDispatch={run} onMode={setMode} onClose={() => setDialog(null)} />}
       {interactive && neighborly && <NeighborlyDialog view={view} legal={legal} to={neighborly.to} onGive={run} />}
+
+      {/* Crown & Castle (docs/phase11.md §11): the improvement and progress sheets, and the hidden-information prompts. */}
+      {interactive && crownOn && dialog?.kind === "improve" && <ImprovementSheet view={view} me={me} legal={legal} onDispatch={run} onClose={() => setDialog(null)} />}
+      {interactive && crownOn && dialog?.kind === "progress" && <ProgressSheet view={view} me={me} legal={legal} initial={dialog.card} onDispatch={run} onMode={setMode} onClose={() => setDialog(null)} />}
+      {interactive && crownOn && prompt === "discardProgress" && <DiscardProgressDialog view={view} legal={legal} onDispatch={run} />}
+      {interactive && crownOn && prompt === "spy" && <SpyDialog view={view} legal={legal} onDispatch={run} />}
+      {interactive && crownOn && prompt === "commercialHarbor" && <CommercialSwapDialog view={view} legal={legal} onDispatch={run} />}
+      {interactive && crownOn && prompt === "giveCards" && crownHand && <GiveCardsDialog view={view} me={me} hand={crownHand.hand} commodities={crownHand.commodities} legal={legal} onDispatch={run} />}
 
       {ended && !draining && winner && effectiveSpeed(settings) !== "off" && <Confetti color={winner.color} />}
       {ended && !draining && <EndedOverlay view={view} onPlayAgain={exit} seats={seats} />}

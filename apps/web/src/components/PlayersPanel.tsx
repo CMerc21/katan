@@ -8,6 +8,7 @@ import { useAnchor } from "./anim/anchors";
 import { Avatar } from "./Avatar";
 import { Button } from "./ui";
 import { WayfarersBadges, WayfarersStrip } from "./wayfarers/Badges";
+import { CrownBadges } from "./crown/CrownBadges";
 
 export interface PlayersPanelProps {
   view: RedactedState;
@@ -82,8 +83,8 @@ function PlayerRow({ p, view, me, seat, online, acting, botifiable, onBotify, th
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-ink-soft">
         <span>{cards} cards</span>
-        <span>{dev} dev</span>
-        <span>{p.playedKnights} knights</span>
+        {!view.scenario?.crown && <span>{dev} dev</span>}
+        {!view.scenario?.crown && <span>{p.playedKnights} knights</span>}
         {p.islandChips.length > 0 && (
           <span className="flex items-center gap-0.5" aria-label={`${p.islandChips.length} island pennants`} title="Islands settled" data-testid={`pennants-${p.id}`}>
             {p.islandChips.map((island) => (
@@ -100,6 +101,8 @@ function PlayerRow({ p, view, me, seat, online, acting, botifiable, onBotify, th
         )}
         {/* Wayfarers (docs/phase10.md): fish, boot, coins, chips, castle, guards, spice, deliveries, cargo. */}
         <WayfarersBadges p={p} view={view} glint={glint} />
+        {/* Crown & Castle (docs/phase11.md §11): the tri-track badge, knights, walls, chips, the merchant, VP cards. */}
+        <CrownBadges p={p} view={view} glint={glint} />
         {botifiable && onBotify && (
           <Button size="sm" variant="quiet" className="ml-auto text-xs underline" onClick={() => onBotify(p.id, "medium")} data-testid={`botify-${p.id}`}>
             Let a bot play for {p.name}

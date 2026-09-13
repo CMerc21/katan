@@ -16,6 +16,7 @@ import {
   isBoardDefinition,
   isRuleError,
   isScenario,
+  legalActions,
   nextActor,
   redact,
   replay,
@@ -116,11 +117,13 @@ export function seatOfUser(seats: SeatRow[], userId: string): SeatRow {
 export async function refreshViews(tx: Tx, gameId: string, state: GameState, seats: SeatRow[], version: number, events: readonly GameEvent[] = []): Promise<void> {
   for (const seat of seats) {
     const view = redact(state, seat.player_id, events);
+    // The server's legal list rides along (docs/phase11.md §13): the Spy prompt lists cards a redacted view cannot know.
+    const legal = state.phase.kind === "ended" ? [] : legalActions(state, seat.player_id);
     await tx`
-      insert into game_views (game_id, player_id, user_id, view, version)
-      values (${gameId}, ${seat.player_id}, ${seat.user_id}, ${tx.json(view as unknown as JSONValue)}, ${version})
+      insert into game_views (game_id, player_id, user_id, view, version, legal)
+      values (${gameId}, ${seat.player_id}, ${seat.user_id}, ${tx.json(view as unknown as JSONValue)}, ${version}, ${tx.json(legal as unknown as JSONValue)})
       on conflict (game_id, player_id) do update
-        set view = excluded.view, user_id = excluded.user_id, version = excluded.version`;
+        set view = excluded.view, user_id = excluded.user_id, version = excluded.version, legal = excluded.legal`;
   }
 }
 

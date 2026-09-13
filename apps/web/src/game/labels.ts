@@ -8,14 +8,19 @@ import {
   FISH_COST,
   RESOURCES,
   type Action,
+  type Commodity,
   type DevCardType,
   type EventCardKind,
+  type EventDie,
   type FishOption,
   type Hand,
   type ModulePromptKind,
+  type KnightLevel,
   type PortKind,
+  type ProgressCard,
   type Resource,
   type RuleErrorCode,
+  type Track,
   type VariantChip,
   type VariantName,
   type WagonGood,
@@ -295,6 +300,41 @@ export function actionLabel(action: Action): string {
       return `Load ${WAGON_GOOD_LABEL[action.good].toLowerCase()}`;
     case "DELIVER":
       return `Deliver ${WAGON_GOOD_LABEL[action.good].toLowerCase()}`;
+    // Crown & Castle (docs/phase11.md §11)
+    case "ACTIVATE_KNIGHT":
+      return "Activate knight";
+    case "PROMOTE_KNIGHT":
+      return "Promote knight";
+    case "KNIGHT_MOVE":
+      return "Move knight";
+    case "KNIGHT_DISPLACE":
+      return "Drive off knight";
+    case "KNIGHT_CHASE_ROBBER":
+      return "Chase the robber";
+    case "BUILD_IMPROVEMENT":
+      return `Improve ${TRACK_LABEL[action.track].toLowerCase()}`;
+    case "BUILD_WALL":
+      return "Build wall";
+    case "PLAY_PROGRESS":
+      return `Play ${PROGRESS_CARD_LABEL[action.card]}`;
+    case "DISCARD_PROGRESS":
+      return `Discard ${PROGRESS_CARD_LABEL[action.card]}`;
+    case "CHOOSE_DOWNGRADE":
+      return "Give up this city";
+    case "PLACE_METROPOLIS":
+      return "Place metropolis";
+    case "CHOOSE_DESERTER":
+      return "Desert this knight";
+    case "PLACE_FREE_KNIGHT":
+      return action.vertex === null ? "Place nowhere" : "Place knight";
+    case "RETREAT_KNIGHT":
+      return action.vertex === null ? "Lose the knight" : "Retreat here";
+    case "SPY_TAKE":
+      return `Take ${PROGRESS_CARD_LABEL[action.card]}`;
+    case "COMMERCIAL_SWAP":
+      return `Hand over ${COMMODITY_LABEL[action.commodity].toLowerCase()}`;
+    case "GIVE_CARDS":
+      return "Give cards";
     default:
       return action.type;
   }
@@ -381,4 +421,121 @@ export const MODE_HINT: Record<string, string> = {
   fishRobber: "Choose where the robber rests",
   fishRoad: "Choose the free road's edge",
   fishCity: "Choose the settlement to upgrade",
+  // Crown & Castle (docs/phase11.md §11)
+  knight: "Choose a vertex on your roads for the knight",
+  knightAct: "Click one of your knights",
+  knightMove: "Choose where the knight goes",
+  knightDisplace: "Choose the weaker knight to drive off",
+  wall: "Choose the city to wall",
+  metropolis: "Choose the city for your metropolis",
+  downgrade: "Choose the city that becomes a settlement",
+  retreat: "Choose where your knight retreats, or let it go",
+  "progress:merchant": "Choose a hex you have a building on",
+  "progress:bishop": "Choose where the robber goes",
+  "progress:intrigue": "Choose the opposing knight to remove",
+  "progress:engineer": "Choose the city to wall for free",
+  "progress:medicine": "Choose the settlement to upgrade",
+  "progress:inventor": "Choose two number tokens to swap",
+  "progress:diplomat": "Choose an open road to remove",
+  "progress:smith": "Choose up to two knights to promote",
 };
+
+// ---------------------------------------------------------------------------
+// Crown & Castle copy (docs/phase11.md §11, docs/rules.md §16). Sentence case; original wording.
+
+export const COMMODITY_LABEL: Record<Commodity, string> = { cloth: "Cloth", coin: "Coin", paper: "Paper" };
+export const COMMODITY_SHORT: Record<Commodity, string> = { cloth: "Ct", coin: "Cn", paper: "Pp" };
+
+/** A resource or commodity by name. */
+export function cardLabel(card: Resource | Commodity): string {
+  return card === "cloth" || card === "coin" || card === "paper" ? COMMODITY_LABEL[card] : RESOURCE_LABEL[card];
+}
+
+export const TRACK_LABEL: Record<Track, string> = { trade: "Trade", politics: "Politics", science: "Science" };
+
+/** What level 3 grants on each track. */
+export const TRACK_ABILITY: Record<Track, string> = {
+  trade: "Level 3: trade commodities with the bank at 2:1",
+  politics: "Level 3: knights may be promoted to mighty (level 3)",
+  science: "Level 3: a roll that brings you nothing gives one resource of your choice",
+};
+
+/** One line per track for the improvement sheet. */
+export const TRACK_HELP: Record<Track, string> = {
+  trade: "Paid in cloth. Draws trade cards on the trade face of the event die",
+  politics: "Paid in coin. Draws politics cards on the politics face",
+  science: "Paid in paper. Draws science cards on the science face",
+};
+
+export const EVENT_DIE_LABEL: Record<EventDie, string> = { fleet: "Fleet", trade: "Trade", politics: "Politics", science: "Science" };
+
+export const KNIGHT_LEVEL_LABEL: Record<KnightLevel, string> = { 1: "Basic", 2: "Strong", 3: "Mighty" };
+
+export const PROGRESS_CARD_LABEL: Record<ProgressCard, string> = {
+  merchant: "Merchant",
+  tradeMonopoly: "Trade monopoly",
+  resourceMonopoly: "Resource monopoly",
+  masterMerchant: "Master merchant",
+  merchantFleet: "Merchant fleet",
+  commercialHarbor: "Commercial harbour",
+  bishop: "Bishop",
+  constitution: "Constitution",
+  deserter: "Deserter",
+  diplomat: "Diplomat",
+  intrigue: "Intrigue",
+  saboteur: "Saboteur",
+  spy: "Spy",
+  warlord: "Warlord",
+  wedding: "Wedding",
+  alchemist: "Alchemist",
+  crane: "Crane",
+  engineer: "Engineer",
+  inventor: "Inventor",
+  irrigation: "Irrigation",
+  medicine: "Medicine",
+  mining: "Mining",
+  printer: "Printer",
+  roadBuilding: "Road building",
+  smith: "Smith",
+};
+
+/** One line of help per progress card (docs/rules.md §16.4). */
+export const PROGRESS_CARD_HELP: Record<ProgressCard, string> = {
+  merchant: "Put the merchant on a hex you have a building on: that resource trades 2:1 and the merchant is worth 1 point while it stays",
+  tradeMonopoly: "Name a commodity; every other player hands you one of it",
+  resourceMonopoly: "Name a resource; every other player hands you up to two of it",
+  masterMerchant: "Take two random cards from a player with more points than you",
+  merchantFleet: "Name a resource or commodity: it trades with the bank at 2:1 this turn",
+  commercialHarbor: "Every other player with a commodity must swap one for a resource of yours",
+  bishop: "Move the robber and take a random card from everyone with a building on the new hex",
+  constitution: "Worth 1 point; stays face up",
+  deserter: "A player of your choice loses a knight; you place one of the same level for free",
+  diplomat: "Remove any road with a free end; if it was yours, place it again elsewhere",
+  intrigue: "Remove an opposing knight standing on a vertex your roads touch",
+  saboteur: "Everyone with more points than you discards half their cards",
+  spy: "Look at a player's progress cards and take one",
+  warlord: "Activate all your knights for free",
+  wedding: "Everyone with more points than you gives you two cards of their choice",
+  alchemist: "Choose both number dice before you roll; the event die still rolls",
+  crane: "Your next improvement costs one commodity less",
+  engineer: "Build a city wall for free",
+  inventor: "Swap the number tokens of two hexes numbered 3, 4, 5, 9, 10 or 11",
+  irrigation: "Take two grain for every farmland hex you have a building on",
+  medicine: "Upgrade a settlement to a city for two ore and one grain",
+  mining: "Take two ore for every mountain hex you have a building on",
+  printer: "Worth 1 point; stays face up",
+  roadBuilding: "Place two roads for free",
+  smith: "Promote up to two of your knights one level for free",
+};
+
+/** When a progress card may be played (docs/rules.md §16.4). */
+export function progressTiming(card: ProgressCard): "before the roll only" | "before or after the roll" | "after the roll" {
+  if (card === "alchemist") return "before the roll only";
+  if (["bishop", "deserter", "diplomat", "intrigue", "saboteur", "spy", "warlord", "wedding", "inventor", "irrigation", "mining"].includes(card)) return "before or after the roll";
+  return "after the roll";
+}
+
+export const KNIGHT_COST_TEXT = "wool + ore";
+export const ACTIVATE_COST_TEXT = "grain";
+export const WALL_COST_TEXT = "2 clay";
+export const MEDICINE_COST_TEXT = "2 ore + grain";

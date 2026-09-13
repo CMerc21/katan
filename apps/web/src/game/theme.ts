@@ -4,7 +4,7 @@
  * with heraldic tinctures for the seats.
  */
 
-import type { PlayerColor, Resource, Terrain, WagonGood } from "@katan/engine";
+import type { Commodity, PlayerColor, Resource, Terrain, Track, WagonGood } from "@katan/engine";
 
 export const INK = "#211d19";
 export const INK_SOFT = "#4a433c";
@@ -75,3 +75,14 @@ export const HOT_TOKEN = "#c8412b";
 
 /** Wagon goods (docs/phase10.md §7): marble, glass, sand, tools. */
 export const GOOD_COLOR: Record<WagonGood, string> = { marble: "#e9e5dc", glass: "#9fd3dd", sand: "#dcc48f", tools: "#6b6e75" };
+
+// Crown & Castle (docs/phase11.md §11)
+
+/** Commodity cards: undyed cloth, struck coin, ruled paper. */
+export const COMMODITY_COLOR: Record<Commodity, string> = { cloth: "#8c5a8e", coin: "#c98a1e", paper: "#5a8ea1" };
+
+/** Improvement tracks take the colour of the commodity they are paid in. */
+export const TRACK_COLOR: Record<Track, string> = { trade: COMMODITY_COLOR.cloth, politics: COMMODITY_COLOR.coin, science: COMMODITY_COLOR.paper };
+
+/** The barbarian fleet's black sail and the event die's faces. */
+export const FLEET_COLOR = "#1f1a17";

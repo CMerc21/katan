@@ -113,13 +113,13 @@ export function woodTexture(): THREE.Texture {
   return t;
 }
 
-/** Pips for one die face (1–6) on bone. */
-export function dieFaceTexture(n: number): THREE.Texture {
-  const key = `die:${n}`;
+/** Pips for one die face (1–6) on bone, or on lacquer red for Crown & Castle's red die (docs/rules.md §16.2). */
+export function dieFaceTexture(n: number, red = false): THREE.Texture {
+  const key = `die:${n}:${red ? "red" : "bone"}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const { c, ctx } = canvas(128, 128);
-  ctx.fillStyle = "#f2ead6";
+  ctx.fillStyle = red ? "#a12a1e" : "#f2ead6";
   ctx.fillRect(0, 0, 128, 128);
   const spots: Record<number, [number, number][]> = {
     1: [[64, 64]],
@@ -154,11 +154,83 @@ export function dieFaceTexture(n: number): THREE.Texture {
       [92, 96],
     ],
   };
-  ctx.fillStyle = "#2a2622";
+  ctx.fillStyle = red ? "#f2ead6" : "#2a2622";
   for (const [x, y] of spots[n] ?? []) {
     ctx.beginPath();
     ctx.arc(x, y, 10, 0, Math.PI * 2);
     ctx.fill();
+  }
+  return finish(key, c);
+}
+
+/**
+ * Crown & Castle's event die (docs/rules.md §16.2): faces 1–3 carry a black
+ * sail (the fleet), 4 a bolt of cloth (trade), 5 a coin (politics) and 6 a
+ * sheet of paper (science).
+ */
+export function eventDieFaceTexture(n: number): THREE.Texture {
+  const key = `eventDie:${n}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const { c, ctx } = canvas(128, 128);
+  ctx.fillStyle = "#f2ead6";
+  ctx.fillRect(0, 0, 128, 128);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "#2a2622";
+  if (n <= 3) {
+    // A black sail on a hull.
+    ctx.fillStyle = "#1f1a17";
+    ctx.beginPath();
+    ctx.moveTo(64, 22);
+    ctx.lineTo(64, 84);
+    ctx.lineTo(98, 74);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#8a6a44";
+    ctx.beginPath();
+    ctx.moveTo(30, 86);
+    ctx.lineTo(100, 86);
+    ctx.lineTo(90, 104);
+    ctx.lineTo(40, 104);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(64, 18);
+    ctx.lineTo(64, 88);
+    ctx.stroke();
+  } else if (n === 4) {
+    ctx.fillStyle = "#8c5a8e";
+    ctx.beginPath();
+    ctx.moveTo(24, 40);
+    ctx.quadraticCurveTo(44, 28, 64, 40);
+    ctx.quadraticCurveTo(84, 52, 104, 40);
+    ctx.lineTo(104, 88);
+    ctx.quadraticCurveTo(84, 100, 64, 88);
+    ctx.quadraticCurveTo(44, 76, 24, 88);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  } else if (n === 5) {
+    ctx.fillStyle = "#c98a1e";
+    ctx.beginPath();
+    ctx.arc(64, 64, 34, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#7a4a1f";
+    ctx.beginPath();
+    ctx.arc(64, 64, 22, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = "#f8f4ea";
+    ctx.fillRect(34, 24, 60, 80);
+    ctx.strokeRect(34, 24, 60, 80);
+    ctx.strokeStyle = "#5a8ea1";
+    for (let y = 44; y <= 92; y += 14) {
+      ctx.beginPath();
+      ctx.moveTo(44, y);
+      ctx.lineTo(84, y);
+      ctx.stroke();
+    }
   }
   return finish(key, c);
 }

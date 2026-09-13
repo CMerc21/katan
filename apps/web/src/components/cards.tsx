@@ -6,9 +6,9 @@
  * original.
  */
 
-import type { DevCardType, Resource } from "@katan/engine";
-import { DEV_CARD_LABEL, RESOURCE_LABEL } from "@/game/labels";
-import { GILT, INK, PARCHMENT, RESOURCE_COLOR } from "@/game/theme";
+import { trackOfCard, type Commodity, type DevCardType, type ProgressCard, type Resource, type Track } from "@katan/engine";
+import { COMMODITY_LABEL, DEV_CARD_LABEL, PROGRESS_CARD_LABEL, RESOURCE_LABEL } from "@/game/labels";
+import { COMMODITY_COLOR, GILT, INK, PARCHMENT, RESOURCE_COLOR, TRACK_COLOR } from "@/game/theme";
 
 /** The picture on each resource card: simple woodcut-like marks. */
 function ResourceArt({ resource }: { resource: Resource }) {
@@ -159,6 +159,126 @@ export function DevCardFace({ type, size = 40 }: { type: DevCardType; size?: num
       <Crest type={type} />
       <text x="20" y="48" textAnchor="middle" fontSize="5.4" fontWeight={700} fill={INK} fontFamily="Palatino Linotype, Palatino, Georgia, serif">
         {DEV_CARD_LABEL[type]}
+      </text>
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Crown & Castle (docs/phase11.md §11): commodity cards and progress cards.
+
+/** The picture on each commodity card: a bolt of cloth, a struck coin, a ruled sheet. */
+function CommodityArt({ commodity }: { commodity: Commodity }) {
+  const c = COMMODITY_COLOR[commodity];
+  switch (commodity) {
+    case "cloth":
+      return (
+        <g stroke={INK} strokeWidth={1.4} strokeLinejoin="round" strokeLinecap="round">
+          <path d="M8 16 Q14 12 20 16 T32 16 V34 Q26 38 20 34 T8 34 Z" fill={c} />
+          <path d="M8 22 Q14 18 20 22 T32 22 M8 28 Q14 24 20 28 T32 28" stroke="#e9dcea" strokeWidth={1.2} />
+          <path d="M12 34 V40 M28 34 V40" />
+          <circle cx="12" cy="41" r="1.4" fill={INK} stroke="none" />
+          <circle cx="28" cy="41" r="1.4" fill={INK} stroke="none" />
+        </g>
+      );
+    case "coin":
+      return (
+        <g stroke={INK} strokeWidth={1.4} strokeLinejoin="round">
+          <ellipse cx="16" cy="32" rx="9" ry="3.5" fill={c} />
+          <ellipse cx="16" cy="29" rx="9" ry="3.5" fill={c} />
+          <circle cx="23" cy="21" r="8.5" fill={c} />
+          <circle cx="23" cy="21" r="5.5" fill="none" stroke="#7a4a1f" strokeWidth={1.2} />
+          <path d="M23 16.5 V25.5 M20 19 L26 23 M26 19 L20 23" stroke="#7a4a1f" strokeWidth={1.4} />
+        </g>
+      );
+    case "paper":
+      return (
+        <g stroke={INK} strokeWidth={1.4} strokeLinejoin="round">
+          <path d="M10 12 H26 L31 17 V40 H10 Z" fill="#f4efe2" />
+          <path d="M26 12 V17 H31" fill="#dfd7c4" />
+          <path d="M14 22 H27 M14 27 H27 M14 32 H23" stroke={c} strokeWidth={1.6} />
+          <path d="M14 36 H20" stroke="#8a4330" strokeWidth={1.6} />
+        </g>
+      );
+    default: {
+      const exhaustive: never = commodity;
+      return <g>{String(exhaustive)}</g>;
+    }
+  }
+}
+
+export function CommodityCardFace({ commodity, size = 40, count }: { commodity: Commodity; size?: number; count?: number }) {
+  const w = size;
+  const h = size * 1.4;
+  const c = COMMODITY_COLOR[commodity];
+  return (
+    <svg viewBox="0 0 40 56" width={w} height={h} aria-hidden className="shrink-0" style={{ filter: "drop-shadow(0 1px 1px rgba(0,0,0,.35))" }}>
+      <rect x="1" y="1" width="38" height="54" rx="3.5" fill={PARCHMENT} stroke={INK} strokeWidth={1.6} />
+      <rect x="4" y="4" width="32" height="40" rx="2" fill={c} fillOpacity={0.18} stroke={c} strokeWidth={1} />
+      <path d="M4 8 L8 4 M32 4 L36 8 M4 40 L8 44 M32 44 L36 40" stroke={GILT} strokeWidth={1.2} />
+      <g transform="translate(1 4)">
+        <CommodityArt commodity={commodity} />
+      </g>
+      <text x="20" y="52" textAnchor="middle" fontSize="6.5" fontWeight={700} fill={INK} fontFamily="Palatino Linotype, Palatino, Georgia, serif">
+        {count !== undefined ? `${count} ${COMMODITY_LABEL[commodity]}` : COMMODITY_LABEL[commodity]}
+      </text>
+    </svg>
+  );
+}
+
+/** A resource or commodity face by name. */
+export function CardFace({ card, size = 40, count }: { card: Resource | Commodity; size?: number; count?: number }) {
+  if (card === "cloth" || card === "coin" || card === "paper") return <CommodityCardFace commodity={card} size={size} {...(count !== undefined ? { count } : {})} />;
+  return <ResourceCardFace resource={card} size={size} {...(count !== undefined ? { count } : {})} />;
+}
+
+/** The emblem of a progress card's track: a bale (trade), a crown (politics), a quill (science). */
+function TrackCrest({ track }: { track: Track }) {
+  const c = TRACK_COLOR[track];
+  switch (track) {
+    case "trade":
+      return (
+        <g stroke={INK} strokeWidth={1.3} strokeLinejoin="round">
+          <rect x="10" y="16" width="20" height="16" rx="2" fill={c} />
+          <path d="M10 24 H30 M20 16 V32" stroke={GILT} strokeWidth={1.4} />
+          <path d="M14 16 V12 H26 V16" fill="none" />
+        </g>
+      );
+    case "politics":
+      return (
+        <g stroke={INK} strokeWidth={1.3} strokeLinejoin="round">
+          <path d="M9 32 L9 18 L15 24 L20 13 L25 24 L31 18 L31 32 Z" fill={c} />
+          <circle cx="20" cy="13" r="1.6" fill={GILT} />
+          <circle cx="9" cy="18" r="1.4" fill={GILT} />
+          <circle cx="31" cy="18" r="1.4" fill={GILT} />
+        </g>
+      );
+    case "science":
+      return (
+        <g stroke={INK} strokeWidth={1.3} strokeLinejoin="round" strokeLinecap="round">
+          <path d="M26 11 Q30 18 20 30 L17 33 L16 30 Q22 18 26 11 Z" fill={c} />
+          <path d="M16 30 L13 34" />
+          <ellipse cx="12" cy="36" rx="2.4" ry="1.4" fill={INK} />
+        </g>
+      );
+    default: {
+      const exhaustive: never = track;
+      return <g>{String(exhaustive)}</g>;
+    }
+  }
+}
+
+export function ProgressCardFace({ card, size = 40 }: { card: ProgressCard; size?: number }) {
+  const track = trackOfCard(card);
+  const vp = card === "constitution" || card === "printer";
+  return (
+    <svg viewBox="0 0 40 56" width={size} height={size * 1.4} aria-hidden className="shrink-0" style={{ filter: "drop-shadow(0 1px 1px rgba(0,0,0,.35))" }}>
+      <rect x="1" y="1" width="38" height="54" rx="3.5" fill={PARCHMENT} stroke={INK} strokeWidth={1.6} />
+      <rect x="4" y="4" width="32" height="48" rx="2" fill="none" stroke={vp ? GILT : TRACK_COLOR[track]} strokeWidth={1.4} />
+      <TrackCrest track={track} />
+      {vp && <path d="M20 36 L21.5 40 L26 40 L22.5 42.5 L24 46.5 L20 44 L16 46.5 L17.5 42.5 L14 40 L18.5 40 Z" fill={GILT} stroke={INK} strokeWidth={0.8} />}
+      <text x="20" y={vp ? 51 : 47} textAnchor="middle" fontSize="4.6" fontWeight={700} fill={INK} fontFamily="Palatino Linotype, Palatino, Georgia, serif">
+        {PROGRESS_CARD_LABEL[card]}
       </text>
     </svg>
   );
