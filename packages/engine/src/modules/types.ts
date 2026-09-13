@@ -41,6 +41,8 @@ export interface FishingState {
   /** Remaining tokens: 1, 2 or 3 fish; 0 is the old boot. */
   bag: number[];
   boot: PlayerId | null;
+  /** Fish spent so far (they leave the game): bag + purses + spent stays constant. */
+  spent: number;
 }
 
 export const FISH_OPTIONS = ["moveRobber", "steal", "bankResource", "freeRoad", "freeDevCard"] as const;
@@ -284,6 +286,8 @@ export function isTrack(value: unknown): value is Track {
 export type ModulePrompt =
   /** Event deck: each pending player may give one card to `to`. */
   | { kind: "neighborlyHelp"; playerId: PlayerId; pending: PlayerId[]; to: PlayerId }
+  /** Raiders: after the second setup settlement, pick the settlement that becomes the castle. */
+  | { kind: "placeCastle"; playerId: PlayerId }
   /** Fleet attack: each pending player picks a city to lose. */
   | { kind: "downgradeCity"; playerId: PlayerId; pending: PlayerId[] }
   | { kind: "placeMetropolis"; playerId: PlayerId; track: Track; from: PlayerId | null }

@@ -32,15 +32,29 @@ import {
   type TerrainGeneration,
   type TokenGeneration,
   landComponents,
+  producesOnToken,
+  variantFlags,
+  noVariants,
+  VARIANT_NAMES,
+  type EdgeDef,
   type Scenario,
   type ScenarioSetup,
+  type VariantName,
 } from "@katan/engine";
 
-export type Tool = "frame" | "terrain" | "token" | "harbor" | "island";
+/** `river`, `fishing` and `oasis` are the Wayfarers markers (docs/phase10.md §8). */
+export type Tool = "frame" | "terrain" | "token" | "harbor" | "island" | "river" | "fishing" | "oasis";
+
+/** The token a new fishing ground gets before the designer types another. */
+export const DEFAULT_FISHING_TOKEN = 5;
 
 /** Scenario settings kept next to the board while editing (docs/phase9.md §5); null means a plain board. */
 export interface ScenarioSettings {
   readonly tides: boolean;
+  /** Crown & Castle (docs/phase11.md). Never on together with the Raiders variant. */
+  readonly crown: boolean;
+  /** Wayfarers variants (docs/phase10.md), one flag each. */
+  readonly variants: Readonly<Record<VariantName, boolean>>;
   readonly pirate: boolean;
   readonly islandBonus: number;
   readonly setup: ScenarioSetup;
@@ -50,7 +64,7 @@ export interface ScenarioSettings {
   readonly specialRules: string;
 }
 
-export const DEFAULT_SCENARIO: ScenarioSettings = { tides: true, pirate: true, islandBonus: 2, setup: "standard", mainIsland: null, victoryPoints: 10, specialRules: "" };
+export const DEFAULT_SCENARIO: ScenarioSettings = { tides: true, crown: false, variants: noVariants(), pirate: true, islandBonus: 2, setup: "standard", mainIsland: null, victoryPoints: 10, specialRules: "" };
 export type Symmetry = "none" | "mirror" | "rotate";
 
 export interface EditorState {
@@ -83,9 +97,15 @@ export type EditorAction =
   | { type: "setToken"; at: HexCoord; token: number | null }
   | { type: "cycleHarbor"; edge: EdgeId }
   | { type: "setHarbor"; edge: EdgeId; harbor: HarborDef | null }
+  /** River tool: toggle a river segment on an edge that borders land. */
+  | { type: "toggleRiver"; edge: EdgeId }
+  /** Fishing tool: null removes the ground, a number (2–12, not 7) places or re-numbers it on a coastal edge. */
+  | { type: "setFishingGround"; edge: EdgeId; token: number | null }
+  /** Oasis tool: toggle the marker on a land hex. */
+  | { type: "toggleOasis"; at: HexCoord }
   | { type: "autoFillTokens"; seed: string }
   | { type: "autoPlaceHarbors"; seed: string }
-  | { type: "clearLayer"; layer: "terrain" | "tokens" | "harbors" }
+  | { type: "clearLayer"; layer: "terrain" | "tokens" | "harbors" | "edges" | "oases" }
   | { type: "loadTemplate"; id: BuiltInBoardId }
   | { type: "load"; def: BoardDefinition; boardId: string | null; scenario?: ScenarioSettings | null }
   | { type: "markSaved"; boardId: string | null }
@@ -104,6 +124,8 @@ export function initialEditorState(def: BoardDefinition = builtInBoard("random")
 export function settingsOf(s: Scenario): ScenarioSettings {
   return {
     tides: s.modules.tides === true,
+    crown: s.modules.crown === true,
+    variants: variantFlags(s),
     pirate: s.pirate !== false,
     islandBonus: s.islandBonus ?? 0,
     setup: s.setup ?? "standard",
@@ -121,11 +143,13 @@ export function toScenario(state: EditorState, id = state.boardId ?? "draft"): S
     .split("\n")
     .map((x) => x.trim())
     .filter((x) => x.length > 0);
+  const variants = Object.fromEntries(VARIANT_NAMES.filter((v) => sc.variants[v]).map((v) => [v, true])) as Partial<Record<VariantName, boolean>>;
   return {
     id,
     name: state.def.name,
     board: state.def,
-    modules: { tides: sc.tides },
+    modules: { tides: sc.tides, crown: sc.crown },
+    ...(Object.keys(variants).length > 0 ? { variants } : {}),
     pirate: sc.pirate,
     islandBonus: sc.islandBonus,
     setup: sc.setup,
@@ -268,14 +292,14 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
         const h = hexAt(out, c);
         if (!h || h.kind !== "land") continue;
         const next: HexDef = action.terrain === null ? stripKeys(h, ["terrain", "token"]) : { ...h, terrain: action.terrain };
-        // A wasteland never carries a token.
-        out = withHex(out, c, action.terrain === "wasteland" ? stripKeys(next, ["token"]) : next);
+        // A wasteland or a lake never carries a token.
+        out = withHex(out, c, action.terrain !== null && !producesOnToken(action.terrain) ? stripKeys(next, ["token"]) : next);
       }
       return touch(out);
     }
     case "setToken": {
       const h = hexAt(def, action.at);
-      if (!h || h.kind !== "land" || h.terrain === "wasteland") return state;
+      if (!h || h.kind !== "land" || (h.terrain !== undefined && !producesOnToken(h.terrain))) return state;
       const next: HexDef = action.token === null ? stripKeys(h, ["token"]) : { ...h, token: action.token };
       return touch(withHex(def, action.at, next));
     }
@@ -288,6 +312,24 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
     case "setHarbor": {
       const harbors = def.harbors.filter((h) => h.edge !== action.edge);
       return touch({ ...def, harbors: action.harbor ? [...harbors, action.harbor] : harbors });
+    }
+    case "toggleRiver": {
+      if (!landEdges(def).includes(action.edge)) return state;
+      const has = riverEdgesOf(def).includes(action.edge);
+      const rest = (def.edges ?? []).filter((e) => !(e.kind === "river" && e.edge === action.edge));
+      return touch(withEdges(def, has ? rest : [...rest, { edge: action.edge, kind: "river" }]));
+    }
+    case "setFishingGround": {
+      if (!harborEdges(def).includes(action.edge)) return state;
+      const rest = (def.edges ?? []).filter((e) => !(e.kind === "fishingGround" && e.edge === action.edge));
+      if (action.token === null) return rest.length === (def.edges ?? []).length ? state : touch(withEdges(def, rest));
+      if (!VALID_TOKENS.has(action.token)) return state;
+      return touch(withEdges(def, [...rest, { edge: action.edge, kind: "fishingGround", token: action.token }]));
+    }
+    case "toggleOasis": {
+      const h = hexAt(def, action.at);
+      if (!h || h.kind !== "land") return state;
+      return touch(withHex(def, action.at, withOasis(h, !isOasis(h))));
     }
     case "autoFillTokens": {
       // Resolve tokens with the engine's balanced generator, then write them back as fixed tokens.
@@ -319,6 +361,8 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
     }
     case "clearLayer": {
       if (action.layer === "harbors") return touch({ ...def, harbors: [] });
+      if (action.layer === "edges") return def.edges === undefined ? state : touch(withEdges(def, []));
+      if (action.layer === "oases") return oasisCount(def) === 0 ? state : touch({ ...def, hexes: def.hexes.map((h) => withOasis(h, false)) });
       const hexes = def.hexes.map((h) => (h.kind === "land" ? stripKeys(h, action.layer === "terrain" ? ["terrain", "token"] : ["token"]) : h));
       return touch({ ...def, hexes });
     }
@@ -333,7 +377,9 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
     case "setScenario": {
       if (action.scenario === null) return { ...state, scenario: null, dirty: true, tool: state.tool === "island" ? "frame" : state.tool };
       const base = state.scenario ?? DEFAULT_SCENARIO;
-      const next: ScenarioSettings = { ...base, ...action.scenario };
+      let next: ScenarioSettings = { ...base, ...action.scenario };
+      // Raiders and Crown & Castle both use knights (docs/phase11.md): turning one on turns the other off.
+      if (next.crown && next.variants.raiders) next = action.scenario.crown === true ? { ...next, variants: { ...next.variants, raiders: false } } : { ...next, crown: false };
       return { ...state, scenario: { ...next, victoryPoints: Math.max(3, Math.min(30, Math.round(next.victoryPoints))), islandBonus: Math.max(0, Math.min(5, Math.round(next.islandBonus))) }, dirty: true };
     }
     default: {
@@ -349,6 +395,52 @@ function stripKeys(h: HexDef, keys: ("terrain" | "token")[]): HexDef {
   if (!keys.includes("token") && h.token !== undefined) out.token = h.token;
   if (h.extras) out.extras = h.extras;
   return out;
+}
+
+const VALID_TOKENS: ReadonlySet<number> = new Set([2, 3, 4, 5, 6, 8, 9, 10, 11, 12]);
+
+/** `edges` is left out entirely when empty, so untouched boards serialise unchanged. */
+function withEdges(def: BoardDefinition, edges: readonly EdgeDef[]): BoardDefinition {
+  const { edges: _drop, ...rest } = def;
+  void _drop;
+  return edges.length === 0 ? rest : { ...rest, edges };
+}
+
+export function isOasis(h: HexDef | undefined): boolean {
+  return h?.extras?.oasis === true;
+}
+
+/** Set or clear the oasis marker; an empty `extras` object is never kept. */
+function withOasis(h: HexDef, oasis: boolean): HexDef {
+  if (h.kind !== "land") return h;
+  const { extras: _drop, ...rest } = h;
+  void _drop;
+  const extras = { ...(h.extras ?? {}) } as { oasis?: boolean };
+  if (oasis) extras.oasis = true;
+  else delete extras.oasis;
+  return Object.keys(extras).length > 0 ? { ...rest, extras } : rest;
+}
+
+/** Every edge that borders at least one land hex (where a river may run). */
+export function landEdges(def: BoardDefinition): EdgeId[] {
+  return geometryFor(landIds(def)).edges.slice();
+}
+
+export function riverEdgesOf(def: BoardDefinition): EdgeId[] {
+  return (def.edges ?? []).filter((e) => e.kind === "river").map((e) => e.edge);
+}
+
+export function fishingGroundAt(def: BoardDefinition, edge: EdgeId): { edge: EdgeId; token: number } | null {
+  for (const e of def.edges ?? []) if (e.kind === "fishingGround" && e.edge === edge) return { edge: e.edge, token: e.token };
+  return null;
+}
+
+export function fishingGroundsOf(def: BoardDefinition): { edge: EdgeId; token: number }[] {
+  return (def.edges ?? []).flatMap((e) => (e.kind === "fishingGround" ? [{ edge: e.edge, token: e.token }] : []));
+}
+
+export function oasisCount(def: BoardDefinition): number {
+  return def.hexes.filter((h) => h.kind === "land" && isOasis(h)).length;
 }
 
 /** Actions that change the definition are recorded in history; view state is not. */
@@ -388,7 +480,7 @@ export function harborEdges(def: BoardDefinition): EdgeId[] {
 
 /** Tokens still unplaced from the pool implied by the land count (for the token tray). */
 export function tokenTray(def: BoardDefinition): { token: number; left: number }[] {
-  const producing = def.hexes.filter((h) => h.kind === "land" && h.terrain !== "wasteland").length;
+  const producing = def.hexes.filter((h) => h.kind === "land" && (h.terrain === undefined || producesOnToken(h.terrain))).length;
   const counts = new Map<number, number>();
   for (const t of def.presets?.tokenPool ?? tokenPoolFor(producing)) counts.set(t, (counts.get(t) ?? 0) + 1);
   for (const h of def.hexes) if (h.kind === "land" && h.token !== undefined) counts.set(h.token, (counts.get(h.token) ?? 0) - 1);
