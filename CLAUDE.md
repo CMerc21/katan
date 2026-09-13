@@ -92,6 +92,7 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 * Do not add dependencies to `packages/engine` without asking.
 * When a rule is ambiguous, ask rather than guess — then update `docs/rules.md` with the decision.
 * Keep this file current: if you change the stack or phase plan, edit it here.
+* Migrations use timestamp prefixes: create them with `supabase migration new <name>`, never a hand-written sequential number. The remote migration history is timestamped, so a new file must sort after the last applied entry or `supabase db push` fails.
 
 ## Packages
 

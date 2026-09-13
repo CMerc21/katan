@@ -17,7 +17,7 @@ Companion to `CLAUDE.md`, `docs/rules.md`, `docs/phase2.md`–`docs/phase5.md` a
 ### 1.2 Server
 
 - `game_views.view.events` carries the events since the previous version, redacted per player. `runBotLoop` concatenates every bot action's events, so one version bump can carry a long sequence; `persist` writes them.
-- `game_events (game_id, seq, event jsonb)` holds the whole history for replay and debugging; no client privileges (`supabase/migrations/0003_events.sql`).
+- `game_events (game_id, seq, event jsonb)` holds the whole history for replay and debugging; no client privileges (`supabase/migrations/20260912170000_events.sql`).
 - The hotseat driver does the same in memory: each emitted view carries the events from the human action plus the bot actions that followed.
 
 ## 2. Animation queue (client)

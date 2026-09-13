@@ -56,7 +56,7 @@ Helpers: `coastalLand`, `coastalEdges`, `landComponents`, `startingCapacity`, `s
 
 `standardFrame()` (19 hexes, 4 seats), `largeFrame()` (30 hexes, 6 seats), `longStripFrame()` (21 hexes in a 7×3 band, 5 seats), `ringFrame()` (24 land around 7 sea, 6 seats). `beginnerDefinition()` pins the Phase 1 beginner layout; `randomDefinition()` is the standard frame with everything shuffled. `builtInBoard(id)` / `BUILT_IN_BOARD_IDS` / `isBuiltInBoardId` name them: `beginner`, `random`, `large`, `longStrip`, `ring`.
 
-### 4.2 Server (`packages/server`, `supabase/migrations/0004_boards.sql`)
+### 4.2 Server (`packages/server`, `supabase/migrations/20260912170100_boards.sql`)
 
 - `boards (id, owner_id, name, definition jsonb, is_public, forked_from, created_at, updated_at)` with RLS: owners read their own, anyone signed in reads public boards; writes go through the `save-board`, `delete-board` and `fork-board` Edge Functions (`board-service.ts`). Saving validates with `allowIslands: true` and refuses errors (`INVALID_BOARD`); `BOARD_NOT_FOUND` and `NOT_OWNER` are the new service codes. Names are trimmed to 40 characters.
 - `games.board` allows `custom` and `games.board_definition` snapshots the resolved definition; `games.max_players` allows 3–6; `game_players.color` gained `green` and `brown`; `lobbies.board_name` (also on the `lobby_games` view) labels the lobby.

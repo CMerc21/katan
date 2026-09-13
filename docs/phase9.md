@@ -47,7 +47,7 @@ interface Scenario {
 
 ## 5. Server and storage
 
-- `supabase/migrations/0005_scenarios.sql`: `games.scenario jsonb` (the snapshot a game was made from; its board is also in `board_definition`) and a `scenarios` table mirroring `boards` with the same RLS. `scenario-service.ts` (`saveScenario`, `deleteScenario`, `forkScenario`) behind the `save-scenario`, `delete-scenario` and `fork-scenario` Edge Functions; `SCENARIO_NOT_FOUND` joins the service codes. Stored definitions carry their row id.
+- `supabase/migrations/20260912170200_scenarios.sql`: `games.scenario jsonb` (the snapshot a game was made from; its board is also in `board_definition`) and a `scenarios` table mirroring `boards` with the same RLS. `scenario-service.ts` (`saveScenario`, `deleteScenario`, `forkScenario`) behind the `save-scenario`, `delete-scenario` and `fork-scenario` Edge Functions; `SCENARIO_NOT_FOUND` joins the service codes. Stored definitions carry their row id.
 - `create-lobby` accepts a built-in scenario id, `{ scenarioId }` or `{ scenario }` (validated) next to the Phase 8 board choices; `gameOptionsOf(game)` gives `createGame` the scenario when there is one, so start and replay-check agree.
 - Client: scenario drafts live in `localStorage` (`katan.scenarios.drafts`, ids `sdraft-…`); `BoardPicker` shows a Scenarios row (built-ins, drafts, yours, public) with a Tides badge and the VP target; `HotseatConfig.scenario` reaches `createGame` through the hotseat driver.
 
