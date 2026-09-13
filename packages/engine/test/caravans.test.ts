@@ -291,14 +291,8 @@ describe("docs/phase10.md §6 Caravans", () => {
     let s = inPhase(finishSetup(game()), ACTION_PHASE, "a");
     s = isolate(isolate(s, n0, "farmland", 9), n1, "forest", 4);
     // Nobody else on the track's vertices, so the bonus below is a's alone.
-    s = own(own(s, "a", { roads: [e0], settlements: [c0] }), "a", { settlements: [] });
-    s = mut(s, (x) => {
-      const c5 = hexCorner(CENTER, 5);
-      for (const p of x.players) {
-        p.settlements = p.settlements.filter((v) => v !== c5);
-        p.cities = p.cities.filter((v) => v !== c5);
-      }
-    });
+    s = clearCorners(own(s, "a", { roads: [e0] }), "0,0");
+    s = own(s, "a", { settlements: [c0] });
     const tracked = inPhase(extend(giveSpice(s, "a", 1), "a", idx, e0), { kind: "roll" }, "a");
     const grain = getPlayer(tracked, "a").hand.grain;
 

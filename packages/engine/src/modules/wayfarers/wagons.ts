@@ -134,6 +134,11 @@ function applyMove(state: GameState, action: Extract<Action, { type: "MOVE_WAGON
   emit(state, { kind: "wagonMoved", playerId: player.id, path: [...path], grain, toll: blocker });
 }
 
+/** Index of a `good` in the cargo that was not loaded at the wagon's current vertex, or -1. */
+function deliverableIndex(wagon: Wagon, good: WagonGood): number {
+  return wagon.cargo.findIndex((g, i) => g === good && wagon.cargoFrom[i] !== wagon.at);
+}
+
 function requireGood(value: unknown): WagonGood {
   if (!isWagonGood(value)) throw new RuleError("INVALID_PAYLOAD", `${String(value)} is not a good`);
   return value;
@@ -153,6 +158,7 @@ function applyLoad(state: GameState, action: Extract<Action, { type: "LOAD_COMMO
   shelf.splice(i, 1);
   w.stock[wagon.at] = shelf;
   wagon.cargo.push(good);
+  wagon.cargoFrom.push(wagon.at);
   emit(state, { kind: "goodLoaded", playerId: player.id, vertex: wagon.at, good });
 }
 
@@ -163,12 +169,13 @@ function applyDeliver(state: GameState, action: Extract<Action, { type: "DELIVER
   const good = requireGood(action.good);
   const city = buildingAt(state, wagon.at);
   if (!city || city.kind !== "city" || city.owner === player.id) throw new RuleError("NOT_A_CITY", "deliveries go to another player's city");
-  const i = wagon.cargo.indexOf(good);
-  if (i < 0) throw new RuleError("NO_CARGO", `the wagon carries no ${good}`);
+  const i = deliverableIndex(wagon, good);
+  if (i < 0) throw new RuleError("NO_CARGO", wagon.cargo.includes(good) ? `that ${good} was loaded here; deliver it elsewhere` : `the wagon carries no ${good}`);
   const w = wagons(state);
   const demand = demandAt(state, wagon.at);
   const points = good === demand ? 2 : 1;
   wagon.cargo.splice(i, 1);
+  wagon.cargoFrom.splice(i, 1);
   w.points[player.id] = (w.points[player.id] ?? 0) + points;
   w.demand[wagon.at] = nextGood(demand);
   emit(state, { kind: "delivered", playerId: player.id, vertex: wagon.at, good, points });
@@ -204,7 +211,7 @@ registerModule({
 
   onSetupSettlement(state, player, vertex, round) {
     if (round !== 2) return;
-    wagons(state).wagons[player.id] = { at: vertex, cargo: [], stepsUsed: 0 };
+    wagons(state).wagons[player.id] = { at: vertex, cargo: [], cargoFrom: [], stepsUsed: 0 };
   },
 
   onBuilt(state, _playerId, piece, at) {
@@ -260,7 +267,7 @@ registerModule({
       for (const good of new Set(w.stock[wagon.at] ?? [])) out.push({ type: "LOAD_COMMODITY", playerId, good });
     }
     if (here.owner !== playerId) {
-      for (const good of new Set(wagon.cargo)) out.push({ type: "DELIVER", playerId, good });
+      for (const good of new Set(wagon.cargo)) if (deliverableIndex(wagon, good) >= 0) out.push({ type: "DELIVER", playerId, good });
     }
   },
 

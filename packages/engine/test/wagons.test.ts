@@ -35,7 +35,7 @@ function pave(state: GameState, owner: PlayerId, path: VertexId[]): GameState {
 
 /** Put `playerId`'s wagon at `at` (test setup only). */
 function parkWagon(state: GameState, playerId: PlayerId, at: VertexId): GameState {
-  return mut(state, (s) => void (wagons(s).wagons[playerId] = { at, cargo: [], stepsUsed: 0 }));
+  return mut(state, (s) => void (wagons(s).wagons[playerId] = { at, cargo: [], cargoFrom: [], stepsUsed: 0 }));
 }
 
 function move(state: GameState, playerId: PlayerId, path: VertexId[], extra: { grain?: number; toll?: "wood" | "clay" | "wool" | "grain" | "ore" } = {}): GameState {
@@ -65,6 +65,15 @@ function atCity(owner: PlayerId, stock: WagonGood[], demand: WagonGood): { state
   return { state: parkWagon(s, "a", city), city };
 }
 
+/** Fill a's wagon with goods picked up at some other city (test setup only). */
+function carrying(state: GameState, goods: WagonGood[], from = "elsewhere"): GameState {
+  return mut(state, (x) => {
+    const w = wagons(x).wagons.a!;
+    w.cargo = [...goods];
+    w.cargoFrom = goods.map(() => from);
+  });
+}
+
 const movesOf = (state: GameState, who: PlayerId) => legalActions(state, who).filter((x): x is Extract<Action, { type: "MOVE_WAGON" }> => x.type === "MOVE_WAGON");
 
 describe("docs/phase10.md §7 Wagons", () => {
@@ -81,7 +90,7 @@ describe("docs/phase10.md §7 Wagons", () => {
   it("docs/phase10.md §7 each wagon starts on its owner's second setup settlement, empty", () => {
     const s = finishSetup(game());
     for (const p of s.players) {
-      expect(wagons(s).wagons[p.id]).toEqual({ at: p.settlements[1], cargo: [], stepsUsed: 0 });
+      expect(wagons(s).wagons[p.id]).toEqual({ at: p.settlements[1], cargo: [], cargoFrom: [], stepsUsed: 0 });
     }
     // Not yet during round 1.
     let r1 = game();
@@ -95,7 +104,7 @@ describe("docs/phase10.md §7 Wagons", () => {
     const grain = getPlayer(s, "a").hand.grain;
 
     const { state: s1, events } = applyActionWithEvents(s, { type: "MOVE_WAGON", playerId: "a", path: [v0, v1, v2] });
-    expect(wagons(s1).wagons.a).toEqual({ at: v2, cargo: [], stepsUsed: 2 });
+    expect(wagons(s1).wagons.a).toEqual({ at: v2, cargo: [], cargoFrom: [], stepsUsed: 2 });
     expect(getPlayer(s1, "a").hand.grain).toBe(grain);
     expect(events).toContainEqual(expect.objectContaining({ kind: "wagonMoved", playerId: "a", path: [v0, v1, v2], grain: 0, toll: null }));
 
@@ -172,6 +181,7 @@ describe("docs/phase10.md §7 Wagons", () => {
     const { state: s, city } = atCity("b", ["marble", "glass"], "sand");
     const { state: s1, events } = applyActionWithEvents(s, { type: "LOAD_COMMODITY", playerId: "a", good: "marble" });
     expect(wagons(s1).wagons.a!.cargo).toEqual(["marble"]);
+    expect(wagons(s1).wagons.a!.cargoFrom).toEqual([city]);
     expect(wagons(s1).stock[city]).toEqual(["glass"]);
     expect(events).toContainEqual(expect.objectContaining({ kind: "goodLoaded", playerId: "a", vertex: city, good: "marble" }));
     expectRule(() => applyAction(s1, { type: "LOAD_COMMODITY", playerId: "a", good: "marble" }), "NO_GOODS");
@@ -198,7 +208,7 @@ describe("docs/phase10.md §7 Wagons", () => {
 
   it("docs/phase10.md §7 DELIVER at an opponent's city scores 1 VP, 2 when the good matches its demand, and rotates the demand", () => {
     const { state: s0, city } = atCity("b", [], "glass");
-    const s = mut(s0, (x) => void (wagons(x).wagons.a!.cargo = ["glass", "marble"]));
+    const s = carrying(s0, ["glass", "marble"]);
     expect(legalActions(s, "a").filter((x) => x.type === "DELIVER")).toEqual([
       { type: "DELIVER", playerId: "a", good: "glass" },
       { type: "DELIVER", playerId: "a", good: "marble" },
@@ -215,21 +225,36 @@ describe("docs/phase10.md §7 Wagons", () => {
     expect(wagons(s2).demand[city]).toBe("tools");
     expectRule(() => applyAction(s2, { type: "DELIVER", playerId: "a", good: "marble" }), "NO_CARGO");
     // Demand wraps round the list; the last good comes before the first.
-    const wrap = mut(s2, (x) => {
-      wagons(x).wagons.a!.cargo = ["tools"];
-    });
+    const wrap = carrying(s2, ["tools"]);
     expect(wagons(applyAction(wrap, { type: "DELIVER", playerId: "a", good: "tools" })).demand[city]).toBe(WAGON_GOODS[0]);
     // Own city: no delivery. Not standing on a city: none either.
     const { state: mine } = atCity("a", [], "glass");
-    expectRule(() => applyAction(mut(mine, (x) => void (wagons(x).wagons.a!.cargo = ["glass"])), { type: "DELIVER", playerId: "a", good: "glass" }), "NOT_A_CITY");
+    expectRule(() => applyAction(carrying(mine, ["glass"]), { type: "DELIVER", playerId: "a", good: "glass" }), "NOT_A_CITY");
     expectRule(() => applyAction(s, { type: "DELIVER", playerId: "a", good: "sand" }), "NO_CARGO");
     expectRule(() => applyAction(inPhase(s, ACTION_PHASE, "b"), { type: "DELIVER", playerId: "a", good: "glass" }), "NOT_YOUR_TURN");
   });
 
+  it("docs/phase10.md §7 a good is never delivered back to the city it was loaded at", () => {
+    const { state: s, city } = atCity("b", ["glass"], "glass");
+    const loaded = applyAction(s, { type: "LOAD_COMMODITY", playerId: "a", good: "glass" });
+    expectRule(() => applyAction(loaded, { type: "DELIVER", playerId: "a", good: "glass" }), "NO_CARGO");
+    expect(legalActions(loaded, "a").filter((x) => x.type === "DELIVER")).toEqual([]);
+    // Coming back later does not help either; a second glass from elsewhere may go.
+    const twoGlass = mut(loaded, (x) => {
+      const w = wagons(x).wagons.a!;
+      w.cargo.push("glass");
+      w.cargoFrom.push("elsewhere");
+    });
+    expect(legalActions(twoGlass, "a").filter((x) => x.type === "DELIVER")).toEqual([{ type: "DELIVER", playerId: "a", good: "glass" }]);
+    const after = applyAction(twoGlass, { type: "DELIVER", playerId: "a", good: "glass" });
+    expect(wagons(after).wagons.a!.cargo).toEqual(["glass"]);
+    expect(wagons(after).wagons.a!.cargoFrom).toEqual([city]);
+    expectRule(() => applyAction(after, { type: "DELIVER", playerId: "a", good: "glass" }), "NO_CARGO");
+  });
+
   it("docs/phase10.md §7 deliveries win games", () => {
     const { state: s0 } = atCity("b", [], "glass");
-    const s = mut(s0, (x) => {
-      wagons(x).wagons.a!.cargo = ["glass"];
+    const s = mut(carrying(s0, ["glass"]), (x) => {
       const a = getPlayer(x, "a");
       a.devCards = Array.from({ length: 10 - victoryPoints(x, a).total }, () => ({ type: "victoryPoint" as const, boughtOnTurn: 0 }));
     });
@@ -305,6 +330,7 @@ describe("docs/phase10.md §7 Wagons", () => {
         if (wagon) {
           expect(GEOMETRY.vertices).toContain(wagon.at);
           expect(wagon.cargo.length).toBeLessThanOrEqual(WAGON_CAPACITY);
+          expect(wagon.cargoFrom).toHaveLength(wagon.cargo.length);
           expect(wagon.stepsUsed).toBeGreaterThanOrEqual(0);
         }
         expect(w.points[p.id]).toBeGreaterThanOrEqual(0);
@@ -319,6 +345,7 @@ describe("docs/phase10.md §7 Wagons", () => {
     for (let g = 0; g < 20; g++) {
       const played = playRandomGame(`wagons-${g}`, {
         scenario,
+        maxTurns: 800,
         onStep: (state, action) => {
           if (action.type === "DELIVER") delivered += 1;
           if (action.type === "MOVE_WAGON") moved += 1;

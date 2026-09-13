@@ -33,6 +33,10 @@ export interface EventDeckState {
   cards: EventCard[];
   /** How many decks have been dealt (seeds each shuffle). */
   shuffles: number;
+  /** The event on the card the latest roll drew (Robber's Rest is read on the seven); absent or null when none. */
+  lastEvent?: EventCardKind | null;
+  /** The latest draw was the reshuffle marker: the deck is rebuilt once that roll has resolved. */
+  reshufflePending?: boolean;
 }
 
 /** docs/phase10.md §2: fish are fungible points; the old boot is worth -1 VP while held. */
@@ -100,6 +104,8 @@ export type WagonGood = (typeof WAGON_GOODS)[number];
 export interface Wagon {
   at: VertexId;
   cargo: WagonGood[];
+  /** Where each good in `cargo` was loaded (same index): a good is never delivered back to that city. */
+  cargoFrom: VertexId[];
   /** Steps taken this turn (2 free, then 1 per grain). */
   stepsUsed: number;
 }
