@@ -11,7 +11,7 @@
  */
 
 import { useFrame } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, type RefObject } from "react";
 import * as THREE from "three";
 import type { EdgeId, PlayerColor, VertexId } from "@katan/engine";
 import { PLAYER_FILL } from "@/game/theme";
@@ -103,8 +103,27 @@ export function SettlementFigure({ vertex, color, fresh = false, seq = null, gho
     }
   });
   const cast = shadows && !ghost;
+  const model = usePiece("settlement", { color: colorOf(color), neutral: P.WALL_PLASTER, ghost, castShadow: cast, receiveShadow: shadows });
   return (
     <group ref={group} position={[p.x, SLAB_HEIGHT, p.z]} scale={PIECE_SCALE} name={`settlement:${vertex}`}>
+      {model ? (
+        <primitive object={model} />
+      ) : (
+        <ProceduralSettlement color={color} ghost={ghost} shadows={shadows} />
+      )}
+      <mesh ref={smoke} visible={false} position={[0.04, 0.2, 0]}>
+        <sphereGeometry args={[1, 6, 5]} />
+        <meshStandardMaterial color={P.SMOKE} transparent opacity={0.5} depthWrite={false} />
+      </mesh>
+    </group>
+  );
+}
+
+/** The thatched cottage on a base ring (docs/props.md §4); the fallback when settlement.glb is unavailable. */
+function ProceduralSettlement({ color, ghost, shadows }: { color: PlayerColor; ghost: boolean; shadows: boolean }) {
+  const cast = shadows && !ghost;
+  return (
+    <>
       <BaseRing color={colorOf(color)} ghost={ghost} shadows={shadows} />
       <mesh position={[0, 0.07, 0]} castShadow={cast}>
         <boxGeometry args={[0.14, 0.1, 0.1]} />
@@ -124,11 +143,7 @@ export function SettlementFigure({ vertex, color, fresh = false, seq = null, gho
         <sphereGeometry args={[0.08, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2]} />
         <Mat color={P.THATCH} ghost={ghost} />
       </mesh>
-      <mesh ref={smoke} visible={false} position={[0.04, 0.2, 0]}>
-        <sphereGeometry args={[1, 6, 5]} />
-        <meshStandardMaterial color={P.SMOKE} transparent opacity={0.5} depthWrite={false} />
-      </mesh>
-    </group>
+    </>
   );
 }
 
@@ -161,8 +176,19 @@ export function CityFigure({ vertex, color, fresh = false, seq = null, ghost = f
     if (flag.current) flag.current.scale.x = Math.max(0.001, fresh ? Math.min(1, Math.max(0, (t.current - 0.5) * 2)) : 1);
   });
   const cast = shadows && !ghost;
+  const model = usePiece("city", { color: colorOf(color), neutral: P.KEEP_STONE, ghost, castShadow: cast, receiveShadow: shadows });
   return (
     <group ref={group} position={[p.x, SLAB_HEIGHT, p.z]} scale={PIECE_SCALE} name={`city:${vertex}`}>
+      {model ? <primitive object={model} /> : <ProceduralCity color={color} ghost={ghost} shadows={shadows} flag={flag} />}
+    </group>
+  );
+}
+
+/** The stone keep with a gatehouse and flag (docs/props.md §4); the fallback when city.glb is unavailable. `flag` unfurls on entrance. */
+function ProceduralCity({ color, ghost, shadows, flag }: { color: PlayerColor; ghost: boolean; shadows: boolean; flag: RefObject<THREE.Group | null> }) {
+  const cast = shadows && !ghost;
+  return (
+    <>
       <BaseRing color={colorOf(color)} ghost={ghost} shadows={shadows} />
       {/* Main tower */}
       <mesh position={[-0.02, 0.1, -0.01]} castShadow={cast}>
@@ -196,7 +222,7 @@ export function CityFigure({ vertex, color, fresh = false, seq = null, ghost = f
       <group ref={flag} position={[-0.02, 0.2, -0.01]}>
         <FlagFigure color={color} height={0.14} ghost={ghost} />
       </group>
-    </group>
+    </>
   );
 }
 
@@ -217,8 +243,23 @@ export function RoadFigure({ edge, color, fresh = false, seq = null, ghost = fal
       (dust.current.material as THREE.MeshBasicMaterial).opacity = 0.5 * (1 - d);
     }
   });
+  const model = usePiece("road", { color: colorOf(color), ghost, castShadow: shadows && !ghost, receiveShadow: shadows });
   return (
     <group ref={group} position={[mid.x, SLAB_HEIGHT, mid.z]} rotation={[0, -angle, 0]} name={`road:${edge}`}>
+      {/* The GLB is long on its local Z; a quarter turn lays Z along the group's X, which the outer rotation aims down the edge. */}
+      {model ? <group rotation={[0, Math.PI / 2, 0]}><primitive object={model} /></group> : <ProceduralRoad color={color} ghost={ghost} shadows={shadows} />}
+      <mesh ref={dust} visible={false} position={[0, 0.005, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.6, 0.8, 24]} />
+        <meshBasicMaterial color="#d9c9a0" transparent opacity={0.5} depthWrite={false} />
+      </mesh>
+    </group>
+  );
+}
+
+/** The flat plank road with a clay top (docs/props.md §4), long on X; the fallback when road.glb is unavailable. */
+function ProceduralRoad({ color, ghost, shadows }: { color: PlayerColor; ghost: boolean; shadows: boolean }) {
+  return (
+    <>
       <mesh position={[0, 0.03, 0]} castShadow={shadows && !ghost}>
         <boxGeometry args={[0.8, 0.06, 0.15]} />
         <Mat color={colorOf(color)} ghost={ghost} />
@@ -235,11 +276,7 @@ export function RoadFigure({ edge, color, fresh = false, seq = null, ghost = fal
           </mesh>
         )),
       )}
-      <mesh ref={dust} visible={false} position={[0, 0.005, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[0.6, 0.8, 24]} />
-        <meshBasicMaterial color="#d9c9a0" transparent opacity={0.5} depthWrite={false} />
-      </mesh>
-    </group>
+    </>
   );
 }
 
