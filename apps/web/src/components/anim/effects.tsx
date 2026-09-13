@@ -15,6 +15,11 @@ import { Avatar } from "../Avatar";
 import { CardBack, DevCardFace, ResourceCardFace } from "../cards";
 import { useAnchors, type Point } from "./anchors";
 
+/** Commodities (docs/phase11.md) have no card flight yet; only the five resources fly. */
+function asResource(x: string | null | undefined): Resource | undefined {
+  return x === "wood" || x === "clay" || x === "wool" || x === "grain" || x === "ore" ? x : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Turn banner
 
@@ -170,9 +175,11 @@ export function flightsFor(step: Step, view: RedactedState, point: (key: string)
       } else for (let i = 0; i < e.count; i++) add(dest(e.playerId), bank, "back", {}, i * 40);
       break;
     }
-    case "stole":
-      add(dest(e.from, e.resource ?? undefined), dest(e.to, e.resource ?? undefined), e.resource ? "resource" : "back", e.resource ? { resource: e.resource } : {});
+    case "stole": {
+      const r = asResource(e.resource);
+      add(dest(e.from, r), dest(e.to, r), r ? "resource" : "back", r ? { resource: r } : {});
       break;
+    }
     case "devCardBought":
       add(point("deck"), dest(e.playerId), e.card ? "dev" : "back", e.card ? { dev: e.card } : {});
       break;
@@ -192,10 +199,13 @@ export function flightsFor(step: Step, view: RedactedState, point: (key: string)
       }
       break;
     }
-    case "maritimeTrade":
-      for (let k = 0; k < e.count; k++) add(dest(e.playerId, e.give), point("bank"), "resource", { resource: e.give }, k * 50);
-      add(point("bank"), dest(e.playerId, e.receive), "resource", { resource: e.receive }, 200);
+    case "maritimeTrade": {
+      const give = asResource(e.give);
+      const receive = asResource(e.receive);
+      for (let k = 0; k < e.count; k++) add(dest(e.playerId, give), point("bank"), give ? "resource" : "back", give ? { resource: give } : {}, k * 50);
+      add(point("bank"), dest(e.playerId, receive), receive ? "resource" : "back", receive ? { resource: receive } : {}, 200);
       break;
+    }
     case "specialCardMoved":
       add(e.from ? point(`player:${e.from}`) : point("bank"), e.to ? point(`player:${e.to}`) : point("bank"), "back");
       break;

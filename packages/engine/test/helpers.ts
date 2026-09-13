@@ -1,5 +1,5 @@
 import { expect } from "vitest";
-import { RESOURCES, TERRAIN_RESOURCE, type Terrain } from "../src/board";
+import { RESOURCES, TERRAIN_RESOURCE, type Resource, type Terrain } from "../src/board";
 import { RuleError, isRuleError } from "../src/errors";
 import { GEOMETRY, hexCorner, type EdgeId, type HexId, type VertexId } from "../src/geometry";
 import { applyAction } from "../src/actions";
@@ -176,6 +176,34 @@ const WEIGHTS: Record<Action["type"], number> = {
   BUILD_SHIP: 6,
   MOVE_SHIP: 1,
   CHOOSE_GOLD: 1,
+  // Wayfarers (docs/phase10.md)
+  NEIGHBORLY_GIVE: 1,
+  SPEND_FISH: 4,
+  BUILD_KNIGHT: 4,
+  BUILD_CASTLE: 6,
+  REBUILD_HEX: 6,
+  EXTEND_CARAVAN: 4,
+  MOVE_WAGON: 2,
+  LOAD_COMMODITY: 4,
+  DELIVER: 8,
+  // Crown & Castle (docs/phase11.md)
+  ACTIVATE_KNIGHT: 3,
+  PROMOTE_KNIGHT: 3,
+  KNIGHT_MOVE: 1,
+  KNIGHT_DISPLACE: 2,
+  KNIGHT_CHASE_ROBBER: 2,
+  BUILD_IMPROVEMENT: 8,
+  BUILD_WALL: 2,
+  PLAY_PROGRESS: 4,
+  DISCARD_PROGRESS: 1,
+  CHOOSE_DOWNGRADE: 1,
+  PLACE_METROPOLIS: 1,
+  CHOOSE_DESERTER: 1,
+  PLACE_FREE_KNIGHT: 1,
+  RETREAT_KNIGHT: 1,
+  SPY_TAKE: 1,
+  COMMERCIAL_SWAP: 1,
+  GIVE_CARDS: 1,
 };
 
 /** All legal actions for every player, current player first. */
@@ -198,10 +226,12 @@ const BUILD_TYPES: ReadonlySet<Action["type"]> = new Set(["BUILD_ROAD", "BUILD_S
 export function pickWeighted(state: GameState, actions: Action[], rng: Rng): Action {
   const builds = actions.filter((a) => BUILD_TYPES.has(a.type));
   const useful = actions.filter((a) => {
-    if (a.type !== "MARITIME_TRADE") return false;
+    if (a.type !== "MARITIME_TRADE" || !RESOURCES.includes(a.give as Resource) || !RESOURCES.includes(a.receive as Resource)) return false;
     const h = getPlayer(state, a.playerId).hand;
     const most = RESOURCES.reduce((best, r) => (h[r] > h[best] ? r : best), RESOURCES[0]);
-    return a.give === most && h[a.receive] <= 1 && h[a.give] - a.giveCount >= 1;
+    const give = a.give as Resource;
+    const receive = a.receive as Resource;
+    return give === most && h[receive] <= 1 && h[give] - a.giveCount >= 1;
   });
   const pool =
     builds.length > 0 ? builds : useful.length > 0 ? useful : actions.filter((a) => a.type !== "MARITIME_TRADE");

@@ -4,6 +4,7 @@
 
 import { boardGeometry } from "./board";
 import { type EdgeId, type VertexId } from "./geometry";
+import { activeModules } from "./modules/hooks";
 import { buildingsMap, emit } from "./state";
 import type { GameState, PlayerId } from "./types";
 
@@ -31,6 +32,14 @@ export function longestRoadLength(state: GameState, playerId: PlayerId): number 
     if (b.owner !== playerId) blocked.add(v);
     else own.add(v);
   }
+  // Opposing knights break a road at their vertex (docs/phase11.md §5); caravans double adjacent roads (docs/phase10.md §6).
+  const hooks = activeModules(state);
+  for (const h of hooks) for (const v of h.blockedVertices?.(state, playerId) ?? []) blocked.add(v);
+  const weightOf = (e: EdgeId): number => {
+    let w = 1;
+    for (const h of hooks) w = Math.max(w, h.edgeWeight?.(state, playerId, e) ?? 1);
+    return w;
+  };
 
   const kindOf = new Map<EdgeId, Link>();
   for (const e of player.roads) kindOf.set(e, "road");
@@ -54,7 +63,7 @@ export function longestRoadLength(state: GameState, playerId: PlayerId): number 
       const [a, b] = geo.edgeVertices[e] as readonly [VertexId, VertexId];
       const next = a === v ? b : a;
       used.add(e);
-      const len = 1 + (blocked.has(next) ? 0 : walk(next, kind));
+      const len = weightOf(e) + (blocked.has(next) ? 0 : walk(next, kind));
       used.delete(e);
       if (len > best) best = len;
     }

@@ -2,7 +2,9 @@
  * `createGame`: a fresh state in the setup phase (§1, §2, §4).
  */
 
+import "./modules"; // registers every module's hooks
 import { makeBoard, wastelandHex, type Board } from "./board";
+import { activeModules } from "./modules/hooks";
 import { isBoardDefinition } from "./definition";
 import { resolveBoard } from "./generation";
 import { RuleError } from "./errors";
@@ -107,7 +109,7 @@ export function createGame(options: CreateGameOptions): GameState {
     islandChips: [],
   }));
 
-  return {
+  const state: GameState = {
     version: 1,
     seed,
     boardKind,
@@ -130,5 +132,10 @@ export function createGame(options: CreateGameOptions): GameState {
     pendingDiscards: {},
     winner: null,
     log: [],
+    wayfarers: null,
+    crown: null,
   };
+  // Module state (docs/phase10.md, docs/phase11.md §9).
+  for (const h of activeModules(state)) h.init?.(state);
+  return state;
 }

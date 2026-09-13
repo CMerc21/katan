@@ -18,7 +18,7 @@ import {
 import { GEOMETRY } from "../src/geometry";
 
 function terrainCounts(board: Board): Record<Terrain, number> {
-  const counts = { forest: 0, claypit: 0, meadow: 0, farmland: 0, mountain: 0, wasteland: 0, gold: 0 };
+  const counts = { forest: 0, claypit: 0, meadow: 0, farmland: 0, mountain: 0, wasteland: 0, gold: 0, lake: 0 };
   for (const h of GEOMETRY.hexes) counts[board.hexes[h]!.terrain]++;
   return counts;
 }

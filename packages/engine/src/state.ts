@@ -6,6 +6,8 @@ import { RESOURCES, boardGeometry, type PortKind, type Resource } from "./board"
 import { RuleError } from "./errors";
 import { describeEvent, eventPlayer, type EventBody, type GameEvent } from "./events";
 import type { EdgeId, HexId, VertexId } from "./geometry";
+import { activeModules } from "./modules/hooks";
+import type { VariantName } from "./modules/types";
 import { WINNING_VP, type GameState, type Hand, type LogEntry, type Player, type PlayerId } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -222,7 +224,15 @@ export function victoryPoints(state: GameState, player: Player): VictoryPoints {
   if (state.longestRoad.playerId === player.id) publicVP += 2;
   if (state.largestArmy.playerId === player.id) publicVP += 2;
   publicVP += player.islandChips.length * (state.scenario?.islandBonus ?? 0); // §14.4
-  const hiddenVP = player.devCards.filter((c) => c.type === "victoryPoint").length;
+  let hiddenVP = player.devCards.filter((c) => c.type === "victoryPoint").length;
+  // Module terms (docs/phase10.md, docs/phase11.md §8).
+  for (const h of activeModules(state)) {
+    const extra = h.victoryPoints?.(state, player);
+    if (extra) {
+      publicVP += extra.publicVP;
+      hiddenVP += extra.hiddenVP;
+    }
+  }
   return { publicVP, hiddenVP, total: publicVP + hiddenVP };
 }
 
@@ -238,6 +248,35 @@ export function hasWon(state: GameState, player: Player): boolean {
 /** Tides module on (docs/rules.md §14). */
 export function tidesOn(state: GameState): boolean {
   return state.scenario?.tides === true;
+}
+
+/** Crown & Castle on (docs/phase11.md). */
+export function crownOn(state: GameState): boolean {
+  return state.scenario?.crown === true;
+}
+
+/** A Wayfarers variant on (docs/phase10.md). */
+export function variantOn(state: GameState, name: VariantName): boolean {
+  return state.scenario?.variants[name] === true;
+}
+
+/** Cards in hand that count toward the discard limit and can be stolen: resources plus module cards (commodities). */
+export function cardCount(state: GameState, player: Player): number {
+  let n = handSize(player.hand);
+  for (const h of activeModules(state)) n += h.cardCount?.(state, player) ?? 0;
+  return n;
+}
+
+/** §7.1: the hand size above which a seven forces a discard (7, raised by city walls under Crown & Castle). */
+export function discardThreshold(state: GameState, player: Player): number {
+  let t = 7;
+  for (const h of activeModules(state)) t = Math.max(t, h.discardThreshold?.(state, player) ?? 7);
+  return t;
+}
+
+/** §7.1: cards owed by a player holding `size` cards with the given threshold. */
+export function discardOwedFor(size: number, threshold = 7): number {
+  return size > threshold ? Math.floor(size / 2) : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +358,7 @@ export function nextActor(state: GameState): PlayerId {
   const current = currentPlayerId(state);
   const phase = state.phase;
   if (phase.kind === "specialBuild") return phase.order[phase.index] ?? current;
+  if (phase.kind === "modulePrompt") return phase.prompt.playerId;
   if (phase.kind === "discard") {
     const owing = state.players.find((p) => state.pendingDiscards[p.id] !== undefined);
     return owing ? owing.id : current;

@@ -9,6 +9,7 @@ import {
   type Action,
   type DevCardType,
   type Hand,
+  type ModulePromptKind,
   type PortKind,
   type Resource,
   type RuleErrorCode,
@@ -119,6 +120,49 @@ export const ERROR_TEXT: Record<RuleErrorCode, string> = {
   NO_GOLD_OWED: "You are owed no gold",
   WRONG_GOLD_COUNT: "Choose exactly the number owed",
   INVALID_SCENARIO: "That scenario is not valid",
+  // Modules (docs/phase10.md, docs/phase11.md)
+  MODULE_OFF: "That rule is not part of this game",
+  NOT_YOUR_PROMPT: "Another player is deciding",
+  INVALID_CHOICE: "That is not one of the choices",
+  NO_FISH: "Not enough fish",
+  NO_BOOT: "You do not hold the old boot",
+  BOOT_NOT_ALLOWED: "The boot can only go to a player with at least as many points",
+  NOT_COASTAL: "That hex is not on the coast",
+  NO_KNIGHTS_LEFT: "No knights left",
+  HEX_NOT_TOUCHED: "You have no building on that hex",
+  NOT_RAIDED: "That hex was not raided",
+  ALREADY_HAS_CASTLE: "You already have a castle",
+  NO_SPICE: "Not enough spice",
+  CARAVAN_NOT_ADJACENT: "The caravan can only move along a road next to its end",
+  CARAVAN_COMPLETE: "That caravan has reached its end",
+  WAGON_BAD_PATH: "The wagon can only travel along roads",
+  WAGON_BLOCKED: "Another wagon blocks the way; pay a toll to pass",
+  WAGON_FULL: "The wagon is full",
+  WAGON_NO_STEPS: "The wagon has no moves left this turn",
+  NO_CARGO: "The wagon carries no such goods",
+  NOT_A_CITY: "The wagon must stand at a city",
+  NO_GOODS: "No such goods are waiting there",
+  NO_CITY: "You need a city for that",
+  TRACK_MAXED: "That track is complete",
+  NEEDS_POLITICS: "A mighty knight needs politics level 3",
+  NO_KNIGHT: "No knight there",
+  NOT_YOUR_KNIGHT: "That is not your knight",
+  KNIGHT_INACTIVE: "That knight is not active",
+  KNIGHT_ALREADY_ACTIVE: "That knight is already active",
+  KNIGHT_ACTED: "That knight has already acted this turn",
+  KNIGHT_MAX_LEVEL: "That knight cannot be promoted further",
+  VERTEX_HAS_KNIGHT: "A knight stands there",
+  KNIGHT_NOT_CONNECTED: "Knights must stand on your road network",
+  NOT_STRONGER: "Your knight is not strong enough",
+  NOT_ADJACENT: "Not adjacent",
+  WALL_LIMIT: "You already have three walls",
+  PROGRESS_LIMIT: "You may hold four progress cards",
+  NO_PROGRESS_CARD: "You do not hold that card",
+  PROGRESS_BEFORE_ROLL: "Only one progress card before the roll",
+  ROBBER_LOCKED: "The robber stays home until the barbarians have attacked once",
+  NO_TARGET: "Nobody to target",
+  NOT_HELD: "You do not hold that",
+  INVALID_PAYLOAD: "That card needs a different choice",
 };
 
 export function describeCost(cost: Hand): string {
@@ -185,6 +229,11 @@ export function bannerText(view: RedactedState, me: string): string {
         return me === view.pendingTrade.from ? "Waiting for responses to your offer" : `${from} offers a trade`;
       }
       return mine ? "Build, trade, or end your turn" : `Waiting for ${name}`;
+    case "modulePrompt": {
+      const who = phase.prompt.playerId;
+      const label = PROMPT_TEXT[phase.prompt.kind];
+      return who === me ? label : `Waiting for ${playerName(view, who)}: ${label.toLowerCase()}`;
+    }
     case "ended":
       return `${playerName(view, view.winner ?? current)} wins`;
     default: {
@@ -193,6 +242,20 @@ export function bannerText(view: RedactedState, me: string): string {
     }
   }
 }
+
+/** What a module prompt asks of its player (docs/phase10.md, docs/phase11.md). */
+export const PROMPT_TEXT: Record<ModulePromptKind, string> = {
+  neighborlyHelp: "Give a card to the poorest player, or pass",
+  downgradeCity: "Choose a city to lose",
+  placeMetropolis: "Place your metropolis on a city",
+  discardProgress: "Discard down to four progress cards",
+  deserter: "Choose a knight to desert",
+  placeFreeKnight: "Place your new knight",
+  knightRetreat: "Choose where your knight retreats",
+  spy: "Take one of their progress cards",
+  commercialHarbor: "Hand over a commodity",
+  giveCards: "Give the wedding gift",
+};
 
 export function actionLabel(action: Action): string {
   switch (action.type) {

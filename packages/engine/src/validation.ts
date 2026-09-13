@@ -3,7 +3,7 @@
  * saved or played; warnings are shown but allowed.
  */
 
-import { RESOURCES, TERRAINS, type Terrain } from "./board";
+import { RESOURCES, TERRAINS, producesOnToken, type Terrain } from "./board";
 import { harborKind, landHexes, seaHexes, type BoardDefinition, type HexDef } from "./definition";
 import { edgeVerticesOf, geometryFor, hexId, neighbor, parseEdgeId, type EdgeId, type HexId, type VertexId } from "./geometry";
 import { PIPS, terrainPool } from "./pools";
@@ -126,7 +126,7 @@ export function validateBoard(def: BoardDefinition, options: ValidateOptions = {
   const assigned = land.filter((h) => h.terrain !== undefined);
   if (def.generation.terrain === "fixed" && land.length >= 7) {
     const expectsDesert = terrainPool(land.length).includes("wasteland");
-    if (expectsDesert && !assigned.some((h) => h.terrain === "wasteland")) warn("NO_WASTELAND", "no wasteland: the robber will start on the first land hex");
+    if (expectsDesert && !assigned.some((h) => h.terrain === "wasteland" || h.terrain === "lake")) warn("NO_WASTELAND", "no wasteland: the robber will start on the first land hex");
     const present = new Set(assigned.map((h) => h.terrain));
     for (const t of ["forest", "claypit", "meadow", "farmland", "mountain"] as Terrain[]) {
       if (!present.has(t)) warn("MISSING_TERRAIN", `no ${t} hex: its resource can only come from trades`);
@@ -134,11 +134,12 @@ export function validateBoard(def: BoardDefinition, options: ValidateOptions = {
   }
 
   // Tokens.
-  const producing = land.filter((h) => h.terrain !== "wasteland");
+  const producing = land.filter((h) => h.terrain === undefined || producesOnToken(h.terrain));
   for (const h of land) {
     if (h.token === undefined) continue;
     if (!VALID_TOKENS.has(h.token)) error("BAD_TOKEN", `token ${h.token} on ${hexId(h.at)} is not 2–12 (and never 7)`, hexId(h.at));
     if (h.terrain === "wasteland") error("TOKEN_ON_WASTELAND", `wasteland ${hexId(h.at)} cannot carry a token`, hexId(h.at));
+    if (h.terrain === "lake") error("TOKEN_ON_LAKE", `lake ${hexId(h.at)} cannot carry a token`, hexId(h.at));
   }
   if (def.generation.tokens === "fixed") {
     const withToken = producing.filter((h) => h.token !== undefined).length;
@@ -193,6 +194,33 @@ export function validateBoard(def: BoardDefinition, options: ValidateOptions = {
     }
   }
   if (def.generation.harbors === "fixed" && def.harbors.length < 2) warn("FEW_HARBORS", "fewer than 2 harbours");
+
+  // Module edges (docs/phase10.md §8): rivers along land, fishing grounds on the coast.
+  const landEdges = new Set(geo.edges);
+  const seenEdges = new Set<string>();
+  for (const e of def.edges ?? []) {
+    let ok = true;
+    try {
+      parseEdgeId(e.edge);
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      error("BAD_EDGE", `${e.kind} edge ${e.edge} is malformed`, e.edge);
+      continue;
+    }
+    const key = `${e.kind}:${e.edge}`;
+    if (seenEdges.has(key)) error("EDGE_DUPLICATE", `two ${e.kind} entries on ${e.edge}`, e.edge);
+    seenEdges.add(key);
+    if (e.kind === "river") {
+      if (!landEdges.has(e.edge)) error("RIVER_AT_SEA", `river on ${e.edge} touches no land`, e.edge);
+    } else {
+      if (!coast.has(e.edge)) error("FISHING_INLAND", `fishing ground on ${e.edge} is not on the coast`, e.edge);
+      if (!VALID_TOKENS.has(e.token)) error("BAD_TOKEN", `fishing ground token ${e.token} on ${e.edge} is not 2–12 (and never 7)`, e.edge);
+    }
+  }
+  const oases = land.filter((h) => h.extras?.oasis === true);
+  for (const h of oases) if (h.terrain === "wasteland" || h.terrain === "lake") error("OASIS_TERRAIN", `oasis ${hexId(h.at)} needs a producing terrain`, hexId(h.at));
 
   // Connectivity.
   const comps = landComponents(def);

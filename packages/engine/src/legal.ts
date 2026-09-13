@@ -9,6 +9,7 @@
 
 import { RESOURCES, boardGeometry, type Resource } from "./board";
 import type { EdgeId, Geometry, HexId, VertexId } from "./geometry";
+import { activeModules } from "./modules/hooks";
 import {
   COSTS,
   buildingAt,
@@ -42,12 +43,27 @@ export function satisfiesDistanceRule(state: GameState, vertex: VertexId): boole
   return (geo.vertexNeighbors[vertex] ?? []).every((n) => !buildings.has(n));
 }
 
+/** Vertices no building may be placed on beyond the distance rule (knights, docs/phase11.md §5). */
+export function unbuildableVertices(state: GameState, playerId: PlayerId): Set<VertexId> {
+  const out = new Set<VertexId>();
+  for (const h of activeModules(state)) for (const v of h.unbuildableVertices?.(state, playerId) ?? []) out.add(v);
+  return out;
+}
+
+/** Vertices `playerId`'s roads may not pass through (opposing knights, docs/phase11.md §5). */
+export function blockedVertices(state: GameState, playerId: PlayerId): Set<VertexId> {
+  const out = new Set<VertexId>();
+  for (const h of activeModules(state)) for (const v of h.blockedVertices?.(state, playerId) ?? []) out.add(v);
+  return out;
+}
+
 /** §4.2 (and §14.6 for restricted scenarios): vertices where a setup settlement may go. */
 export function legalSetupSettlementVertices(state: GameState): VertexId[] {
   const geo = boardGeometry(state.board);
   const buildings = buildingsMap(state);
+  const unbuildable = unbuildableVertices(state, currentPlayerId(state));
   return geo.vertices.filter(
-    (v) => isLandVertex(state, v, geo) && setupAllowed(state, v, geo) && !buildings.has(v) && (geo.vertexNeighbors[v] ?? []).every((n) => !buildings.has(n)),
+    (v) => isLandVertex(state, v, geo) && setupAllowed(state, v, geo) && !buildings.has(v) && !unbuildable.has(v) && (geo.vertexNeighbors[v] ?? []).every((n) => !buildings.has(n)),
   );
 }
 
@@ -108,6 +124,7 @@ function connectsWith(
   edge: EdgeId,
   roads: Map<EdgeId, PlayerId>,
   buildings: Map<VertexId, { owner: PlayerId }>,
+  blocked: Set<VertexId> = new Set(),
 ): boolean {
   for (const v of geo.edgeVertices[edge] ?? []) {
     const b = buildings.get(v);
@@ -115,6 +132,7 @@ function connectsWith(
       if (b.owner === playerId) return true;
       continue; // opponent's building blocks this end
     }
+    if (blocked.has(v)) continue; // an opposing knight blocks this end (docs/phase11.md §5)
     for (const e of geo.vertexEdges[v] ?? []) {
       if (e !== edge && roads.get(e) === playerId) return true;
     }
@@ -124,7 +142,7 @@ function connectsWith(
 
 /** §5.2: is `edge` connected to the player's network without passing an opponent's building? */
 export function roadConnects(state: GameState, playerId: PlayerId, edge: EdgeId): boolean {
-  return connectsWith(boardGeometry(state.board), playerId, edge, roadsMap(state), buildingsMap(state));
+  return connectsWith(boardGeometry(state.board), playerId, edge, roadsMap(state), buildingsMap(state), blockedVertices(state, playerId));
 }
 
 /** §5.2: empty edges the player could build a road on (ignores cost and supply). */
@@ -133,7 +151,8 @@ export function legalRoadEdges(state: GameState, playerId: PlayerId): EdgeId[] {
   const roads = roadsMap(state);
   const taken = edgesTaken(state);
   const buildings = buildingsMap(state);
-  return geo.edges.filter((e) => !taken.has(e) && isLandEdge(state, e, geo) && connectsWith(geo, playerId, e, roads, buildings));
+  const blocked = blockedVertices(state, playerId);
+  return geo.edges.filter((e) => !taken.has(e) && isLandEdge(state, e, geo) && connectsWith(geo, playerId, e, roads, buildings, blocked));
 }
 
 /**
@@ -201,10 +220,12 @@ export function legalSettlementVertices(state: GameState, playerId: PlayerId): V
   const roads = roadsMap(state);
   const ships = shipsMap(state);
   const buildings = buildingsMap(state);
+  const unbuildable = unbuildableVertices(state, playerId);
   return geo.vertices.filter(
     (v) =>
       isLandVertex(state, v, geo) &&
       !buildings.has(v) &&
+      !unbuildable.has(v) &&
       (geo.vertexNeighbors[v] ?? []).every((n) => !buildings.has(n)) &&
       (geo.vertexEdges[v] ?? []).some((e) => roads.get(e) === playerId || ships.get(e) === playerId),
   );
@@ -297,9 +318,9 @@ export function goldChoices(state: GameState, n: number): Resource[][] {
   return out;
 }
 
-/** §7.1: cards owed by a player holding `size` cards. */
-export function discardOwed(size: number): number {
-  return size > 7 ? Math.floor(size / 2) : 0;
+/** §7.1: cards owed by a player holding `size` cards (base threshold 7; see `discardThreshold` for walls). */
+export function discardOwed(size: number, threshold = 7): number {
+  return size > threshold ? Math.floor(size / 2) : 0;
 }
 
 /** A representative discard: take from the largest stacks first. */
@@ -325,10 +346,18 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
   const phase = state.phase;
   const isCurrent = currentPlayerId(state) === playerId;
   const out: Action[] = [];
+  const hooks = activeModules(state);
 
   switch (phase.kind) {
     case "ended":
       return [];
+
+    case "modulePrompt": {
+      // A module needs a decision from one player (docs/phase10.md, docs/phase11.md).
+      if (phase.prompt.playerId !== playerId) return [];
+      for (const h of hooks) h.promptActions?.(state, phase.prompt, playerId, out);
+      return out;
+    }
 
     case "setup": {
       if (!isCurrent) return [];
@@ -344,28 +373,28 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
           for (const edge of legalSetupShipEdges(state, phase.lastSettlement)) out.push({ type: "BUILD_SHIP", playerId, edge });
         }
       }
-      return out;
+      break;
     }
 
     case "chooseGold": {
       // §14.3: each owing player picks, in seat order (see nextActor).
       if (phase.owed[playerId] === undefined) return [];
       for (const resources of goldChoices(state, goldOwedNow(state, playerId))) out.push({ type: "CHOOSE_GOLD", playerId, resources });
-      return out;
+      break;
     }
 
     case "roll": {
       if (!isCurrent) return [];
       out.push({ type: "ROLL", playerId });
       if (devCardPlayable(state, player, "knight") === "ok") out.push({ type: "PLAY_KNIGHT", playerId });
-      return out;
+      break;
     }
 
     case "discard": {
       const owed = state.pendingDiscards[playerId];
       if (owed === undefined) return [];
-      out.push({ type: "DISCARD", playerId, cards: representativeDiscard(player.hand, owed) });
-      return out;
+      if (handSize(player.hand) >= owed) out.push({ type: "DISCARD", playerId, cards: representativeDiscard(player.hand, owed) });
+      break;
     }
 
     case "moveRobber": {
@@ -378,7 +407,7 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
           if (hex !== state.pirateHex) out.push({ type: "MOVE_ROBBER", playerId, hex, target: "pirate" });
         }
       }
-      return out;
+      break;
     }
 
     case "specialBuild": {
@@ -386,7 +415,7 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
       if (phase.order[phase.index] !== playerId) return [];
       const h = player.hand;
       if (player.pieces.roads > 0 && hasResources(h, COSTS.road)) {
-        for (const edge of legalRoadEdges(state, playerId)) out.push({ type: "BUILD_ROAD", playerId, edge });
+        for (const edge of legalRoadEdges(state, playerId)) if (hasResources(h, roadCostOf(state, edge))) out.push({ type: "BUILD_ROAD", playerId, edge });
       }
       if (player.pieces.ships > 0 && hasResources(h, COSTS.ship)) {
         for (const edge of legalShipEdges(state, playerId)) out.push({ type: "BUILD_SHIP", playerId, edge });
@@ -399,13 +428,13 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
       }
       if (state.devDeck.length > 0 && hasResources(h, COSTS.devCard)) out.push({ type: "BUY_DEV_CARD", playerId });
       out.push({ type: "SPECIAL_BUILD_DONE", playerId });
-      return out;
+      break;
     }
 
     case "steal": {
       if (!isCurrent) return [];
       for (const targetPlayerId of phase.targets) out.push({ type: "STEAL", playerId, targetPlayerId });
-      return out;
+      break;
     }
 
     case "roadBuilding": {
@@ -416,7 +445,7 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
       if (player.pieces.ships > 0) {
         for (const edge of legalShipEdges(state, playerId)) out.push({ type: "BUILD_SHIP", playerId, edge });
       }
-      return out;
+      break;
     }
 
     case "action": {
@@ -431,7 +460,7 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
 
       const h = player.hand;
       if (player.pieces.roads > 0 && hasResources(h, COSTS.road)) {
-        for (const edge of legalRoadEdges(state, playerId)) out.push({ type: "BUILD_ROAD", playerId, edge });
+        for (const edge of legalRoadEdges(state, playerId)) if (hasResources(h, roadCostOf(state, edge))) out.push({ type: "BUILD_ROAD", playerId, edge });
       }
       if (player.pieces.ships > 0 && hasResources(h, COSTS.ship)) {
         for (const edge of legalShipEdges(state, playerId)) out.push({ type: "BUILD_SHIP", playerId, edge });
@@ -493,7 +522,7 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
       }
 
       out.push({ type: "END_TURN", playerId });
-      return out;
+      break;
     }
 
     default: {
@@ -501,4 +530,18 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
       throw new Error(`unknown phase ${JSON.stringify(exhaustive)}`);
     }
   }
+
+  // Module actions for the acting player (docs/phase10.md, docs/phase11.md §9).
+  for (const h of hooks) h.extraActions?.(state, playerId, out);
+  return out;
+}
+
+/** §5.1 plus module surcharges (a bridge over a river, docs/phase10.md §3). */
+export function roadCostOf(state: GameState, edge: EdgeId): Hand {
+  const cost = { ...COSTS.road };
+  for (const h of activeModules(state)) {
+    const extra = h.roadCost?.(state, edge);
+    if (extra) for (const r of RESOURCES) cost[r] += extra[r];
+  }
+  return cost;
 }

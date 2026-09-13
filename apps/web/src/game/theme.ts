@@ -28,6 +28,7 @@ export const TERRAIN_FILL: Record<Terrain, string> = {
   mountain: "#7d8089",
   wasteland: "#cfbd8e",
   gold: "#e0b43a",
+  lake: "#5f9db0",
 };
 
 /** A darker mark colour used for the hand-drawn detail on each terrain. */
@@ -37,6 +38,7 @@ export const TERRAIN_MARK: Record<Terrain, string> = {
   meadow: "#7d9143",
   farmland: "#b0812c",
   mountain: "#5b5e66",
+  lake: "#3f7688",
   wasteland: "#b9a677",
   gold: "#b98a1d",
 };

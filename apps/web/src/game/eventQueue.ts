@@ -45,6 +45,57 @@ export const BASE_DURATION: Record<GameEventKind, number> = {
   pirateMoved: 450,
   goldChosen: 400,
   islandSettled: 700,
+  // Wayfarers (docs/phase10.md)
+  deckReshuffled: 400,
+  neighborlyGave: 400,
+  taxCollected: 350,
+  fishDrawn: 450,
+  fishSpent: 400,
+  bootPassed: 500,
+  bridgeBuilt: 300,
+  coinsAwarded: 350,
+  chipMoved: 600,
+  castleBuilt: 400,
+  raidersAdvanced: 500,
+  guardPlaced: 300,
+  raid: 1200,
+  hexRebuilt: 400,
+  spiceProduced: 400,
+  caravanExtended: 500,
+  wagonMoved: 600,
+  goodLoaded: 300,
+  delivered: 600,
+  goodsStocked: 200,
+  // Crown & Castle (docs/phase11.md)
+  commoditiesProduced: 400,
+  progressDrawn: 450,
+  progressPlayed: 800,
+  progressDiscarded: 300,
+  improvementBuilt: 600,
+  metropolisPlaced: 900,
+  knightBuilt: 350,
+  knightActivated: 300,
+  knightPromoted: 350,
+  knightMoved: 450,
+  knightDisplaced: 600,
+  knightRetreated: 450,
+  knightRemoved: 400,
+  knightsDeactivated: 400,
+  robberChased: 450,
+  wallBuilt: 350,
+  fleetAdvanced: 500,
+  fleetAttacked: 1500,
+  cityDowngraded: 700,
+  defenderAwarded: 700,
+  merchantPlaced: 450,
+  cardsTaken: 500,
+  commodityMonopolised: 500,
+  resourceMonopolised: 500,
+  tokensSwapped: 600,
+  roadRemoved: 450,
+  alchemistSet: 300,
+  commercialSwap: 400,
+  resourcesTaken: 400,
 };
 
 export const PRODUCED_STAGGER = 80;
@@ -118,6 +169,10 @@ export function totalDuration(steps: readonly Step[]): number {
 // Applying events to a rendered view
 
 type P = RedactedState["players"][number];
+
+function asResource(x: string | null | undefined): Resource | null {
+  return x === "wood" || x === "clay" || x === "wool" || x === "grain" || x === "ore" ? x : null;
+}
 
 function playerIndex(view: RedactedState, id: string): number {
   const i = view.players.findIndex((p) => p.id === id);
@@ -199,10 +254,12 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
     case "robberMoved":
       next = { ...next, robberHex: event.to };
       break;
-    case "stole":
-      next = withPlayer(next, event.from, (p) => ({ ...p, hand: adjustHand(p.hand, event.resource, -1) }));
-      next = withPlayer(next, event.to, (p) => ({ ...p, hand: adjustHand(p.hand, event.resource, 1) }));
+    case "stole": {
+      const r = asResource(event.resource);
+      next = withPlayer(next, event.from, (p) => ({ ...p, hand: adjustHand(p.hand, r, -1) }));
+      next = withPlayer(next, event.to, (p) => ({ ...p, hand: adjustHand(p.hand, r, 1) }));
       break;
+    }
     case "built": {
       const cost = costOf(next, event.piece);
       next = withPlayer(next, event.playerId, (p) => {
@@ -290,9 +347,11 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
       break;
     case "maritimeTrade": {
       const give: Hand = { wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 };
-      give[event.give] = event.count;
+      const giveR = asResource(event.give);
+      if (giveR) give[giveR] = event.count;
       const get: Hand = { wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 };
-      get[event.receive] = 1;
+      const getR = asResource(event.receive);
+      if (getR) get[getR] = 1;
       next = withPlayer(next, event.playerId, (p) => ({ ...p, hand: adjustHandBy(adjustHandBy(p.hand, give, -1), get, 1) }));
       next = { ...next, bank: adjustBank(adjustBank(next.bank, give, 1), get, -1) };
       break;
@@ -335,12 +394,65 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
     case "islandSettled":
       next = withPlayer(next, event.playerId, (p) => ({ ...p, islandChips: [...p.islandChips, event.island], publicVP: p.publicVP + event.bonus }));
       break;
+    case "resourcesTaken":
+      next = withPlayer(next, event.playerId, (p) => ({ ...p, hand: adjustHandBy(p.hand, event.cards, 1) }));
+      next = { ...next, bank: adjustBank(next.bank, event.cards, -1) };
+      break;
     case "turnEnded":
     case "specialBuildTurn":
     case "productionBlocked":
     case "bankShort":
     case "setupCompleted":
     case "note":
+    // Module events (docs/phase10.md, docs/phase11.md): the rendered view snaps to the server view at the end of the batch.
+    case "deckReshuffled":
+    case "neighborlyGave":
+    case "taxCollected":
+    case "fishDrawn":
+    case "fishSpent":
+    case "bootPassed":
+    case "bridgeBuilt":
+    case "coinsAwarded":
+    case "chipMoved":
+    case "castleBuilt":
+    case "raidersAdvanced":
+    case "guardPlaced":
+    case "raid":
+    case "hexRebuilt":
+    case "spiceProduced":
+    case "caravanExtended":
+    case "wagonMoved":
+    case "goodLoaded":
+    case "delivered":
+    case "goodsStocked":
+    case "commoditiesProduced":
+    case "progressDrawn":
+    case "progressPlayed":
+    case "progressDiscarded":
+    case "improvementBuilt":
+    case "metropolisPlaced":
+    case "knightBuilt":
+    case "knightActivated":
+    case "knightPromoted":
+    case "knightMoved":
+    case "knightDisplaced":
+    case "knightRetreated":
+    case "knightRemoved":
+    case "knightsDeactivated":
+    case "robberChased":
+    case "wallBuilt":
+    case "fleetAdvanced":
+    case "fleetAttacked":
+    case "cityDowngraded":
+    case "defenderAwarded":
+    case "merchantPlaced":
+    case "cardsTaken":
+    case "commodityMonopolised":
+    case "resourceMonopolised":
+    case "tokensSwapped":
+    case "roadRemoved":
+    case "alchemistSet":
+    case "commercialSwap":
       break;
     default: {
       const exhaustive: never = event;

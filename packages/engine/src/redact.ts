@@ -1,11 +1,17 @@
 /**
  * `redact(state, playerId)`: the view of the game one player may see
  * (docs/phase2.md §4). Everything sent to a client goes through this.
+ *
+ * Module state (docs/phase10.md, docs/phase11.md §9): the event deck's
+ * cards and the progress decks are hidden (counts only); other players'
+ * progress cards show as a count plus their revealed VP cards; the merchant,
+ * knights, walls, fish, chips and everything else is public.
  */
 
 import { redactEvents, type GameEvent } from "./events";
 import { legalActions } from "./legal";
 import { cloneJson, handSize, victoryPoints } from "./state";
+import { VP_PROGRESS_CARDS, type CrownPlayer, type CrownState, type EventCard, type HeldProgress, type ProgressCard, type Track, type WayfarersState } from "./modules/types";
 import type { Action, DevCard, GameState, Hand, Player, PlayerId } from "./types";
 
 export interface HiddenCount {
@@ -35,10 +41,29 @@ export interface RedactedPlayer {
   readonly privateVP: number | null;
 }
 
-export type RedactedGameState = Omit<GameState, "seed" | "players" | "devDeck"> & {
+/** Another player's progress hand: how many, and which VP cards are face up. */
+export interface HiddenProgress {
+  readonly count: number;
+  readonly revealed: ProgressCard[];
+}
+
+export type RedactedCrownPlayer = Omit<CrownPlayer, "progress"> & { readonly progress: HeldProgress[] | HiddenProgress };
+
+export type RedactedCrown = Omit<CrownState, "decks" | "players"> & {
+  readonly decks: Record<Track, number>;
+  readonly players: Record<PlayerId, RedactedCrownPlayer>;
+};
+
+export type RedactedWayfarers = Omit<WayfarersState, "eventDeck"> & {
+  readonly eventDeck: { readonly count: number; readonly shuffles: number } | null;
+};
+
+export type RedactedGameState = Omit<GameState, "seed" | "players" | "devDeck" | "wayfarers" | "crown"> & {
   readonly viewer: PlayerId;
   readonly players: RedactedPlayer[];
   readonly devDeck: HiddenCount;
+  readonly wayfarers: RedactedWayfarers | null;
+  readonly crown: RedactedCrown | null;
   /** Events since the previous view this player received, redacted for them (docs/phase7.md §1.2). */
   readonly events: GameEvent[];
 };
@@ -47,8 +72,22 @@ export function isHiddenCount(value: Hand | DevCard[] | HiddenCount): value is H
   return !Array.isArray(value) && "count" in value;
 }
 
+export function isHiddenProgress(value: HeldProgress[] | HiddenProgress): value is HiddenProgress {
+  return !Array.isArray(value);
+}
+
+function redactCrown(crown: CrownState, viewer: PlayerId, revealAll: boolean): RedactedCrown {
+  const { decks, players, ...rest } = crown;
+  const out: Record<PlayerId, RedactedCrownPlayer> = {};
+  for (const [id, p] of Object.entries(players)) {
+    const mine = id === viewer || revealAll;
+    out[id] = { ...p, progress: mine ? p.progress : { count: p.progress.length, revealed: p.progress.filter((c) => c.revealed).map((c) => c.card) } };
+  }
+  return { ...rest, decks: { trade: decks.trade.length, politics: decks.politics.length, science: decks.science.length }, players: out };
+}
+
 export function redact(state: GameState, viewer: PlayerId, events: readonly GameEvent[] = []): RedactedGameState {
-  const { seed: _seed, players, devDeck, ...rest } = cloneJson(state);
+  const { seed: _seed, players, devDeck, wayfarers, crown, ...rest } = cloneJson(state);
   void _seed;
   const revealAll = state.phase.kind === "ended";
   const redactedPlayers: RedactedPlayer[] = players.map((p) => {
@@ -76,8 +115,18 @@ export function redact(state: GameState, viewer: PlayerId, events: readonly Game
       privateVP: showVP ? vp.hiddenVP : null,
     };
   });
-  return { ...rest, viewer, players: redactedPlayers, devDeck: { count: devDeck.length }, events: redactEvents(events, viewer) };
+  return {
+    ...rest,
+    viewer,
+    players: redactedPlayers,
+    devDeck: { count: devDeck.length },
+    wayfarers: wayfarers ? { ...wayfarers, eventDeck: wayfarers.eventDeck ? { count: wayfarers.eventDeck.cards.length, shuffles: wayfarers.eventDeck.shuffles } : null } : null,
+    crown: crown ? redactCrown(crown, viewer, revealAll) : null,
+    events: redactEvents(events, viewer),
+  };
 }
+
+const PLACEHOLDER_CARD: EventCard = { total: 7, event: null, reshuffle: false };
 
 /**
  * Rebuild a GameState-shaped object from a redacted view so the engine's
@@ -87,12 +136,11 @@ export function redact(state: GameState, viewer: PlayerId, events: readonly Game
  * development cards are empty, the deck is an array of the right length
  * (contents unknown), and the seed is blank. `legalActions` for the viewer
  * never depends on any of those: it reads only the viewer's own hand and
- * cards, the deck *size*, public pieces, and the phase. Exception: none
- * found; `phase.targets` for a steal is computed server-side when the
- * robber moves, so steal legality does not need opponents' hand sizes.
+ * cards, the deck *size*, public pieces, and the phase. Module decks and
+ * other players' progress hands are filled the same way (counts kept).
  */
 export function viewToState(view: RedactedGameState): GameState {
-  const { viewer, players, devDeck, events, ...rest } = view;
+  const { viewer, players, devDeck, events, wayfarers, crown, ...rest } = view;
   void viewer;
   void events;
   const fullPlayers: Player[] = players.map((p) => ({
@@ -113,11 +161,32 @@ export function viewToState(view: RedactedGameState): GameState {
     startIslands: [...p.startIslands],
     islandChips: [...p.islandChips],
   }));
+  let fullCrown: CrownState | null = null;
+  if (crown) {
+    const { decks, players: cp, ...crest } = cloneJson(crown);
+    const fullPlayersCrown: Record<PlayerId, CrownPlayer> = {};
+    for (const [id, p] of Object.entries(cp)) {
+      const progress: HeldProgress[] = isHiddenProgress(p.progress)
+        ? [
+            ...p.progress.revealed.map((card): HeldProgress => ({ card, revealed: true })),
+            ...Array.from({ length: Math.max(0, p.progress.count - p.progress.revealed.length) }, (): HeldProgress => ({ card: "merchant", revealed: false })),
+          ]
+        : p.progress;
+      fullPlayersCrown[id] = { ...p, progress };
+    }
+    const filler = (n: number): ProgressCard[] => Array.from({ length: n }, () => "merchant" as const);
+    fullCrown = { ...crest, decks: { trade: filler(decks.trade), politics: filler(decks.politics), science: filler(decks.science) }, players: fullPlayersCrown };
+  }
+  const fullWayfarers: WayfarersState | null = wayfarers
+    ? { ...cloneJson(wayfarers), eventDeck: wayfarers.eventDeck ? { cards: Array.from({ length: wayfarers.eventDeck.count }, () => ({ ...PLACEHOLDER_CARD })), shuffles: wayfarers.eventDeck.shuffles } : null }
+    : null;
   return {
     ...cloneJson(rest),
     seed: "",
     players: fullPlayers,
     devDeck: Array.from({ length: devDeck.count }, () => "knight" as const),
+    wayfarers: fullWayfarers,
+    crown: fullCrown,
   };
 }
 
@@ -125,3 +194,5 @@ export function viewToState(view: RedactedGameState): GameState {
 export function legalActionsForView(view: RedactedGameState): Action[] {
   return legalActions(viewToState(view), view.viewer);
 }
+
+export { VP_PROGRESS_CARDS };

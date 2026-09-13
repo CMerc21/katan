@@ -33,7 +33,7 @@ describe("§7 rolling a seven", () => {
     const { state } = sevenScenario();
     const s = give(give(state, "b", { wood: 5, ore: 4 }), "d", { grain: 15 });
     const rolled = applyAction(s, { type: "ROLL", playerId: "a" });
-    expect(rolled.phase).toEqual({ kind: "discard" });
+    expect(rolled.phase).toEqual({ kind: "discard", returnTo: { kind: "moveRobber", via: "seven", returnTo: "action" } });
     expect(rolled.pendingDiscards).toEqual({ b: 4, d: 7 });
 
     // Only owing players have legal actions, and a representative discard is offered.
@@ -51,7 +51,7 @@ describe("§7 rolling a seven", () => {
     const bDone = applyAction(rolled, { type: "DISCARD", playerId: "b", cards: hand({ wood: 2, ore: 2 }) });
     expect(getPlayer(bDone, "b").hand).toEqual(hand({ wood: 3, ore: 2 }));
     expect(bDone.bank.wood).toBe(rolled.bank.wood + 2);
-    expect(bDone.phase).toEqual({ kind: "discard" });
+    expect(bDone.phase).toEqual({ kind: "discard", returnTo: { kind: "moveRobber", via: "seven", returnTo: "action" } });
     expect(bDone.pendingDiscards).toEqual({ d: 7 });
 
     const dDone = applyAction(bDone, { type: "DISCARD", playerId: "d", cards: hand({ grain: 7 }) });

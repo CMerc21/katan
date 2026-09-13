@@ -5,7 +5,7 @@
 
 import { RESOURCES, type Action } from "@katan/engine";
 import { hexesOf, myHand, rawPipCount } from "./eval";
-import { ensureLegal, ofType, pick, type BotPolicy, type RedactedState, type Rng } from "./types";
+import { ensureLegal, ofType, pick, resourceTrades, type BotPolicy, type RedactedState, type Rng } from "./types";
 
 export function easyBot(): BotPolicy {
   return { level: "easy", chooseAction: chooseEasy };
@@ -106,7 +106,7 @@ export function chooseEasy(view: RedactedState, legal: Action[], rng: Rng): Acti
     // hand would otherwise just be discarded on the next seven.
     const glut = RESOURCES.find((r) => hand[r] >= 6) ?? (handSize >= 8 ? RESOURCES.reduce((b, r) => (hand[r] > hand[b] ? r : b), RESOURCES[0]) : undefined);
     if (glut) {
-      const trades = ofType(legal, "MARITIME_TRADE").filter((t) => t.give === glut);
+      const trades = resourceTrades(legal).filter((t) => t.give === glut);
       const wanted = trades.filter((t) => hand[t.receive] === 0);
       if (wanted.length) return pick(rng, wanted);
       if (trades.length) return pick(rng, trades);

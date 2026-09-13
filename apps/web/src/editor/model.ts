@@ -344,7 +344,7 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
 }
 
 function stripKeys(h: HexDef, keys: ("terrain" | "token")[]): HexDef {
-  const out: { at: HexCoord; kind: HexKind; terrain?: Terrain; token?: number; extras?: Record<string, unknown> } = { at: h.at, kind: h.kind };
+  const out: { at: HexCoord; kind: HexKind; terrain?: Terrain; token?: number; extras?: NonNullable<HexDef["extras"]> } = { at: h.at, kind: h.kind };
   if (!keys.includes("terrain") && h.terrain !== undefined) out.terrain = h.terrain;
   if (!keys.includes("token") && h.token !== undefined) out.token = h.token;
   if (h.extras) out.extras = h.extras;

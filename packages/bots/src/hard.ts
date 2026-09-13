@@ -19,7 +19,7 @@ import {
 } from "@katan/engine";
 import { afford, edgeTowardScore, geo, handTotal, hexValueFor, myHand, productionOf, publicVP, resourceNeed, scarcity, settlementCandidates, threat, vertexScore } from "./eval";
 import { bestSetupLink, chooseGold, chooseRobberHex, chooseShipMove, chooseSpecialBuild, discardKeepingTarget, longestRoadGain, offeredThisTurn, respondToTrade } from "./medium";
-import { best, ensureLegal, ofType, pick, type BotPolicy, type RedactedState, type Rng } from "./types";
+import { best, ensureLegal, isResourceTrade, ofType, pick, type BotPolicy, type RedactedState, type Rng } from "./types";
 
 export function hardBot(): BotPolicy {
   return { level: "hard", chooseAction: chooseHard };
@@ -199,7 +199,7 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
     .sort((x, y) => y.s - x.s)
     .slice(0, 8)
     .map((x) => x.a);
-  const usefulTrades = trades.filter((a) => a.type === "MARITIME_TRADE" && need.missing[a.receive] > 0 && need.cost[a.give] === 0);
+  const usefulTrades = trades.filter((a) => isResourceTrade(a) && need.missing[a.receive] > 0 && need.cost[a.give] === 0);
   const pool = [...others, ...topRoads, ...usefulTrades].slice(0, MAX_CANDIDATES);
 
   let bestAction: Action | null = null;

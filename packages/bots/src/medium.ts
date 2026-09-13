@@ -22,7 +22,7 @@ import {
   threat,
   vertexScore,
 } from "./eval";
-import { best, ensureLegal, ofType, pick, type BotPolicy, type RedactedState, type Rng } from "./types";
+import { best, ensureLegal, ofType, pick, resourceTrades, type BotPolicy, type RedactedState, type Rng } from "./types";
 
 export function mediumBot(): BotPolicy {
   return { level: "medium", chooseAction: chooseMedium };
@@ -243,7 +243,7 @@ export function chooseTurnAction(view: RedactedState, legal: Action[], rng: Rng)
   if (knight && hexValueFor(view, view.robberHex, me) > 0) return knight;
 
   // Maritime trades to complete the next build, keeping at least one card of what is traded away.
-  const maritime = ofType(legal, "MARITIME_TRADE");
+  const maritime = resourceTrades(legal);
   const missing = RESOURCES.filter((r) => need.missing[r] > 0);
   if (maritime.length && missing.length) {
     const useful = maritime.filter((t) => missing.includes(t.receive) && need.cost[t.give] === 0 && hand[t.give] - t.giveCount >= 1);

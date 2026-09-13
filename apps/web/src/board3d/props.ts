@@ -50,6 +50,7 @@ interface Recipe {
 }
 
 const RECIPES: Record<Terrain | "gold", readonly Recipe[]> = {
+  lake: [],
   forest: [
     { kind: "pine", min: 5, max: 8, scale: [0.8, 1.2] },
     { kind: "oak", min: 1, max: 2, scale: [0.85, 1.1] },

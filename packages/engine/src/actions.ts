@@ -2,11 +2,15 @@
  * `applyAction`: the authoritative state transition (docs/phase2.md §2–§3).
  *
  * Never mutates its input. Returns the next state or throws `RuleError`.
+ * Module rules (docs/phase10.md, docs/phase11.md) enter through the hook
+ * list in `modules/hooks.ts`; the core never tests a scenario flag itself.
  */
 
+import "./modules"; // registers every module's hooks
 import { RESOURCES, TERRAIN_RESOURCE, boardGeometry, type Resource } from "./board";
 import { RuleError } from "./errors";
 import { isBoardEdge, isBoardVertex, type EdgeId, type HexId, type VertexId } from "./geometry";
+import { pay, requireBuilder, requireCurrent, requireHand, requirePhase } from "./guards";
 import {
   canPlaceRoadOrShip,
   devCardPlayable,
@@ -22,12 +26,15 @@ import {
   pirateEnabled,
   pirateStealTargets,
   roadConnects,
+  roadCostOf,
   satisfiesDistanceRule,
   shipConnects,
   stealTargets,
-  discardOwed,
+  unbuildableVertices,
 } from "./legal";
+import { activeModules, type ProduceContext, type RollOutcome } from "./modules/hooks";
 import { rng } from "./rng";
+import { notifyBuilt, resolveGold, startDiscards, startRoadBuilding, stealRandomCard, upgradeToCity } from "./turnHelpers";
 import { updateLargestArmy, updateLongestRoad } from "./specialCards";
 import type { GameEvent } from "./events";
 import {
@@ -40,84 +47,32 @@ import {
   edgeOwner,
   emit,
   emptyHand,
-  expandHand,
   getPlayer,
   handSize,
   hasResources,
   hasWon,
   islandOfVertex,
-  isValidHand,
   ratioAllowed,
   shipOwner,
   tidesOn,
   transfer,
   victoryPoints,
 } from "./state";
-import type {
-  Action,
-  ChooseGoldAction,
-  DevCardType,
-  DiscardAction,
-  GameState,
-  Hand,
-  MaritimeTradeAction,
-  MoveRobberAction,
-  MoveShipAction,
-  OfferTradeAction,
-  Phase,
-  PlayInventionAction,
-  Player,
-  PlayerId,
-} from "./types";
-
-type PhaseOf<K extends Phase["kind"]> = Extract<Phase, { kind: K }>;
-
-function requirePhase<K extends Phase["kind"]>(state: GameState, ...kinds: K[]): PhaseOf<K> {
-  const phase = state.phase;
-  if (!(kinds as string[]).includes(phase.kind)) {
-    throw new RuleError("WRONG_PHASE", `${phase.kind} phase does not allow this action`);
-  }
-  return phase as PhaseOf<K>;
-}
-
-function requireCurrent(state: GameState, playerId: PlayerId): Player {
-  const player = getPlayer(state, playerId);
-  if (currentPlayerId(state) !== playerId) throw new RuleError("NOT_YOUR_TURN", `it is not ${playerId}'s turn`);
-  return player;
-}
-
-/** The player who may build right now: the current player, or the special builder (docs/phase8.md §5). */
-function requireBuilder(state: GameState, playerId: PlayerId): Player {
-  if (state.phase.kind === "specialBuild") {
-    const player = getPlayer(state, playerId);
-    if (state.phase.order[state.phase.index] !== playerId) throw new RuleError("NOT_YOUR_TURN", `it is not ${playerId}'s special build`);
-    return player;
-  }
-  return requireCurrent(state, playerId);
-}
-
-function pay(state: GameState, player: Player, cost: Hand): void {
-  if (!hasResources(player.hand, cost)) throw new RuleError("INSUFFICIENT_RESOURCES", "cannot afford this");
-  transfer(player.hand, state.bank, cost);
-}
-
-function requireHand(value: unknown, what: string): Hand {
-  if (!isValidHand(value)) throw new RuleError("INVALID_TRADE", `${what} is not a valid hand`);
-  return value;
-}
+import { MODULE_ACTION_TYPES, type Action, type ChooseGoldAction, type DevCardType, type DiscardAction, type GameState, type Hand, type MaritimeTradeAction, type MoveRobberAction, type MoveShipAction, type OfferTradeAction, type Phase, type PlayInventionAction, type Player, type PlayerId } from "./types";
 
 // ---------------------------------------------------------------------------
 // Roll and production (§6)
 
 type Gain = { playerId: PlayerId; hex: HexId; resource: Resource; count: number };
 
-/** Roll production; returns what gold fields owe each player (§14.3), to be chosen before play continues. */
-function produce(state: GameState, total: number): Record<PlayerId, number> {
+/** Roll production; returns what gold fields owe each player (§14.3) and what everyone received. */
+function produce(state: GameState, total: number): ProduceContext {
   // owed[playerIndex][resource], plus per-hex gains for the event stream.
   const owed = state.players.map(() => emptyHand());
   const gains: Gain[] = [];
   const gold: Record<PlayerId, number> = {};
   const geo = boardGeometry(state.board);
+  const hooks = activeModules(state);
   for (const hex of Object.keys(state.board.hexes)) {
     const tile = state.board.hexes[hex];
     if (!tile || tile.token !== total) continue;
@@ -125,17 +80,23 @@ function produce(state: GameState, total: number): Record<PlayerId, number> {
       emit(state, { kind: "productionBlocked", hex });
       continue;
     }
+    if (hooks.some((h) => h.hexProduces?.(state, hex) === false)) continue;
     const resource = TERRAIN_RESOURCE[tile.terrain];
     if (resource === null && tile.terrain !== "gold") continue;
     for (const v of geo.hexVertices[hex] ?? []) {
       const b = buildingAt(state, v);
       if (!b) continue;
       const idx = state.players.findIndex((p) => p.id === b.owner);
-      const count = b.kind === "city" ? 2 : 1;
+      let count = b.kind === "city" ? 2 : 1;
+      for (const h of hooks) {
+        const o = h.yieldOverride?.(state, hex, b.owner, b.kind);
+        if (o) count = o.resources;
+      }
       if (resource === null) {
         gold[b.owner] = (gold[b.owner] ?? 0) + count;
         continue;
       }
+      if (count <= 0) continue;
       (owed[idx] as Hand)[resource] += count;
       gains.push({ playerId: b.owner, hex, resource, count });
     }
@@ -174,18 +135,10 @@ function produce(state: GameState, total: number): Record<PlayerId, number> {
   }
   if (paidGains.length > 0) emit(state, { kind: "produced", gains: paidGains });
   for (const short of shortfalls) emit(state, { kind: "bankShort", ...short });
-  return gold;
-}
-
-/** §14.3: park the game in `chooseGold` when anyone is owed gold and the bank has cards; otherwise go straight on. */
-function resolveGold(state: GameState, gold: Record<PlayerId, number>, returnTo: Phase): void {
-  const owed: Record<PlayerId, number> = {};
-  for (const [id, n] of Object.entries(gold)) if (n > 0) owed[id] = n;
-  if (Object.keys(owed).length === 0 || handSize(state.bank) === 0) {
-    state.phase = returnTo;
-    return;
-  }
-  state.phase = { kind: "chooseGold", owed, returnTo };
+  const received: Record<PlayerId, number> = {};
+  for (const p of state.players) received[p.id] = 0;
+  for (const g of paidGains) received[g.playerId] = (received[g.playerId] ?? 0) + g.count;
+  return { received, gold };
 }
 
 function applyChooseGold(state: GameState, action: ChooseGoldAction): void {
@@ -211,49 +164,55 @@ function applyChooseGold(state: GameState, action: ChooseGoldAction): void {
 function applyRoll(state: GameState, playerId: PlayerId): void {
   requirePhase(state, "roll");
   const player = requireCurrent(state, playerId);
-  const dice = rng(state.seed, state.actionIndex);
-  const d1 = dice.int(6) + 1;
-  const d2 = dice.int(6) + 1;
-  const total = d1 + d2;
-  state.lastRoll = [d1, d2];
-  void player;
-  emit(state, { kind: "diceRolled", playerId, dice: [d1, d2] });
+  const draw = rng(state.seed, state.actionIndex);
+  const d1 = draw.int(6) + 1;
+  const d2 = draw.int(6) + 1;
+  let outcome: RollOutcome = { dice: [d1, d2], total: d1 + d2 };
+  const hooks = activeModules(state);
+  for (const h of hooks) if (h.roll) outcome = h.roll(state, player, outcome, draw);
+  const total = outcome.total;
+  state.lastRoll = outcome.dice;
+  emit(state, {
+    kind: "diceRolled",
+    playerId,
+    dice: outcome.dice,
+    ...(outcome.card ? { card: outcome.card } : {}),
+    ...(outcome.red !== undefined ? { red: outcome.red } : {}),
+    ...(outcome.event !== undefined ? { event: outcome.event } : {}),
+  });
 
   if (total === 7) {
-    const pending: Record<PlayerId, number> = {};
-    for (const p of state.players) {
-      const owed = discardOwed(handSize(p.hand));
-      if (owed > 0) pending[p.id] = owed;
-    }
-    state.pendingDiscards = pending;
-    state.phase =
-      Object.keys(pending).length > 0
-        ? { kind: "discard" }
-        : { kind: "moveRobber", via: "seven", returnTo: "action" };
-    return;
+    const noRobber = hooks.some((h) => h.onSeven?.(state) === "noRobber");
+    startDiscards(state, noRobber ? { kind: "action" } : { kind: "moveRobber", via: "seven", returnTo: "action" });
+  } else {
+    const ctx = produce(state, total);
+    for (const h of hooks) h.afterProduction?.(state, total, ctx);
+    resolveGold(state, ctx.gold, { kind: "action" });
   }
-
-  const gold = produce(state, total);
-  resolveGold(state, gold, { kind: "action" });
+  for (const h of hooks) if (h.afterRoll?.(state, player, outcome)) break;
 }
 
 // ---------------------------------------------------------------------------
 // Seven (§7)
 
 function applyDiscard(state: GameState, action: DiscardAction): void {
-  requirePhase(state, "discard");
+  const phase = requirePhase(state, "discard");
   const player = getPlayer(state, action.playerId);
   const owed = state.pendingDiscards[action.playerId];
   if (owed === undefined) throw new RuleError("NO_DISCARD_OWED", `${action.playerId} owes no discard`);
   const cards = requireHand(action.cards, "cards");
-  if (handSize(cards) !== owed) throw new RuleError("WRONG_DISCARD_COUNT", `must discard exactly ${owed}`);
+  // Commodities (docs/phase11.md §1) count too; the crown module moves them.
+  let extra = 0;
+  if (action.commodities !== undefined) {
+    for (const h of activeModules(state)) extra += h.discardExtra?.(state, player, action.commodities, false) ?? 0;
+  }
+  if (handSize(cards) + extra !== owed) throw new RuleError("WRONG_DISCARD_COUNT", `must discard exactly ${owed}`);
   if (!hasResources(player.hand, cards)) throw new RuleError("INSUFFICIENT_RESOURCES", "not holding those cards");
   transfer(player.hand, state.bank, cards);
+  if (action.commodities !== undefined) for (const h of activeModules(state)) h.discardExtra?.(state, player, action.commodities, true);
   delete state.pendingDiscards[action.playerId];
-  emit(state, { kind: "discarded", playerId: action.playerId, count: owed, cards });
-  if (Object.keys(state.pendingDiscards).length === 0) {
-    state.phase = { kind: "moveRobber", via: "seven", returnTo: "action" };
-  }
+  emit(state, { kind: "discarded", playerId: action.playerId, count: owed, cards, ...(action.commodities !== undefined ? { commodities: action.commodities } : {}) });
+  if (Object.keys(state.pendingDiscards).length === 0) state.phase = phase.returnTo;
 }
 
 function applyMoveRobber(state: GameState, action: MoveRobberAction): void {
@@ -289,11 +248,7 @@ function applySteal(state: GameState, playerId: PlayerId, targetPlayerId: Player
   const player = requireCurrent(state, playerId);
   if (!phase.targets.includes(targetPlayerId)) throw new RuleError("INVALID_STEAL_TARGET", "cannot steal from that player");
   const target = getPlayer(state, targetPlayerId);
-  const cards = expandHand(target.hand);
-  const pick = cards[rng(state.seed, state.actionIndex).int(cards.length)] as Resource;
-  target.hand[pick] -= 1;
-  player.hand[pick] += 1;
-  emit(state, { kind: "stole", from: targetPlayerId, to: playerId, resource: pick });
+  stealRandomCard(state, player, target);
   state.phase = { kind: phase.returnTo };
 }
 
@@ -336,11 +291,12 @@ function applyBuildRoad(state: GameState, playerId: PlayerId, edge: EdgeId): voi
     throw new RuleError("ROAD_NOT_CONNECTED", `edge ${edge} is not connected to your network`);
   }
   if (player.pieces.roads <= 0) throw new RuleError("NO_PIECES_LEFT", "no roads left");
-  if (phase.kind === "action" || phase.kind === "specialBuild") pay(state, player, COSTS.road);
+  if (phase.kind === "action" || phase.kind === "specialBuild") pay(state, player, roadCostOf(state, edge));
 
   player.roads.push(edge);
   player.pieces.roads -= 1;
   emit(state, { kind: "built", playerId, piece: "road", at: edge });
+  notifyBuilt(state, playerId, "road", edge);
   updateLongestRoad(state);
 
   if (phase.kind === "setup") {
@@ -382,6 +338,7 @@ function applyBuildShip(state: GameState, playerId: PlayerId, edge: EdgeId): voi
   player.shipsBuiltThisTurn.push(edge);
   player.pieces.ships -= 1;
   emit(state, { kind: "shipBuilt", playerId, at: edge });
+  notifyBuilt(state, playerId, "ship", edge);
   updateLongestRoad(state);
 
   if (phase.kind === "setup") {
@@ -430,6 +387,7 @@ function grantStartingResources(state: GameState, player: Player, vertex: Vertex
     }
     const resource = TERRAIN_RESOURCE[tile.terrain];
     if (resource === null || state.bank[resource] <= 0) continue;
+    if (state.board.oases.includes(h)) continue; // an oasis yields spice or nothing (docs/phase10.md §6)
     state.bank[resource] -= 1;
     player.hand[resource] += 1;
     gains.push({ playerId: player.id, hex: h, resource, count: 1 });
@@ -448,6 +406,7 @@ function applyBuildSettlement(state: GameState, playerId: PlayerId, vertex: Vert
     throw new RuleError(buildingAt(state, vertex) ? "VERTEX_OCCUPIED" : satisfiesDistanceRule(state, vertex) ? "INVALID_VERTEX" : "DISTANCE_RULE", `cannot start at ${vertex}`);
   }
   if (buildingAt(state, vertex) !== null) throw new RuleError("VERTEX_OCCUPIED", `vertex ${vertex} is occupied`);
+  if (unbuildableVertices(state, playerId).has(vertex)) throw new RuleError("VERTEX_HAS_KNIGHT", `a knight stands at ${vertex}`);
   if (!satisfiesDistanceRule(state, vertex)) throw new RuleError("DISTANCE_RULE", `vertex ${vertex} is too close`);
   if (phase.kind !== "setup") {
     const touchesOwn = (geo.vertexEdges[vertex] ?? []).some((e) => edgeOwner(state, e) === playerId);
@@ -459,11 +418,13 @@ function applyBuildSettlement(state: GameState, playerId: PlayerId, vertex: Vert
   player.settlements.push(vertex);
   player.pieces.settlements -= 1;
   emit(state, { kind: "built", playerId, piece: "settlement", at: vertex });
+  notifyBuilt(state, playerId, "settlement", vertex);
   updateLongestRoad(state); // an opponent's road may have been cut
 
   const island = islandOfVertex(state, vertex);
   if (phase.kind === "setup") {
     if (island !== null && !player.startIslands.includes(island)) player.startIslands.push(island);
+    for (const h of activeModules(state)) h.onSetupSettlement?.(state, player, vertex, phase.round);
     const next: Phase = { kind: "setup", round: phase.round, step: "road", lastSettlement: vertex };
     const gold = phase.round === 2 ? grantStartingResources(state, player, vertex) : 0;
     resolveGold(state, { [playerId]: gold }, next);
@@ -484,11 +445,7 @@ function applyBuildCity(state: GameState, playerId: PlayerId, vertex: VertexId):
   if (idx < 0) throw new RuleError("NOT_YOUR_SETTLEMENT", `no settlement of yours at ${vertex}`);
   if (player.pieces.cities <= 0) throw new RuleError("NO_PIECES_LEFT", "no cities left");
   pay(state, player, COSTS.city);
-  player.settlements.splice(idx, 1);
-  player.cities.push(vertex);
-  player.pieces.cities -= 1;
-  player.pieces.settlements += 1; // §5.4
-  emit(state, { kind: "built", playerId, piece: "city", at: vertex });
+  upgradeToCity(state, player, vertex);
 }
 
 // ---------------------------------------------------------------------------
@@ -532,8 +489,7 @@ function applyPlayRoadBuilding(state: GameState, playerId: PlayerId): void {
     throw new RuleError("NO_LEGAL_ROAD", "nowhere to build a road");
   }
   playDevCard(state, player, "roadBuilding");
-  const pieces = player.pieces.roads + (tidesOn(state) ? player.pieces.ships : 0);
-  state.phase = { kind: "roadBuilding", remaining: pieces >= 2 ? 2 : 1 };
+  startRoadBuilding(state, player);
 }
 
 function applyPlayInvention(state: GameState, action: PlayInventionAction): void {
@@ -581,11 +537,15 @@ function applyOfferTrade(state: GameState, action: OfferTradeAction): void {
     throw new RuleError("INVALID_TRADE", "a resource cannot be on both sides");
   }
   if (!hasResources(player.hand, give)) throw new RuleError("INSUFFICIENT_RESOURCES", "you do not hold those cards");
-  state.pendingTrade = { from: action.playerId, give, receive, rejectedBy: [] };
+  if (action.boot === true) {
+    // docs/phase10.md §2: only the boot's holder may attach it; the module checks that when the trade completes.
+    if (state.wayfarers?.fishing?.boot !== action.playerId) throw new RuleError("NO_BOOT", "you do not hold the old boot");
+  }
+  state.pendingTrade = { from: action.playerId, give, receive, rejectedBy: [], ...(action.boot === true ? { boot: true } : {}) };
   emit(state, { kind: "tradeOffered", playerId: action.playerId, give, receive });
 }
 
-function applyAcceptTrade(state: GameState, playerId: PlayerId): void {
+function applyAcceptTrade(state: GameState, playerId: PlayerId, boot: boolean): void {
   requirePhase(state, "action");
   const acceptor = getPlayer(state, playerId);
   const trade = state.pendingTrade;
@@ -598,6 +558,14 @@ function applyAcceptTrade(state: GameState, playerId: PlayerId): void {
   transfer(acceptor.hand, offerer.hand, trade.receive);
   state.pendingTrade = null;
   emit(state, { kind: "tradeAccepted", from: trade.from, to: playerId, give: trade.give, receive: trade.receive });
+  if (trade.boot === true || boot) {
+    const handled = activeModules(state).some((h) => {
+      if (!h.onTradeAccepted) return false;
+      h.onTradeAccepted(state, offerer, acceptor, { offer: trade.boot === true, accept: boot });
+      return true;
+    });
+    if (!handled) throw new RuleError("MODULE_OFF", "there is no old boot in this game");
+  }
 }
 
 function applyRejectTrade(state: GameState, playerId: PlayerId): void {
@@ -630,18 +598,29 @@ function applyMaritimeTrade(state: GameState, action: MaritimeTradeAction): void
   requirePhase(state, "action");
   const player = requireCurrent(state, action.playerId);
   const { give, giveCount, receive } = action;
-  if (!RESOURCES.includes(give) || !RESOURCES.includes(receive) || give === receive) {
+  if (give === receive) throw new RuleError("INVALID_TRADE", "bad maritime trade");
+  if (![4, 3, 2].includes(giveCount)) throw new RuleError("BAD_TRADE_RATIO", "ratio must be 4, 3 or 2");
+  // Modules may take the whole trade (commodities, the merchant, docs/phase11.md §1, §4).
+  for (const h of activeModules(state)) {
+    if (h.maritime?.(state, player, give, giveCount, receive)) {
+      emit(state, { kind: "maritimeTrade", playerId: action.playerId, give, count: giveCount, receive });
+      return;
+    }
+  }
+  if (!RESOURCES.includes(give as Resource) || !RESOURCES.includes(receive as Resource)) {
     throw new RuleError("INVALID_TRADE", "bad maritime trade");
   }
-  if (![4, 3, 2].includes(giveCount) || !ratioAllowed(state, player, give, giveCount)) {
+  const g = give as Resource;
+  const r = receive as Resource;
+  if (!ratioAllowed(state, player, g, giveCount)) {
     throw new RuleError("BAD_TRADE_RATIO", `you may not trade ${give} at ${giveCount}:1`);
   }
-  if (player.hand[give] < giveCount) throw new RuleError("INSUFFICIENT_RESOURCES", `need ${giveCount} ${give}`);
-  if (state.bank[receive] < 1) throw new RuleError("BANK_EMPTY", `bank has no ${receive}`);
-  player.hand[give] -= giveCount;
-  state.bank[give] += giveCount;
-  state.bank[receive] -= 1;
-  player.hand[receive] += 1;
+  if (player.hand[g] < giveCount) throw new RuleError("INSUFFICIENT_RESOURCES", `need ${giveCount} ${give}`);
+  if (state.bank[r] < 1) throw new RuleError("BANK_EMPTY", `bank has no ${receive}`);
+  player.hand[g] -= giveCount;
+  state.bank[g] += giveCount;
+  state.bank[r] -= 1;
+  player.hand[r] += 1;
   emit(state, { kind: "maritimeTrade", playerId: action.playerId, give, count: giveCount, receive });
 }
 
@@ -650,12 +629,13 @@ function applyMaritimeTrade(state: GameState, action: MaritimeTradeAction): void
 
 function applyEndTurn(state: GameState, playerId: PlayerId): void {
   requirePhase(state, "action");
-  requireCurrent(state, playerId);
+  const player = requireCurrent(state, playerId);
   if (state.pendingTrade) {
     state.pendingTrade = null;
     emit(state, { kind: "tradeCancelled", playerId, reason: "turnEnded" });
   }
   emit(state, { kind: "turnEnded", playerId });
+  for (const h of activeModules(state)) h.onTurnEnd?.(state, player);
   // docs/phase8.md §5: with 5–6 players every other player gets a special build before the next roll.
   if (state.players.length > 4) {
     const n = state.players.length;
@@ -677,6 +657,7 @@ function startNextTurn(state: GameState): void {
   state.currentPlayer = (state.currentPlayer + 1) % state.players.length;
   state.turn += 1;
   state.phase = { kind: "roll" };
+  for (const h of activeModules(state)) h.onTurnStart?.(state);
   emit(state, { kind: "turnStarted", playerId: currentPlayerId(state), turn: state.turn });
 }
 
@@ -777,7 +758,7 @@ function applyCore(state: GameState, action: Action): GameState {
       applyOfferTrade(next, action);
       break;
     case "ACCEPT_TRADE":
-      applyAcceptTrade(next, action.playerId);
+      applyAcceptTrade(next, action.playerId, action.boot === true);
       break;
     case "REJECT_TRADE":
       applyRejectTrade(next, action.playerId);
@@ -803,6 +784,37 @@ function applyCore(state: GameState, action: Action): GameState {
     case "CHOOSE_GOLD":
       applyChooseGold(next, action);
       break;
+    case "NEIGHBORLY_GIVE":
+    case "SPEND_FISH":
+    case "BUILD_KNIGHT":
+    case "BUILD_CASTLE":
+    case "REBUILD_HEX":
+    case "EXTEND_CARAVAN":
+    case "MOVE_WAGON":
+    case "LOAD_COMMODITY":
+    case "DELIVER":
+    case "ACTIVATE_KNIGHT":
+    case "PROMOTE_KNIGHT":
+    case "KNIGHT_MOVE":
+    case "KNIGHT_DISPLACE":
+    case "KNIGHT_CHASE_ROBBER":
+    case "BUILD_IMPROVEMENT":
+    case "BUILD_WALL":
+    case "PLAY_PROGRESS":
+    case "DISCARD_PROGRESS":
+    case "CHOOSE_DOWNGRADE":
+    case "PLACE_METROPOLIS":
+    case "CHOOSE_DESERTER":
+    case "PLACE_FREE_KNIGHT":
+    case "RETREAT_KNIGHT":
+    case "SPY_TAKE":
+    case "COMMERCIAL_SWAP":
+    case "GIVE_CARDS": {
+      // Module actions (docs/phase10.md, docs/phase11.md §9): the first enabled module that owns the action applies it.
+      const handled = activeModules(next).some((h) => h.apply?.(next, action) === true);
+      if (!handled) throw new RuleError("MODULE_OFF", `${action.type} needs a module that is not on in this game`);
+      break;
+    }
     default: {
       const exhaustive: never = action;
       throw new Error(`unknown action ${JSON.stringify(exhaustive)}`);
@@ -823,4 +835,4 @@ export function replay(initial: GameState, actions: readonly Action[]): GameStat
 }
 
 // Re-exported for convenience so callers can compute hand-side helpers.
-export { addHand };
+export { addHand, MODULE_ACTION_TYPES };

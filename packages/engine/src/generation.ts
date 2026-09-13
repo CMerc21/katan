@@ -5,8 +5,8 @@
  * for `balanced`, the stricter constraints.
  */
 
-import { TERRAIN_RESOURCE, type Board, type HexTile, type Port, type PortKind, type Terrain } from "./board";
-import { harborKind, landHexes, type BoardDefinition, type HarborDef } from "./definition";
+import { TERRAIN_RESOURCE, producesOnToken, type Board, type HexTile, type Port, type PortKind, type Terrain } from "./board";
+import { fishingGroundDefs, harborKind, landHexes, oasisHexes, riverEdges, type BoardDefinition, type EdgeDef, type HarborDef, type HexDef } from "./definition";
 import { RuleError } from "./errors";
 import { edgeMidpoint, edgeVerticesOf, geometryFor, hexId, parseEdgeId, type EdgeId, type Geometry, type HexId, type VertexId } from "./geometry";
 import { PIPS, harborCount, harborPool, terrainPool, tokenPool, trimPool } from "./pools";
@@ -71,7 +71,7 @@ export function violations(tokens: ReadonlyMap<HexId, number>, geo: Geometry): {
 
 function resolveTokens(def: BoardDefinition, terrains: ReadonlyMap<HexId, Terrain>, rng: Rng): Map<HexId, number> {
   const land = landHexes(def);
-  const producing = land.filter((h) => terrains.get(hexId(h.at)) !== "wasteland");
+  const producing = land.filter((h) => producesOnToken(terrains.get(hexId(h.at)) as Terrain));
   const out = new Map<HexId, number>();
   if (def.generation.tokens === "fixed") {
     for (const h of producing) if (h.token !== undefined) out.set(hexId(h.at), h.token);
@@ -197,7 +197,7 @@ export function resolveBoard(def: BoardDefinition, rng: Rng, options: ValidateOp
   for (const h of landHexes(def)) {
     const id = hexId(h.at);
     const terrain = terrains.get(id) as Terrain;
-    hexes[id] = { terrain, token: terrain === "wasteland" ? null : (tokens.get(id) ?? null) };
+    hexes[id] = { terrain, token: !producesOnToken(terrain) ? null : (tokens.get(id) ?? null) };
   }
   const ports = resolveHarbors(def, rng);
   return {
@@ -209,6 +209,9 @@ export function resolveBoard(def: BoardDefinition, rng: Rng, options: ValidateOp
     seats: { min: def.seats.min, max: def.seats.max },
     seaPlayable: false,
     islands: landComponents(def).map((hexes, id) => ({ id, hexes })),
+    rivers: riverEdges(def),
+    fishingGrounds: fishingGroundDefs(def),
+    oases: oasisHexes(def).map((h) => hexId(h.at)),
   };
 }
 
@@ -217,9 +220,10 @@ export function definitionFromBoard(board: Board, name = board.name): BoardDefin
   return {
     name,
     hexes: [
-      ...Object.entries(board.hexes).map(([id, t]) => {
+      ...Object.entries(board.hexes).map(([id, t]): HexDef => {
         const [q, r] = id.split(",").map(Number) as [number, number];
-        return t.token === null ? { at: { q, r }, kind: "land" as const, terrain: t.terrain } : { at: { q, r }, kind: "land" as const, terrain: t.terrain, token: t.token };
+        const base: HexDef = t.token === null ? { at: { q, r }, kind: "land" as const, terrain: t.terrain } : { at: { q, r }, kind: "land" as const, terrain: t.terrain, token: t.token };
+        return board.oases.includes(id) ? { ...base, extras: { oasis: true } } : base;
       }),
       ...board.sea.map((id) => {
         const [q, r] = id.split(",").map(Number) as [number, number];
@@ -231,6 +235,7 @@ export function definitionFromBoard(board: Board, name = board.name): BoardDefin
       }),
     ],
     harbors: board.ports.map((p): HarborDef => (p.kind === "any" ? { edge: p.edge, ratio: 3 } : { edge: p.edge, ratio: 2, resource: p.kind })),
+    edges: [...board.rivers.map((edge): EdgeDef => ({ edge, kind: "river" })), ...board.fishingGrounds.map((f): EdgeDef => ({ edge: f.edge, kind: "fishingGround", token: f.token }))],
     seats: { min: 3, max: board.seats.max as 4 | 5 | 6 },
     generation: { terrain: "fixed", tokens: "fixed", harbors: "fixed" },
   };

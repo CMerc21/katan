@@ -12,7 +12,8 @@ export const RESOURCES = ["wood", "clay", "wool", "grain", "ore"] as const;
 export type Resource = (typeof RESOURCES)[number];
 
 /** `gold` is reserved for the Tides module (docs/phase9.md): it produces a resource of the owner's choice. */
-export const TERRAINS = ["forest", "claypit", "meadow", "farmland", "mountain", "wasteland", "gold"] as const;
+/** `lake` is the Fishing variant's inland water (docs/phase10.md §2): produces nothing, holds no token, fish on 2, 3, 11 and 12. */
+export const TERRAINS = ["forest", "claypit", "meadow", "farmland", "mountain", "wasteland", "gold", "lake"] as const;
 export type Terrain = (typeof TERRAINS)[number];
 
 /** §2.1 (gold has no fixed resource; see §6.2 in Phase 9). */
@@ -24,6 +25,7 @@ export const TERRAIN_RESOURCE: Readonly<Record<Terrain, Resource | null>> = {
   mountain: "ore",
   wasteland: null,
   gold: null,
+  lake: null,
 };
 
 /** §2.1: the standard 19-hex counts. */
@@ -35,9 +37,17 @@ export const TERRAIN_COUNTS: Readonly<Record<Terrain, number>> = {
   mountain: 3,
   wasteland: 1,
   gold: 0,
+  lake: 0,
 };
 
 /** §2.2 */
+/** Terrains that never carry a number token. */
+export const TOKENLESS_TERRAINS: readonly Terrain[] = ["wasteland", "lake"];
+
+export function producesOnToken(terrain: Terrain): boolean {
+  return !TOKENLESS_TERRAINS.includes(terrain);
+}
+
 export const NUMBER_TOKENS: readonly number[] = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12];
 
 export type PortKind = "any" | Resource;
@@ -52,6 +62,12 @@ export interface HexTile {
   readonly terrain: Terrain;
   /** null for the wasteland (and for gold hexes without a token). */
   readonly token: number | null;
+}
+
+/** docs/phase10.md §2: a fishing ground on a coastal edge with its own number token. */
+export interface FishingGround {
+  readonly edge: EdgeId;
+  readonly token: number;
 }
 
 export interface Port {
@@ -79,6 +95,12 @@ export interface Board {
   readonly seaPlayable: boolean;
   /** Islands by id (largest first); a single-island board has one. */
   readonly islands: readonly Island[];
+  /** River segments (docs/phase10.md §3): edges bordering at least one land hex. */
+  readonly rivers: readonly EdgeId[];
+  /** Fishing grounds (docs/phase10.md §2) on coastal edges. */
+  readonly fishingGrounds: readonly FishingGround[];
+  /** Oases (docs/phase10.md §6): land hexes that produce spice instead of their resource. */
+  readonly oases: readonly HexId[];
 }
 
 export type BoardKind = "beginner" | "random";
@@ -170,10 +192,13 @@ export function makeBoard(kind: BoardKind, seed: string): Board {
   }
 }
 
-/** The hex holding the wasteland (where the robber starts, §4.4), or the first land hex when there is none. */
+/** The hex holding the wasteland (where the robber starts, §4.4), else the lake (docs/phase10.md §2), else the first land hex. */
 export function wastelandHex(board: Board): HexId {
   for (const h of Object.keys(board.hexes)) {
     if (board.hexes[h]?.terrain === "wasteland") return h;
+  }
+  for (const h of Object.keys(board.hexes)) {
+    if (board.hexes[h]?.terrain === "lake") return h;
   }
   const first = Object.keys(board.hexes).sort()[0];
   if (!first) throw new Error("board has no land");

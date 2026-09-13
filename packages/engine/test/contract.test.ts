@@ -56,6 +56,47 @@ function randomAction(state: GameState, rng: Rng): Action {
       return { type, playerId, give: randomHand(), receive: randomHand() };
     case "MARITIME_TRADE":
       return { type, playerId, give: resource(), giveCount: pick([4, 3, 2] as const), receive: resource() };
+    // Module actions (docs/phase10.md, docs/phase11.md): a random payload of the right shape.
+    case "NEIGHBORLY_GIVE":
+      return { type, playerId, resource: resource() };
+    case "SPEND_FISH":
+      return { type, playerId, option: "bankResource", resource: resource() };
+    case "BUILD_KNIGHT":
+      return { type, playerId, hex: pick(GEOMETRY.hexes), vertex: pick(GEOMETRY.vertices) };
+    case "BUILD_CASTLE":
+    case "ACTIVATE_KNIGHT":
+    case "PROMOTE_KNIGHT":
+    case "KNIGHT_CHASE_ROBBER":
+    case "BUILD_WALL":
+    case "CHOOSE_DOWNGRADE":
+    case "PLACE_METROPOLIS":
+    case "CHOOSE_DESERTER":
+    case "PLACE_FREE_KNIGHT":
+    case "RETREAT_KNIGHT":
+      return { type, playerId, vertex: pick(GEOMETRY.vertices) };
+    case "REBUILD_HEX":
+      return { type, playerId, hex: pick(GEOMETRY.hexes) };
+    case "EXTEND_CARAVAN":
+      return { type, playerId, caravan: rng.int(3), edge: pick(GEOMETRY.edges) };
+    case "MOVE_WAGON":
+      return { type, playerId, path: [pick(GEOMETRY.vertices), pick(GEOMETRY.vertices)] };
+    case "LOAD_COMMODITY":
+    case "DELIVER":
+      return { type, playerId, good: "marble" };
+    case "KNIGHT_MOVE":
+    case "KNIGHT_DISPLACE":
+      return { type, playerId, from: pick(GEOMETRY.vertices), to: pick(GEOMETRY.vertices) };
+    case "BUILD_IMPROVEMENT":
+      return { type, playerId, track: "trade" };
+    case "PLAY_PROGRESS":
+      return { type, playerId, card: "merchant", payload: { hex: pick(GEOMETRY.hexes) } };
+    case "DISCARD_PROGRESS":
+    case "SPY_TAKE":
+      return { type, playerId, card: "merchant" };
+    case "COMMERCIAL_SWAP":
+      return { type, playerId, commodity: "cloth" };
+    case "GIVE_CARDS":
+      return { type, playerId, cards: randomHand() };
     default: {
       const exhaustive: never = type;
       throw new Error(String(exhaustive));

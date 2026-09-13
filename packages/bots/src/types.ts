@@ -6,7 +6,7 @@
  * (view, legal, rng).
  */
 
-import type { Action, RedactedGameState } from "@katan/engine";
+import { RESOURCES, type Action, type RedactedGameState, type Resource } from "@katan/engine";
 
 export type BotLevel = "easy" | "medium" | "hard";
 
@@ -49,6 +49,17 @@ export function best<T>(rng: Rng, items: readonly T[], score: (item: T) => numbe
 
 export function ofType<T extends Action["type"]>(legal: Action[], type: T): Extract<Action, { type: T }>[] {
   return legal.filter((a): a is Extract<Action, { type: T }> => a.type === type);
+}
+
+/** A maritime trade of resources only (commodity trades exist under Crown & Castle, docs/phase11.md §1). */
+export type ResourceTrade = Extract<Action, { type: "MARITIME_TRADE" }> & { readonly give: Resource; readonly receive: Resource };
+
+export function isResourceTrade(a: Action): a is ResourceTrade {
+  return a.type === "MARITIME_TRADE" && (RESOURCES as readonly string[]).includes(a.give) && (RESOURCES as readonly string[]).includes(a.receive);
+}
+
+export function resourceTrades(legal: Action[]): ResourceTrade[] {
+  return legal.filter(isResourceTrade);
 }
 
 export function sameAction(a: Action, b: Action): boolean {
