@@ -455,7 +455,7 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
           if (hasResources(player.hand, trade.receive)) out.push({ type: "ACCEPT_TRADE", playerId });
           out.push({ type: "REJECT_TRADE", playerId });
         }
-        return out;
+        break; // modules may add answers for a non-current player (the boot on an acceptance, docs/phase10.md §2)
       }
 
       const h = player.hand;
