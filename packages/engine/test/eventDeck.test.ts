@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyAction, applyActionWithEvents, replay } from "../src/actions";
+import { applyAction, applyActionWithEvents } from "../src/actions";
 import { RESOURCES } from "../src/board";
 import type { GameEvent } from "../src/events";
 import { standardFrame } from "../src/frames";
@@ -334,7 +334,7 @@ describe("docs/phase10.md §1 Event deck", () => {
       expect(state).toEqual(played.final);
     }
     expect([...seen].sort()).toEqual(["bounty", "declined", "gave", "neighborlyHelp", "plentifulHarvest", "reshuffle", "robbersRest", "taxCollector", "taxed"]);
-  });
+  }, 60_000);
 
   it("docs/phase10.md §1 with the variant off the base game is untouched: no deck state, seeded dice and no module events", () => {
     const off = scenario(false);

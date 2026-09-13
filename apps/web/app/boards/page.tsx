@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BUILT_IN_BOARD_IDS, BUILT_IN_SCENARIO_IDS, builtInBoard, builtInScenario, resolveBoard, rng } from "@katan/engine";
+import { BUILT_IN_BOARD_IDS, BUILT_IN_SCENARIO_IDS, builtInBoard, builtInScenario, resolveBoard, rng, scenarioSummary } from "@katan/engine";
 import { BoardThumbnail } from "@/board2d/Thumbnail";
 import { Button } from "@/components/ui";
 import { deleteBoardRemote, deleteDraft, deleteScenarioDraft, deleteScenarioRemote, forkBoardRemote, forkScenarioRemote, loadDrafts, loadSavedBoards, loadSavedScenarios, loadScenarioDrafts, type StoredBoard, type StoredScenario } from "@/editor/storage";
@@ -62,7 +62,7 @@ export default function BoardsPage() {
       return <div className="grid h-[200px] w-[200px] place-items-center text-xs text-clay">Invalid board</div>;
     }
   };
-  const scenarioMeta = (sc: StoredScenario, extra = "") => `${sc.scenario.modules.tides ? "Tides · " : ""}${sc.scenario.victoryPoints} points · up to ${sc.scenario.board.seats.max} seats${extra}`;
+  const scenarioMeta = (sc: StoredScenario, extra = "") => `${scenarioSummary(sc.scenario)} · up to ${sc.scenario.board.seats.max} seats${extra}`;
   const thumb = (b: StoredBoard) => {
     try {
       return <BoardThumbnail board={resolveBoard(b.definition, rng(b.id, -2), { allowIslands: true })} size={200} showTokens={b.definition.generation.tokens === "fixed"} />;
@@ -119,7 +119,7 @@ export default function BoardsPage() {
       </section>
 
       <section className="mt-6" aria-label="Built-in scenarios">
-        <h2 className="font-display mb-2 text-xl font-semibold text-parchment">Built-in scenarios (Tides)</h2>
+        <h2 className="font-display mb-2 text-xl font-semibold text-parchment">Built-in scenarios</h2>
         <ul className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
           {BUILT_IN_SCENARIO_IDS.map((id) => {
             const sc = builtInScenario(id);
@@ -128,7 +128,7 @@ export default function BoardsPage() {
                 key={id}
                 testId={`builtin-scenario-${id}`}
                 name={sc.name}
-                meta={`${sc.victoryPoints} points · ${sc.board.hexes.filter((h) => h.kind === "land").length} land on ${sc.board.hexes.filter((h) => h.kind === "sea").length} sea`}
+                meta={`${scenarioSummary(sc)} · ${sc.board.hexes.filter((h) => h.kind === "land").length} land · up to ${sc.board.seats.max} seats`}
                 thumb={<BoardThumbnail board={resolveBoard(sc.board, rng(id, -2), { allowIslands: true })} size={200} showTokens={false} />}
                 actions={
                   <Button size="sm" onClick={() => router.push(`/boards/editor/${id}`)} data-testid={`edit-scenario-${id}`}>

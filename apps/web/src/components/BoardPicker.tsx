@@ -14,6 +14,7 @@ import {
   builtInBoard,
   builtInScenario,
   scenarioSummary,
+  anyVariant,
   createRng,
   hasErrors,
   resolveBoard,
@@ -164,7 +165,11 @@ function Card({ choice, selected, onPick, testId }: { choice: BoardChoice; selec
   const board = useMemo(() => previewOf(choice), [choice]);
   const name = nameOf(choice);
   const blurb = blurbOf(choice);
-  const tides = choiceScenario(choice)?.modules.tides === true;
+  const scenario = choiceScenario(choice);
+  const tides = scenario?.modules.tides === true;
+  /** Badge and `data-scenario`: the main module the scenario switches on. */
+  const flavour = !scenario ? null : tides ? "tides" : scenario.modules.crown ? "crown" : anyVariant(scenario) ? "wayfarers" : "scenario";
+  const badge = flavour === "tides" ? "Tides" : flavour === "crown" ? "Crown" : flavour === "wayfarers" ? "Wayfarers" : null;
   const playable = board !== null;
   return (
     <button
@@ -177,12 +182,12 @@ function Card({ choice, selected, onPick, testId }: { choice: BoardChoice; selec
       onClick={onPick}
       data-testid={testId}
       data-seats={def.seats.max}
-      data-scenario={tides ? "tides" : undefined}
+      data-scenario={flavour ?? undefined}
     >
       {board ? <BoardThumbnail board={board} size={128} showTokens={def.generation.tokens === "fixed"} /> : <div className="grid h-32 w-32 place-items-center text-xs text-ink-soft">Has errors</div>}
       <span className="w-full truncate font-medium" data-testid="board-card-name">
         {name}
-        {tides && <span className="ml-1 rounded bg-ink px-1 text-[10px] uppercase tracking-wide text-parchment">Tides</span>}
+        {badge && <span className="ml-1 rounded bg-ink px-1 text-[10px] uppercase tracking-wide text-parchment">{badge}</span>}
       </span>
       <span className="w-full text-xs text-ink-soft">
         {blurb} · up to {def.seats.max}
@@ -230,7 +235,7 @@ export function BoardPicker({ value, onChange, signedIn }: { value: BoardChoice;
           <Card key={`${b.source}:${b.id}`} choice={{ kind: "stored", board: b }} selected={key === `${b.source}:${b.id}`} onPick={() => onChange({ kind: "stored", board: b })} testId={`board-${b.source}-${b.id}`} />
         ))}
       </div>
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-soft">Scenarios (Tides)</h4>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-soft">Scenarios</h4>
       <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Scenario">
         {BUILT_IN_SCENARIO_IDS.map((id) => (
           <Card key={id} choice={{ kind: "scenario", id }} selected={key === `scenario:${id}`} onPick={() => onChange({ kind: "scenario", id })} testId={`scenario-${id}`} />

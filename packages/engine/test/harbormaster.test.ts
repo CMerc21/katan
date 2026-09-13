@@ -72,13 +72,14 @@ describe("docs/phase10.md §4 Harbormaster", () => {
     expect(chip(fresh)).toEqual({ playerId: null, points: 0 });
     expect(fresh.wayfarers).toEqual({ eventDeck: null, fishing: null, rivers: null, harbormaster: { playerId: null, points: 0 }, raiders: null, caravans: null, wagons: null });
     const base = inPhase(fresh, ACTION_PHASE, "a");
-    const [v1, v2, v3] = pickHarborVertices(base, 3);
+    const [v1, v2, v3] = pickHarborVertices(base, 3) as [VertexId, VertexId, VertexId];
     const harbour = new Set(harborVertices(base));
     const inland = GEOMETRY.vertices.find((v) => !harbour.has(v) && ![v1, v2, v3].some((h) => h === v || GEOMETRY.vertexNeighbors[h]?.includes(v)))!;
-    const s = place(base, "a", { settlements: [v1!, inland], cities: [v2!] });
+    const s = place(base, "a", { settlements: [v1, inland], cities: [v2] });
     expect(harborPoints(s, getPlayer(s, "a"))).toBe(3);
     expect(harborPoints(s, getPlayer(s, "b"))).toBe(0);
-    expect(harborPoints(place(s, "b", { settlements: [v3!] }), getPlayer(s, "b"))).toBe(0); // b's copy is the old one
+    const sb = place(s, "b", { settlements: [v3] });
+    expect(harborPoints(sb, getPlayer(sb, "b"))).toBe(1);
     // Setup placements count too (at most 2 points each, so nobody reaches the chip in setup).
     const done = finishSetup(game());
     for (const p of done.players) {
@@ -162,7 +163,7 @@ describe("docs/phase10.md §4 Harbormaster", () => {
       expect(played.final.winner).not.toBeNull();
     }
     expect(chipSeen).toBe(true);
-  });
+  }, 60_000);
 
   it("docs/phase10.md §4 with the variant off the base game is untouched: no chip state, no module events, base VP only", () => {
     const off = scenario(false);

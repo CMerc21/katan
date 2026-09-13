@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { hasErrors, validateBoard } from "@katan/engine";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BUILT_IN_SCENARIO_IDS, hasErrors, isBoardDefinition, isScenario, standardFrame, validateBoard } from "@katan/engine";
 import { builtInScenario, validateScenario } from "@katan/engine";
-import { DEFAULT_SCENARIO, emptyDefinition, harborEdges, historyReduce, initialEditorState, islandIndexOf, rectangleCells, reduce, settingsOf, symmetricCells, toScenario, tokenTray, type History } from "@/editor/model";
+import { DEFAULT_FISHING_TOKEN, DEFAULT_SCENARIO, emptyDefinition, fishingGroundAt, harborEdges, historyReduce, initialEditorState, islandIndexOf, landEdges, oasisCount, rectangleCells, reduce, riverEdgesOf, settingsOf, symmetricCells, toScenario, tokenTray, type History } from "@/editor/model";
+import { loadScenarioDrafts, saveScenarioDraft } from "@/editor/storage";
 
 describe("docs/phase8.md §4 editor model", () => {
   it("frame brush cycles empty → land → sea → frame → empty, with symmetry", () => {
@@ -141,5 +142,196 @@ describe("docs/phase8.md §4 editor model", () => {
     h = historyReduce(h, { type: "setScenario", scenario: null });
     expect(h.present.scenario).toBeNull();
     expect(h.present.def.hexes).toHaveLength(1);
+  });
+});
+
+describe("docs/phase10.md §8 editor: Wayfarers markers and scenario switches", () => {
+  const standard = () => initialEditorState(standardFrame());
+  const LAND_EDGE = "0,0|1,0";
+  const COAST_EDGE = "2,0|3,0";
+
+  it("river tool toggles a segment on land edges only, keeps `edges` absent when empty, and is undoable", () => {
+    let s = standard();
+    expect(s.def.edges).toBeUndefined();
+    expect(landEdges(s.def)).toContain(LAND_EDGE);
+    expect(landEdges(s.def)).toContain(COAST_EDGE);
+    // An edge off the land (between two missing cells) is refused.
+    expect(reduce(s, { type: "toggleRiver", edge: "4,0|5,0" })).toBe(s);
+    s = reduce(s, { type: "toggleRiver", edge: LAND_EDGE });
+    expect(s.def.edges).toEqual([{ edge: LAND_EDGE, kind: "river" }]);
+    expect(riverEdgesOf(s.def)).toEqual([LAND_EDGE]);
+    expect(hasErrors(validateBoard(s.def))).toBe(false);
+    s = reduce(s, { type: "toggleRiver", edge: COAST_EDGE });
+    expect(riverEdgesOf(s.def)).toEqual([LAND_EDGE, COAST_EDGE]);
+    s = reduce(s, { type: "toggleRiver", edge: LAND_EDGE });
+    expect(riverEdgesOf(s.def)).toEqual([COAST_EDGE]);
+    s = reduce(s, { type: "toggleRiver", edge: COAST_EDGE });
+    expect(s.def.edges).toBeUndefined();
+    expect(s.def).toEqual({ ...standardFrame(), name: "Standard" });
+    let h: History = { past: [], present: standard(), future: [] };
+    h = historyReduce(h, { type: "toggleRiver", edge: LAND_EDGE });
+    expect(h.past).toHaveLength(1);
+    h = historyReduce(h, { type: "undo" });
+    expect(h.present.def.edges).toBeUndefined();
+  });
+
+  it("fishing tool: a coastal edge gets the default token, typing 2–12 (never 7) re-numbers it, null removes it; inland edges are refused", () => {
+    let s = standard();
+    expect(reduce(s, { type: "setFishingGround", edge: LAND_EDGE, token: DEFAULT_FISHING_TOKEN })).toBe(s);
+    s = reduce(s, { type: "setFishingGround", edge: COAST_EDGE, token: fishingGroundAt(s.def, COAST_EDGE) ? null : DEFAULT_FISHING_TOKEN });
+    expect(s.def.edges).toEqual([{ edge: COAST_EDGE, kind: "fishingGround", token: 5 }]);
+    expect(reduce(s, { type: "setFishingGround", edge: COAST_EDGE, token: 7 })).toBe(s);
+    expect(reduce(s, { type: "setFishingGround", edge: COAST_EDGE, token: 13 })).toBe(s);
+    s = reduce(s, { type: "setFishingGround", edge: COAST_EDGE, token: 8 });
+    expect(s.def.edges).toEqual([{ edge: COAST_EDGE, kind: "fishingGround", token: 8 }]);
+    expect(fishingGroundAt(s.def, COAST_EDGE)).toEqual({ edge: COAST_EDGE, token: 8 });
+    expect(hasErrors(validateBoard(s.def))).toBe(false);
+    // A river and a fishing ground may share the coast edge; clearing one keeps the other.
+    s = reduce(s, { type: "toggleRiver", edge: COAST_EDGE });
+    expect(s.def.edges).toHaveLength(2);
+    s = reduce(s, { type: "setFishingGround", edge: COAST_EDGE, token: null });
+    expect(s.def.edges).toEqual([{ edge: COAST_EDGE, kind: "river" }]);
+    expect(reduce(s, { type: "setFishingGround", edge: COAST_EDGE, token: null })).toBe(s);
+    s = reduce(s, { type: "clearLayer", layer: "edges" });
+    expect(s.def.edges).toBeUndefined();
+    expect(reduce(s, { type: "clearLayer", layer: "edges" })).toBe(s);
+  });
+
+  it("oasis tool toggles `extras.oasis` on land hexes, never leaves an empty extras object, and clearLayer oases removes them all", () => {
+    let s = standard();
+    const at = { q: 0, r: 0 };
+    s = reduce(s, { type: "setCell", at: { q: 3, r: 0 }, kind: "sea" });
+    expect(reduce(s, { type: "toggleOasis", at: { q: 3, r: 0 } })).toBe(s);
+    expect(reduce(s, { type: "toggleOasis", at: { q: 9, r: 9 } })).toBe(s);
+    s = reduce(s, { type: "toggleOasis", at });
+    expect(s.def.hexes.find((h) => h.at.q === 0 && h.at.r === 0)).toEqual({ at, kind: "land", extras: { oasis: true } });
+    expect(oasisCount(s.def)).toBe(1);
+    // Terrain and tokens survive on an oasis and the marker survives painting.
+    s = reduce(s, { type: "paintTerrain", at, terrain: "farmland" });
+    s = reduce(s, { type: "setToken", at, token: 6 });
+    expect(s.def.hexes.find((h) => h.at.q === 0 && h.at.r === 0)).toEqual({ at, kind: "land", terrain: "farmland", token: 6, extras: { oasis: true } });
+    s = reduce(s, { type: "toggleOasis", at });
+    expect(s.def.hexes.find((h) => h.at.q === 0 && h.at.r === 0)).toEqual({ at, kind: "land", terrain: "farmland", token: 6 });
+    s = reduce(s, { type: "toggleOasis", at });
+    s = reduce(s, { type: "toggleOasis", at: { q: 1, r: 0 } });
+    expect(oasisCount(s.def)).toBe(2);
+    s = reduce(s, { type: "clearLayer", layer: "oases" });
+    expect(oasisCount(s.def)).toBe(0);
+    expect(s.def.hexes.every((h) => h.extras === undefined)).toBe(true);
+    expect(reduce(s, { type: "clearLayer", layer: "oases" })).toBe(s);
+  });
+
+  it("lake is a terrain (key 8): painting it drops the token, no token can be set on it, and the tray counts it as non-producing", () => {
+    let s = standard();
+    const at = { q: 0, r: 0 };
+    s = reduce(s, { type: "paintTerrain", at, terrain: "meadow" });
+    s = reduce(s, { type: "setToken", at, token: 9 });
+    const before = tokenTray(s.def).find((t) => t.token === 9)!.left;
+    s = reduce(s, { type: "paintTerrain", at, terrain: "lake" });
+    expect(s.def.hexes.find((h) => h.at.q === 0 && h.at.r === 0)).toEqual({ at, kind: "land", terrain: "lake" });
+    expect(reduce(s, { type: "setToken", at, token: 6 })).toBe(s);
+    // The lake no longer owes a 9 and the pool shrinks by one hex, so the tray's total drops.
+    const after = tokenTray(s.def).find((t) => t.token === 9)!.left;
+    expect(after).toBe(before + 1);
+    const total = (def: typeof s.def) => tokenTray(def).reduce((n, t) => n + t.left, 0);
+    expect(total(s.def)).toBe(total(reduce(s, { type: "paintTerrain", at, terrain: "wasteland" }).def));
+    expect(validateBoard(s.def).some((i) => i.code === "TOKEN_ON_LAKE")).toBe(false);
+    // Validation catches a token that arrives on a lake by another route.
+    const tokened = { ...s.def, hexes: s.def.hexes.map((h) => (h.at.q === 0 && h.at.r === 0 ? { ...h, token: 5 } : h)) };
+    expect(validateBoard(tokened).some((i) => i.code === "TOKEN_ON_LAKE")).toBe(true);
+  });
+
+  it("scenario settings round-trip crown and the variants; DEFAULT_SCENARIO has them off", () => {
+    expect(DEFAULT_SCENARIO.crown).toBe(false);
+    expect(Object.values(DEFAULT_SCENARIO.variants).every((v) => v === false)).toBe(true);
+    for (const id of BUILT_IN_SCENARIO_IDS) {
+      const sc = builtInScenario(id);
+      const settings = settingsOf(sc);
+      const loaded = initialEditorState(sc.board, id, settings);
+      const back = toScenario(loaded, id)!;
+      expect(back.modules.crown).toBe(sc.modules.crown === true);
+      expect(back.modules.tides).toBe(sc.modules.tides === true);
+      expect(back.variants ?? {}).toEqual(sc.variants ?? {});
+      expect(isScenario(back)).toBe(true);
+      expect(validateScenario(back).filter((i) => i.severity === "error")).toEqual(validateScenario(sc).filter((i) => i.severity === "error"));
+    }
+    expect(settingsOf(builtInScenario("greatLake")).variants).toMatchObject({ fishing: true, harbormaster: true, rivers: false });
+    expect(settingsOf(builtInScenario("crownStandard"))).toMatchObject({ crown: true, tides: false });
+    // Only true flags are written; none at all means no `variants` key.
+    let s = reduce(standard(), { type: "setScenario", scenario: { ...DEFAULT_SCENARIO, tides: false } });
+    expect(toScenario(s, "x")).not.toHaveProperty("variants");
+    s = reduce(s, { type: "setScenario", scenario: { variants: { ...DEFAULT_SCENARIO.variants, rivers: true, wagons: true } } });
+    expect(toScenario(s, "x")?.variants).toEqual({ rivers: true, wagons: true });
+    expect(toScenario(s, "x")?.modules).toEqual({ tides: false, crown: false });
+  });
+
+  it("Raiders and Crown & Castle are mutually exclusive in the editor; validation flags the combination", () => {
+    let s = reduce(standard(), { type: "setScenario", scenario: { ...DEFAULT_SCENARIO, tides: false } });
+    s = reduce(s, { type: "setScenario", scenario: { variants: { ...DEFAULT_SCENARIO.variants, raiders: true } } });
+    expect(s.scenario?.variants.raiders).toBe(true);
+    s = reduce(s, { type: "setScenario", scenario: { crown: true } });
+    expect(s.scenario?.crown).toBe(true);
+    expect(s.scenario?.variants.raiders).toBe(false);
+    s = reduce(s, { type: "setScenario", scenario: { variants: { ...s.scenario!.variants, raiders: true } } });
+    expect(s.scenario?.variants.raiders).toBe(true);
+    expect(s.scenario?.crown).toBe(false);
+    const both = { ...toScenario(s, "both")!, modules: { crown: true }, variants: { raiders: true } };
+    expect(validateScenario(both).some((i) => i.code === "SCENARIO_MODULES" && i.severity === "error")).toBe(true);
+    expect(validateScenario(toScenario(s, "ok")!).some((i) => i.code === "SCENARIO_MODULES")).toBe(false);
+  });
+
+  it("the new validation codes surface for misplaced markers", () => {
+    let s = standard();
+    s = reduce(s, { type: "toggleOasis", at: { q: 0, r: 0 } });
+    s = reduce(s, { type: "paintTerrain", at: { q: 0, r: 0 }, terrain: "lake" });
+    expect(validateBoard(s.def).some((i) => i.code === "OASIS_TERRAIN")).toBe(true);
+    s = reduce(s, { type: "toggleRiver", edge: COAST_EDGE });
+    s = reduce(s, { type: "setCell", at: { q: 2, r: 0 }, kind: "sea" });
+    expect(validateBoard(s.def).some((i) => i.code === "RIVER_AT_SEA")).toBe(true);
+    const sc = reduce(s, { type: "setScenario", scenario: { ...DEFAULT_SCENARIO, tides: false, variants: { ...DEFAULT_SCENARIO.variants, caravans: true } } });
+    const codes = validateScenario(toScenario(sc, "v")!).map((i) => i.code);
+    expect(codes).toContain("SCENARIO_OASES_COUNT");
+    expect(codes).toContain("SCENARIO_RIVERS_UNUSED");
+  });
+});
+
+describe("docs/phase10.md §8 storage: drafts with markers round-trip", () => {
+  const store = new Map<string, string>();
+  beforeEach(() => {
+    store.clear();
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, v),
+        removeItem: (k: string) => void store.delete(k),
+      },
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("a scenario draft with rivers, a fishing ground, an oasis, crown off and variants on survives JSON and the guards", () => {
+    let s = initialEditorState(standardFrame(), null, { ...DEFAULT_SCENARIO, tides: false, victoryPoints: 12, variants: { ...DEFAULT_SCENARIO.variants, rivers: true, fishing: true, caravans: true } });
+    s = reduce(s, { type: "toggleRiver", edge: "0,0|1,0" });
+    s = reduce(s, { type: "setFishingGround", edge: "2,0|3,0", token: 8 });
+    s = reduce(s, { type: "toggleOasis", at: { q: 0, r: 0 } });
+    const sc = toScenario(s)!;
+    expect(isScenario(sc)).toBe(true);
+    expect(isBoardDefinition(JSON.parse(JSON.stringify(sc.board)))).toBe(true);
+    const draft = saveScenarioDraft(sc);
+    expect(draft.id.startsWith("sdraft-")).toBe(true);
+    const loaded = loadScenarioDrafts();
+    expect(loaded).toHaveLength(1);
+    const back = loaded[0]!.scenario;
+    expect(back.board.edges).toEqual([
+      { edge: "0,0|1,0", kind: "river" },
+      { edge: "2,0|3,0", kind: "fishingGround", token: 8 },
+    ]);
+    expect(back.board.hexes.find((h) => h.at.q === 0 && h.at.r === 0)?.extras).toEqual({ oasis: true });
+    expect(back.variants).toEqual({ fishing: true, rivers: true, caravans: true });
+    expect(back.modules).toEqual({ tides: false, crown: false });
+    expect(settingsOf(back)).toMatchObject({ crown: false, victoryPoints: 12, variants: { rivers: true, fishing: true, caravans: true, wagons: false } });
+    // Saving again under the same id replaces rather than duplicates.
+    saveScenarioDraft({ ...sc, name: "Renamed" }, draft.id);
+    expect(loadScenarioDrafts().map((d) => d.name)).toEqual(["Renamed"]);
   });
 });
