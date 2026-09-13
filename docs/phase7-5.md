@@ -29,7 +29,7 @@ Dice tumble into a leather tray at the board's near edge with a decaying spin to
 
 ## 6. Quality
 
-`Graphics: Auto / High / Medium / Low` in the settings menu. Auto detects from GL limits, device pixel ratio, cores and a software-renderer check (`detectQuality`). Presets: High (shadows, post-FX, full props, dpr 2), Medium (shadows, no post-FX, 70% props, dpr 1.5), Low (no shadows, no post-FX, 40% props, dpr 1, idle motion off). `FrameWatchdog` steps down one level after 3 s of frames over 33 ms and the screen toasts once.
+`Graphics: Auto / High / Medium / Low` in the settings menu. Auto detects from GL limits, device pixel ratio, cores and a software-renderer check (`detectQuality`). Presets: High (shadows, post-FX, full props), Medium (shadows, no post-FX, 70% props), Low (no shadows, no post-FX, no antialiasing, 40% props, idle motion off). High and Medium render at the true device pixel ratio capped at 2 (`resolveDpr`); Low renders at 1, which is the one preset that looks soft on a high-density display. `FrameWatchdog` runs only while the setting is Auto: it ignores the first 5 s after mount (and after each step-down), a stall over 1 s (a hidden tab) clears its window, and it steps down one level when at least 75% of the frames in a 5 s window took over 33 ms. A single hitch or a fast frame in the middle changes nothing. The step-down is session state in `GameScreen`; it is never written to the settings or the profile, and picking High / Medium / Low by hand is a manual override the watchdog cannot change. The menu shows the active preset and its source (`quality-active`), and the screen logs `[katan] graphics preset: …` with the render and device pixel ratios whenever it changes.
 
 ## 7. Tests
 
@@ -52,5 +52,5 @@ The editor (Phase 8) renders its canvas with this scene in a top-down framing wi
 - **Numerals are canvas sprites**, not text geometry, so no font is fetched at runtime.
 - **Accessible overlay buttons** were added on top of the raycast layer; they are not in the spec but keep the board usable without a mouse and make the tests deterministic.
 - **Sea ripple and gulls** wait for boards that have sea tiles (Phase 8/9); the sea material is in place.
-- **Frame watchdog** re-arms after 10 s so a second step-down can follow a first, but each fires at most once per window.
+- **Frame watchdog** warms up again for 5 s after each step-down so a second can follow a first, but the new preset's own shader compiles never count.
 - Post-processing multisampling is off (SwiftShader and mobile).

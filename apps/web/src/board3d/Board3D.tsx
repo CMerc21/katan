@@ -53,7 +53,7 @@ export interface Board3DProps {
   onCancelMode?: () => void;
   /** Effective quality (after auto-detection and step-downs). */
   quality: Quality;
-  /** The watchdog asked for one step down (docs/phase7-5.md §7). */
+  /** The watchdog asked for one step down (docs/phase7-5.md §6). Omit it (a manual preset) and no watchdog runs. */
   onDegrade?: (next: Quality) => void;
   /** Auto-detection result on first load, when the setting is "auto". */
   onDetected?: (q: Quality) => void;
@@ -98,16 +98,11 @@ function Table({ bounds, shadows, onTap, onDoubleTap }: { bounds: { cx: number; 
   );
 }
 
+/** Steps down after sustained slow frames (docs/phase7-5.md §6); mounted only while the setting is Auto. */
 function Watchdog({ onDegrade }: { onDegrade: () => void }) {
-  const dog = useMemo(() => new FrameWatchdog(33, 3000), []);
-  const fired = useRef(false);
+  const dog = useMemo(() => new FrameWatchdog(), []);
   useFrame((_, delta) => {
-    if (fired.current) return;
-    if (dog.sample(delta * 1000, performance.now())) {
-      fired.current = true;
-      onDegrade();
-      setTimeout(() => (fired.current = false), 10_000);
-    }
+    if (dog.sample(delta * 1000, performance.now())) onDegrade();
   });
   return null;
 }

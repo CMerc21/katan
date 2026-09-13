@@ -3,7 +3,7 @@ import { GEOMETRY, createGame, legalActions, type Action } from "@katan/engine";
 import { createLayout } from "@/board/layout";
 import { boardBounds, edgeWorld, framingDistance, hexCornerWorld, hexWorld, tileJitter, vertexWorld } from "@/board3d/layout3d";
 import { computeTargets, targetName, wagonMoveFor } from "@/board3d/Interaction";
-import { FrameWatchdog, QUALITY_PRESETS, detectQuality, stepDown } from "@/board3d/quality";
+import { FrameWatchdog, QUALITY_PRESETS, detectQuality, resolveDpr, stepDown } from "@/board3d/quality";
 import { propsForHex } from "@/board3d/props";
 
 const close = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) < tol;
@@ -145,7 +145,7 @@ describe("docs/phase7-5.md §4 props", () => {
   });
 });
 
-describe("docs/phase7-5.md §7 quality", () => {
+describe("docs/phase7-5.md §6 quality", () => {
   it("auto-detects conservatively and steps down one level at a time", () => {
     expect(detectQuality({ maxTextureSize: 16384, maxRenderbufferSize: 16384, dpr: 2, cores: 12, mobile: false, software: false })).toBe("high");
     expect(detectQuality({ maxTextureSize: 8192, maxRenderbufferSize: 8192, dpr: 2, cores: 4, mobile: false, software: false })).toBe("medium");
@@ -160,16 +160,56 @@ describe("docs/phase7-5.md §7 quality", () => {
     expect(QUALITY_PRESETS.medium.propDensity).toBe(0.7);
   });
 
-  it("the watchdog fires after 3 s of slow frames and not on a brief hitch", () => {
-    const dog = new FrameWatchdog(33, 3000);
+  it("high and medium render at the true device pixel ratio capped at 2; low at 1", () => {
+    expect(resolveDpr("high", 2)).toBe(2);
+    expect(resolveDpr("medium", 2)).toBe(2);
+    expect(resolveDpr("medium", 1.25)).toBe(1.25);
+    expect(resolveDpr("high", 3)).toBe(2);
+    expect(resolveDpr("low", 2)).toBe(1);
+    expect(resolveDpr("high", 0.5)).toBe(1);
+    expect(resolveDpr("high", Number.NaN)).toBe(1);
+    expect(QUALITY_PRESETS.low.postfx).toBe(false);
+    expect(QUALITY_PRESETS.medium.postfx).toBe(false);
+  });
+
+  it("the watchdog ignores the warm-up, a single hitch and an occasional slow frame", () => {
+    const dog = new FrameWatchdog({ thresholdMs: 33, windowMs: 5000, warmupMs: 5000 });
     let now = 0;
-    // 2.9 s of 40 ms frames: not yet.
-    for (let i = 0; i < 72; i++) expect(dog.sample(40, (now += 40))).toBe(false);
-    // One fast frame resets the window.
-    expect(dog.sample(16, (now += 16))).toBe(false);
+    // Load: 6 s of 200 ms frames while shaders compile: the first 5 s are warm-up, so no verdict yet.
+    for (let i = 0; i < 30; i++) expect(dog.sample(200, (now += 200))).toBe(false);
+    // Then a steady 60 fps with one 400 ms hitch: never fires.
+    for (let i = 0; i < 300; i++) expect(dog.sample(16, (now += 16))).toBe(false);
+    expect(dog.sample(400, (now += 400))).toBe(false);
+    for (let i = 0; i < 300; i++) expect(dog.sample(16, (now += 16))).toBe(false);
+    // A third of the frames slow: still not sustained.
+    for (let i = 0; i < 600; i++) {
+      const slow = i % 3 === 0;
+      expect(dog.sample(slow ? 40 : 16, (now += slow ? 40 : 16))).toBe(false);
+    }
+  });
+
+  it("the watchdog fires once after 5 s of mostly slow frames, then warms up again", () => {
+    const dog = new FrameWatchdog({ thresholdMs: 33, windowMs: 5000, warmupMs: 5000 });
+    let now = 0;
+    for (let i = 0; i < 400; i++) expect(dog.sample(16, (now += 16))).toBe(false); // warm-up and a bit of play
+    // 40 ms frames with the odd fast one in between: a fast frame does not reset the window.
+    let fired = 0;
+    for (let i = 0; i < 150; i++) {
+      const fast = i % 10 === 0;
+      if (dog.sample(fast ? 16 : 40, (now += fast ? 16 : 40))) fired++;
+    }
+    expect(fired).toBe(1);
+    expect(now).toBeLessThan(400 * 16 + 6000);
+    // Right after firing the new preset compiles: 3 s of slow frames are ignored.
     for (let i = 0; i < 75; i++) expect(dog.sample(40, (now += 40))).toBe(false);
-    // Crossing 3 s continuous fires exactly once, then resets.
-    expect(dog.sample(40, (now += 40))).toBe(true);
-    expect(dog.sample(40, (now += 40))).toBe(false);
+  });
+
+  it("the watchdog treats a stall (a hidden tab) as no signal", () => {
+    const dog = new FrameWatchdog({ thresholdMs: 33, windowMs: 5000, warmupMs: 0 });
+    let now = 0;
+    for (let i = 0; i < 100; i++) expect(dog.sample(40, (now += 40))).toBe(false);
+    expect(dog.sample(30_000, (now += 30_000))).toBe(false);
+    // The window starts over: another 4 s of slow frames is not yet sustained.
+    for (let i = 0; i < 100; i++) expect(dog.sample(40, (now += 40))).toBe(false);
   });
 });

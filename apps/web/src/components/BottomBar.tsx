@@ -9,7 +9,7 @@ import { useAnchor } from "./anim/anchors";
 import { Avatar } from "./Avatar";
 import { CardBack, DevCardFace } from "./cards";
 import { TradeResponse } from "./dialogs";
-import { SettingsMenu } from "./SettingsMenu";
+import { SettingsMenu, type ActiveQuality } from "./SettingsMenu";
 import { Button, ResourceChip } from "./ui";
 import { WayfarersActions, type WagonControls } from "./wayfarers/WayfarersActions";
 import { CrownActions, CrownHandView, ProgressHand } from "./crown/CrownActions";
@@ -33,8 +33,10 @@ export interface BottomBarProps {
   /** Animations are draining: show the skip hint instead of controls (docs/phase7.md §2.1). */
   draining?: boolean;
   onSkip?: () => void;
-  /** The 3D board has graphics settings (docs/phase7-5.md §7). */
+  /** The 3D board has graphics settings (docs/phase7-5.md §6). */
   showGraphics?: boolean;
+  /** The preset the board is rendering with right now, and where it came from. */
+  activeQuality?: ActiveQuality;
   /** Wayfarers (docs/phase10.md): the fish sheet opener and the wagon path state. */
   wayfarers?: { onFish: () => void; wagon: WagonControls };
   /** Crown & Castle (docs/phase11.md §11): the sheet openers and the board picks made so far. */
@@ -43,7 +45,7 @@ export interface BottomBarProps {
 
 /** The acting player's bar: banner, hand, dev cards, actions (docs/phase3.md §3.2, §5, §6). */
 export function BottomBar(props: BottomBarProps) {
-  const { view, me, legal, mode, revealed, error, onDispatch, onMode, onTrade, onPickResources, seats, waitingOn, draining = false, onSkip, showGraphics = false, wayfarers, crown } = props;
+  const { view, me, legal, mode, revealed, error, onDispatch, onMode, onTrade, onPickResources, seats, waitingOn, draining = false, onSkip, showGraphics = false, activeQuality, wayfarers, crown } = props;
   const player = view.players.find((p) => p.id === me)!;
   const hand: Hand | null = isHiddenCount(player.hand) ? null : player.hand;
   const devCards: DevCard[] = isHiddenCount(player.devCards) ? [] : player.devCards;
@@ -191,7 +193,7 @@ export function BottomBar(props: BottomBarProps) {
             )}
           </>
         )}
-        <SettingsMenu showGraphics={showGraphics} />
+        <SettingsMenu showGraphics={showGraphics} {...(activeQuality ? { activeQuality } : {})} />
       </div>
     </div>
   );

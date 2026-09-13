@@ -82,4 +82,7 @@ test("reset view and settings menu graphics options are present", async ({ page 
   await expect(page.getByTestId("quality-auto")).toBeVisible();
   await page.getByTestId("quality-medium").click();
   await expect(page.getByTestId("board3d")).toHaveAttribute("data-quality", "medium");
+  const active = page.getByTestId("quality-active");
+  await expect(active).toHaveAttribute("data-quality", "medium");
+  await expect(active).toHaveAttribute("data-source", "manual");
 });

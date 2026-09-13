@@ -10,7 +10,7 @@ import type { Step } from "@/game/eventQueue";
 import { clearDriver } from "@/game/store";
 import { EVENT_CARD_HELP, EVENT_CARD_LABEL, PROGRESS_CARD_LABEL, TRACK_LABEL, errorText, playerName } from "@/game/labels";
 import { effectiveSpeed, useSettings, type Quality } from "@/game/settings";
-import { stepDown } from "@/board3d/quality";
+import { resolveDpr, stepDown, type QualitySource } from "@/board3d/quality";
 import type { CrownPick, TargetMode } from "@/board3d/Board3D";
 import { NO_PICK } from "@/board3d/Interaction";
 import { playSound } from "@/game/sound";
@@ -162,11 +162,15 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
   const { view, latest, current, draining, skip } = useEventQueue(driver, settings, isBot, onStep);
   const me = latest.viewer;
 
-  // Graphics quality: the setting, or auto-detection, minus any watchdog step-downs (docs/phase7-5.md §7).
+  // Graphics quality (docs/phase7-5.md §6): a manual preset is used as is and the watchdog stays off;
+  // Auto starts from detection and may be stepped down by the watchdog for this session only
+  // (the step-down is never written to the settings or the profile).
   const [detected, setDetected] = useState<Quality>("medium");
   const [degraded, setDegraded] = useState<Quality | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const quality: Quality = degraded ?? (settings.quality === "auto" ? detected : settings.quality);
+  const manual = settings.quality !== "auto";
+  const quality: Quality = manual ? settings.quality : (degraded ?? detected);
+  const qualitySource: QualitySource = manual ? "manual" : degraded ? "watchdog" : "auto";
   useEffect(() => setDegraded(null), [settings.quality]);
   const onDegrade = useCallback((from: Quality) => {
     const next = stepDown(from);
@@ -174,6 +178,10 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
     setDegraded(next);
     setToast(`Graphics lowered to ${next} to keep the game smooth`);
   }, []);
+  useEffect(() => {
+    const dpr = resolveDpr(quality, window.devicePixelRatio);
+    console.info(`[katan] graphics preset: ${quality} (${qualitySource}, render dpr ${dpr}, device dpr ${window.devicePixelRatio})`);
+  }, [quality, qualitySource]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 5000);
@@ -355,7 +363,7 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
             onSkip={draining ? skip : undefined}
             onCancelMode={() => setMode(null)}
             quality={quality}
-            onDegrade={onDegrade}
+            {...(manual ? {} : { onDegrade })}
             onDetected={setDetected}
             followTurns={settings.followTurns}
             overlay={
@@ -443,6 +451,7 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
         draining={draining}
         onSkip={skip}
         showGraphics
+        activeQuality={{ quality, source: qualitySource }}
         {...(view.wayfarers ? { wayfarers: { onFish: () => setDialog({ kind: "fish" }), wagon: { path: wagonPath, onUndo: undoStep } } } : {})}
         {...(crownOn ? { crown: { onImprove: () => setDialog({ kind: "improve" }), onProgress: (card?: ProgressCard) => setDialog({ kind: "progress", card: card ?? null }), pick: crownPick } } : {})}
       />
