@@ -246,6 +246,7 @@ export function bannerText(view: RedactedState, me: string): string {
 /** What a module prompt asks of its player (docs/phase10.md, docs/phase11.md). */
 export const PROMPT_TEXT: Record<ModulePromptKind, string> = {
   neighborlyHelp: "Give a card to the poorest player, or pass",
+  placeCastle: "Choose the settlement that becomes your castle",
   downgradeCity: "Choose a city to lose",
   placeMetropolis: "Place your metropolis on a city",
   discardProgress: "Discard down to four progress cards",

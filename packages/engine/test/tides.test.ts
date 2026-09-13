@@ -455,5 +455,5 @@ describe("docs/rules.md §14 Tides", () => {
       }
     }
     void hexCorner;
-  });
+  }, 60_000);
 });

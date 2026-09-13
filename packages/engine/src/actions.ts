@@ -424,10 +424,11 @@ function applyBuildSettlement(state: GameState, playerId: PlayerId, vertex: Vert
   const island = islandOfVertex(state, vertex);
   if (phase.kind === "setup") {
     if (island !== null && !player.startIslands.includes(island)) player.startIslands.push(island);
-    for (const h of activeModules(state)) h.onSetupSettlement?.(state, player, vertex, phase.round);
     const next: Phase = { kind: "setup", round: phase.round, step: "road", lastSettlement: vertex };
     const gold = phase.round === 2 ? grantStartingResources(state, player, vertex) : 0;
     resolveGold(state, { [playerId]: gold }, next);
+    // After the phase is set, so a module may park a prompt that wraps the road step (raiders' castle).
+    for (const h of activeModules(state)) h.onSetupSettlement?.(state, player, vertex, phase.round);
     return;
   }
   // §14.4: first settlement on an island the player did not start on.

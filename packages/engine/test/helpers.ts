@@ -6,7 +6,7 @@ import { applyAction } from "../src/actions";
 import { createGame } from "../src/game";
 import { legalActions } from "../src/legal";
 import { createRng, rng, type Rng } from "../src/rng";
-import { buildingAt, cloneJson, currentPlayerId, getPlayer, hand } from "../src/state";
+import { buildingAt, cloneJson, currentPlayerId, getPlayer, hand, nextActor } from "../src/state";
 import { updateLongestRoad } from "../src/specialCards";
 import type { Scenario } from "../src/scenario";
 import type { Action, GameState, Hand, PlayerId } from "../src/types";
@@ -90,8 +90,9 @@ export const ROLL_PHASE: GameState["phase"] = { kind: "roll" };
 /** A deterministic, sensible setup: each player takes the first legal placement. */
 export function finishSetup(start: GameState, rng?: Rng): GameState {
   let state = start;
-  while (state.phase.kind === "setup") {
-    const who = currentPlayerId(state);
+  // Module prompts (a raiders castle) and gold choices may interleave with the setup steps.
+  while (state.phase.kind !== "roll" && state.phase.kind !== "ended") {
+    const who = nextActor(state);
     const actions = legalActions(state, who);
     const action = rng ? actions[rng.int(actions.length)] : actions[0];
     if (!action) throw new Error("no legal setup action");
