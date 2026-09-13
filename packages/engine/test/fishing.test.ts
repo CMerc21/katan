@@ -398,11 +398,13 @@ describe("docs/phase10.md §2 Fishing", () => {
     expect(getPlayer(done, "b").hand).toEqual(hand({ wood: 1 }));
     expect(victoryPoints(done, getPlayer(done, "a")).total).toBe(1);
     expect(victoryPoints(done, getPlayer(done, "b")).total).toBe(0);
-    // Not the holder: refused at offer time. A receiver with fewer points: refused at accept time.
+    // Not the holder: refused at offer time. A receiver with fewer points: the trade still goes through, the boot stays.
     expectRule(() => applyAction(mut(state, (s) => void (fishing(s).boot = "c")), offer), "NO_BOOT");
     expect(legalActions(mut(state, (s) => void (fishing(s).boot = null)), "a")).not.toContainEqual(offer);
     const poorer = mut(pending, (s) => void getPlayer(s, "b").settlements.pop());
-    expectRule(() => applyAction(poorer, { type: "ACCEPT_TRADE", playerId: "b" }), "BOOT_NOT_ALLOWED");
+    const kept = applyAction(poorer, { type: "ACCEPT_TRADE", playerId: "b" });
+    expect(fishing(kept).boot).toBe("a");
+    expect(getPlayer(kept, "b").hand.wood).toBe(1);
     // Nobody eligible: the boot offer is not suggested.
     const richest = place(state, "a", { settlements: [corners[3] as VertexId] });
     expect(legalActions(richest, "a").some((a) => a.type === "OFFER_TRADE" && a.boot === true)).toBe(false);
@@ -459,9 +461,9 @@ describe("docs/phase10.md §2 Fishing", () => {
     expect(still.phase.kind).toBe("action");
     expect(still.winner).toBeNull();
     const cancelled = applyAction(still, { type: "CANCEL_TRADE", playerId: "a" });
-    // Pass the boot to Bo (6 VP < Ada's 10): refused. Give Bo more points first.
+    // Pass the boot to Bo (6 VP < Ada's 10): the trade completes but the boot stays with Ada. Give Bo more points first.
     const pending = applyAction(cancelled, { type: "OFFER_TRADE", playerId: "a", give: hand({ wood: 1 }), receive: hand({ clay: 1 }), boot: true });
-    expectRule(() => applyAction(pending, { type: "ACCEPT_TRADE", playerId: "b" }), "BOOT_NOT_ALLOWED");
+    expect(fishing(applyAction(pending, { type: "ACCEPT_TRADE", playerId: "b" })).boot).toBe("a");
     const bRich = mut(pending, (s) => {
       const b = getPlayer(s, "b");
       b.devCards.push({ type: "victoryPoint", boughtOnTurn: 0 }, { type: "victoryPoint", boughtOnTurn: 0 }, { type: "victoryPoint", boughtOnTurn: 0 }, { type: "victoryPoint", boughtOnTurn: 0 });

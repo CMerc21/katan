@@ -14,6 +14,7 @@ import {
   COSTS,
   buildingAt,
   buildingsMap,
+  cardCount,
   currentPlayerId,
   emptyHand,
   getPlayer,
@@ -260,7 +261,7 @@ export function stealTargets(state: GameState, hex: HexId, thief: PlayerId): Pla
   for (const v of boardGeometry(state.board).hexVertices[hex] ?? []) {
     const b = buildingAt(state, v);
     if (!b || b.owner === thief || out.includes(b.owner)) continue;
-    if (handSize(getPlayer(state, b.owner).hand) >= 1) out.push(b.owner);
+    if (cardCount(state, getPlayer(state, b.owner)) >= 1) out.push(b.owner);
   }
   return out;
 }
@@ -271,7 +272,7 @@ export function pirateStealTargets(state: GameState, hex: HexId, thief: PlayerId
   const edges = new Set(boardGeometry(state.board).hexEdges[hex] ?? []);
   for (const p of state.players) {
     if (p.id === thief || out.includes(p.id)) continue;
-    if (p.ships.some((e) => edges.has(e)) && handSize(p.hand) >= 1) out.push(p.id);
+    if (p.ships.some((e) => edges.has(e)) && cardCount(state, p) >= 1) out.push(p.id);
   }
   return out;
 }

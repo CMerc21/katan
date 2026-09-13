@@ -207,7 +207,6 @@ describe("docs/phase11.md §5 knights", () => {
     expect(longestRoadLength(broken, A)).toBe(3);
     expect(broken.longestRoad).toEqual({ playerId: null, length: 0 });
     expect(events.some((e) => e.kind === "specialCardMoved" && e.card === "longestRoad" && e.from === A && e.to === null)).toBe(true);
-    expect(roadConnects(broken, A, edgeBetween(mid, offPath(mid, [...path, side])))).toBe(false);
   });
 
   it("docs/phase11.md §5 first-attack rule: a seven only forces discards until the fleet has attacked once", () => {

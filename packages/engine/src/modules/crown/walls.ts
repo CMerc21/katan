@@ -4,6 +4,7 @@
  */
 
 import { RuleError } from "../../errors";
+import type { VertexId } from "../../geometry";
 import { pay, requireCurrent, requirePhase } from "../../guards";
 import { currentPlayerId, emit, hasResources } from "../../state";
 import type { Action, BuildWallAction, GameState, Player } from "../../types";
@@ -16,7 +17,7 @@ export function discardThreshold(state: GameState, player: Player): number {
 }
 
 /** Own cities without a wall. */
-export function wallSites(state: GameState, player: Player): string[] {
+export function wallSites(state: GameState, player: Player): VertexId[] {
   const walls = crownPlayer(state, player.id).walls;
   return player.cities.filter((v) => !walls.includes(v));
 }

@@ -262,7 +262,11 @@ registerModule({
     if (boot.accept && f.boot !== acceptor.id) throw new RuleError("NO_BOOT", `${acceptor.id} does not hold the old boot`);
     const holder = boot.offer ? offerer : acceptor;
     const receiver = boot.offer ? acceptor : offerer;
-    if (!bootAllowed(state, f, holder, receiver)) throw new RuleError("BOOT_NOT_ALLOWED", `${receiver.id} has fewer points than ${holder.id}`);
+    if (!bootAllowed(state, f, holder, receiver)) {
+      // An offer with the boot attached may still be accepted by a player who is not eligible: the trade goes through and the boot stays.
+      if (boot.offer && !boot.accept) return;
+      throw new RuleError("BOOT_NOT_ALLOWED", `${receiver.id} has fewer points than ${holder.id}`);
+    }
     f.boot = receiver.id;
     emit(state, { kind: "bootPassed", from: holder.id, to: receiver.id });
   },
