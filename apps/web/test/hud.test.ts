@@ -92,7 +92,7 @@ describe("docs/phase12.md §5 end turn pulse and the status line", () => {
   it("the setup legal list drives the cost rows off during setup", () => {
     const state = createGame({ seed: "hud-7", players: PLAYERS, board: "beginner" });
     const view = redact(state, "a");
-    const rows = costRows(view, "a", { wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 }, legalActions(state));
+    const rows = costRows(view, "a", { wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 }, legalActions(state, "a"));
     expect(rows.every((r) => !r.affordable)).toBe(true);
   });
 });
