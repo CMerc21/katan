@@ -7,6 +7,7 @@ import { RESOURCES, type Action } from "@katan/engine";
 import { hexesOf, myHand, rawPipCount } from "./eval";
 import { ensureLegal, ofType, pick, resourceTrades, type BotPolicy, type RedactedState, type Rng } from "./types";
 import { wayfarersBeforeBuild } from "./wayfarers";
+import { crownDiscard, crownEasy } from "./crown";
 
 export function easyBot(): BotPolicy {
   return { level: "easy", chooseAction: chooseEasy };
@@ -27,6 +28,9 @@ export function chooseEasy(view: RedactedState, legal: Action[], rng: Rng): Acti
   }
 
   if (phase === "discard") {
+    // Crown & Castle (docs/phase11.md §10): commodities fill a discard the resources cannot.
+    const crownPick = crownDiscard(view, legal, rng);
+    if (crownPick) return crownPick;
     const owed = view.pendingDiscards[me] ?? 0;
     const hand = { ...myHand(view) };
     const cards = { wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 };
@@ -73,6 +77,9 @@ export function chooseEasy(view: RedactedState, legal: Action[], rng: Rng): Acti
     // Wayfarers (docs/phase10.md §4): free variant actions (fish, caravans, deliveries) most of the time.
     const variant = wayfarersBeforeBuild(view, legal, rng);
     if (variant && rng() < 0.7) return variant;
+    // Crown & Castle (docs/phase11.md §10): improvements, knights and cards now and then so games end.
+    const crown = crownEasy(view, legal, rng);
+    if (crown) return crown;
     const roll = rng();
     const hand = myHand(view);
     const handSize = RESOURCES.reduce((n, r) => n + hand[r], 0);

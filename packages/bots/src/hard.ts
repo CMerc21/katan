@@ -21,6 +21,7 @@ import { afford, edgeTowardScore, geo, handTotal, hexValueFor, myHand, productio
 import { bestSetupLink, chooseGold, chooseRobberHex, chooseShipMove, chooseSpecialBuild, discardKeepingTarget, longestRoadGain, offeredThisTurn, respondToTrade } from "./medium";
 import { best, ensureLegal, isResourceTrade, ofType, pick, type BotPolicy, type RedactedState, type Rng } from "./types";
 import { choosePrompt, linkBonus, positionBonus, wayfarersAfterBuild, wayfarersBeforeBuild, withBoot } from "./wayfarers";
+import { crownBeforeBuild, crownBeforeRoll, crownBuild, crownPositionBonus, usefulCommodityTrades } from "./crown";
 
 export function hardBot(): BotPolicy {
   return { level: "hard", chooseAction: chooseHard };
@@ -51,6 +52,9 @@ export function chooseHard(view: RedactedState, legal: Action[], rng: Rng): Acti
   if (phase === "roll") {
     const knight = legal.find((a) => a.type === "PLAY_KNIGHT");
     if (knight && hexValueFor(view, view.robberHex, me) > 0) return knight;
+    // Crown & Castle (docs/phase11.md §10): the one progress card allowed before the roll.
+    const progress = crownBeforeRoll(view, legal, rng);
+    if (progress) return progress;
     return legal.find((a) => a.type === "ROLL") ?? pick(rng, legal);
   }
   if (phase === "roadBuilding") {
@@ -171,7 +175,9 @@ export function positionScore(view: RedactedState, playerId: string): number {
   const la = view.largestArmy.playerId === playerId ? 0 : p.playedKnights >= 2 ? 0.8 : 0;
   // Wayfarers (docs/phase10.md §4): chip progress and stored variant currency.
   const variants = positionBonus(view, playerId);
-  return vp * 10 * endgame + production * 0.6 + planScore * 0.25 + closeness * 0.8 + cards + lr + la + variants - t.leaderVP * 0.2;
+  // Crown & Castle (docs/phase11.md §10): track levels, defence against the fleet, commodities, walls.
+  const crown = crownPositionBonus(view, playerId);
+  return vp * 10 * endgame + production * 0.6 + planScore * 0.25 + closeness * 0.8 + cards + lr + la + variants + crown - t.leaderVP * 0.2;
 }
 
 function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Action {
@@ -185,6 +191,10 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
   // action types stay out of the lookahead (their payoffs are not in positionScore).
   const early = wayfarersBeforeBuild(view, legal, rng);
   if (early) return early;
+  // Crown & Castle (docs/phase11.md §10): urgent defence, free progress cards, chases and road-breaking knights
+  // are rule-based (their payoffs are hidden or not in positionScore); the crown builds join the lookahead below.
+  const crownEarly = crownBeforeBuild(view, legal, rng);
+  if (crownEarly) return crownEarly;
 
   const candidates = legal.filter(
     (a) =>
@@ -197,7 +207,12 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
       a.type === "PLAY_ROAD_BUILDING" ||
       a.type === "PLAY_MONOPOLY" ||
       a.type === "PLAY_INVENTION" ||
-      a.type === "PLAY_KNIGHT",
+      a.type === "PLAY_KNIGHT" ||
+      a.type === "BUILD_IMPROVEMENT" ||
+      a.type === "BUILD_KNIGHT" ||
+      a.type === "ACTIVATE_KNIGHT" ||
+      a.type === "PROMOTE_KNIGHT" ||
+      a.type === "BUILD_WALL",
   );
 
   // Prune: keep the most promising roads and maritime trades.
@@ -210,7 +225,9 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
     .slice(0, 8)
     .map((x) => x.a);
   const usefulTrades = trades.filter((a) => isResourceTrade(a) && need.missing[a.receive] > 0 && need.cost[a.give] === 0);
-  const pool = [...others, ...topRoads, ...usefulTrades].slice(0, MAX_CANDIDATES);
+  // Crown & Castle (docs/phase11.md §10): commodity trades that complete a build or an improvement.
+  const commodityTrades = usefulCommodityTrades(view, legal);
+  const pool = [...others, ...topRoads, ...usefulTrades, ...commodityTrades].slice(0, MAX_CANDIDATES);
 
   let bestAction: Action | null = null;
   let bestGain = 0.05;
@@ -226,6 +243,9 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
   const later = wayfarersAfterBuild(view, legal, rng);
   if (later) return later;
   if (bestAction) return bestAction;
+  // Crown & Castle (docs/phase11.md §10): the medium rules as a safety net when the lookahead found nothing.
+  const crownLater = crownBuild(view, legal, rng);
+  if (crownLater) return crownLater;
   const shipMove = chooseShipMove(view, legal, rng);
   if (shipMove) return shipMove;
 

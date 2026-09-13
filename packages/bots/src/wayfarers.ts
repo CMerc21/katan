@@ -25,6 +25,7 @@ import { RESOURCES, boardGeometry, type Action, type EdgeId, type HexId, type Re
 import { PIPS, cardCount, edgeTowardScore, handTotal, hexValueFor, me as meOf, myHand, player, rawPipCount, resourceNeed, scarcity, threat } from "./eval";
 import { longestRoadGain, offeredThisTurn } from "./medium";
 import { best, ensureLegal, ofType, pick, type RedactedState, type Rng } from "./types";
+import { chooseCrownPrompt } from "./crown";
 
 export function variantOn(view: RedactedState, name: VariantName): boolean {
   return view.scenario?.variants[name] === true;
@@ -58,8 +59,8 @@ export function choosePrompt(view: RedactedState, legal: Action[], rng: Rng): Ac
       return nothing ?? (gives.length ? pick(rng, gives) : pick(rng, legal));
     }
     default:
-      // Crown & Castle prompts (and anything new) never stall the bot.
-      return pick(rng, legal);
+      // Crown & Castle (docs/phase11.md §10): its prompt kinds; anything new never stalls the bot.
+      return chooseCrownPrompt(view, legal, rng) ?? pick(rng, legal);
   }
 }
 

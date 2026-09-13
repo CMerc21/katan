@@ -24,6 +24,7 @@ import {
 } from "./eval";
 import { best, ensureLegal, ofType, pick, resourceTrades, type BotPolicy, type RedactedState, type Rng } from "./types";
 import { chooseGuard, choosePrompt, cityBonus, linkBonus, wayfarersAfterBuild, wayfarersBeforeBuild, withBoot } from "./wayfarers";
+import { crownBeforeBuild, crownBeforeRoll, crownBuild, crownCityBonus, crownDiscard } from "./crown";
 
 export function mediumBot(): BotPolicy {
   return { level: "medium", chooseAction: chooseMedium };
@@ -59,6 +60,9 @@ export function chooseMedium(view: RedactedState, legal: Action[], rng: Rng): Ac
     // Knight before rolling if the robber sits on one of my producing hexes.
     const knight = legal.find((a) => a.type === "PLAY_KNIGHT");
     if (knight && hexValueFor(view, view.robberHex, me) > 0) return knight;
+    // Crown & Castle (docs/phase11.md §10): the one progress card allowed before the roll.
+    const progress = crownBeforeRoll(view, legal, rng);
+    if (progress) return progress;
     return legal.find((a) => a.type === "ROLL") ?? pick(rng, legal);
   }
 
@@ -114,12 +118,15 @@ export function chooseSpecialBuild(view: RedactedState, legal: Action[], rng: Rn
   const me = view.viewer;
   const need = resourceNeed(view, me);
   const cities = ofType(legal, "BUILD_CITY");
-  if (cities.length) return best(rng, cities, (a) => handTotal(vertexPipsFor(view, a.vertex)) + cityBonus(view, a.vertex));
+  if (cities.length) return best(rng, cities, (a) => handTotal(vertexPipsFor(view, a.vertex)) + cityBonus(view, a.vertex) + crownCityBonus(view, a.vertex, me));
   const settlements = ofType(legal, "BUILD_SETTLEMENT");
   if (settlements.length) return best(rng, settlements, (a) => vertexScore(view, a.vertex, me));
   // Wayfarers (docs/phase10.md §5): guards may be posted in the special build phase.
   const guard = chooseGuard(view, legal, rng);
   if (guard) return guard;
+  // Crown & Castle (docs/phase11.md §10): improvements, knights and walls are builds too.
+  const crown = crownBuild(view, legal, rng);
+  if (crown) return crown;
   const links = [
     ...ofType(legal, "BUILD_ROAD").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me) + longestRoadGain(view, a.edge, me) + linkBonus(view, a.edge, me) })),
     ...ofType(legal, "BUILD_SHIP").map((a) => ({ a: a as Action, s: edgeTowardScore(view, a.edge, me, "ship") + longestRoadGain(view, a.edge, me) })),
@@ -137,6 +144,9 @@ export function chooseSpecialBuild(view: RedactedState, legal: Action[], rng: Rn
 
 export function discardKeepingTarget(view: RedactedState, legal: Action[], rng: Rng): Action {
   const me = view.viewer;
+  // Crown & Castle (docs/phase11.md §10): commodities fill a discard the resources cannot; keep the primary track's.
+  const crownPick = crownDiscard(view, legal, rng);
+  if (crownPick) return crownPick;
   const owed = view.pendingDiscards[me] ?? 0;
   const need = resourceNeed(view, me);
   const hand = { ...myHand(view) };
@@ -207,6 +217,9 @@ export function chooseTurnAction(view: RedactedState, legal: Action[], rng: Rng)
   // Wayfarers (docs/phase10.md §4): fish, caravans, rebuilds and deliveries first (free or clearly profitable).
   const early = wayfarersBeforeBuild(view, legal, rng);
   if (early) return early;
+  // Crown & Castle (docs/phase11.md §10): urgent defence, free progress cards, chases and road-breaking knights.
+  const crownEarly = crownBeforeBuild(view, legal, rng);
+  if (crownEarly) return crownEarly;
 
   // Road Building toward Longest Road, or when roads are what the plan needs.
   const roadBuilding = legal.find((a) => a.type === "PLAY_ROAD_BUILDING");
@@ -230,9 +243,12 @@ export function chooseTurnAction(view: RedactedState, legal: Action[], rng: Rng)
 
   // Build priority (§6.5).
   const cities = ofType(legal, "BUILD_CITY");
-  if (cities.length) return best(rng, cities, (a) => handTotal(vertexPipsFor(view, a.vertex)) + cityBonus(view, a.vertex));
+  if (cities.length) return best(rng, cities, (a) => handTotal(vertexPipsFor(view, a.vertex)) + cityBonus(view, a.vertex) + crownCityBonus(view, a.vertex, me));
   const settlements = ofType(legal, "BUILD_SETTLEMENT");
   if (settlements.length) return best(rng, settlements, (a) => vertexScore(view, a.vertex, me));
+  // Crown & Castle (docs/phase11.md §10): improvements, knights, commodity trades, promotions and walls.
+  const crownLater = crownBuild(view, legal, rng);
+  if (crownLater) return crownLater;
   // Wayfarers (docs/phase10.md §4): guards, wagon moves and boot-passing offers before roads and purchases.
   const later = wayfarersAfterBuild(view, legal, rng);
   if (later) return later;

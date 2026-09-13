@@ -9,6 +9,7 @@ export { chooseEasy } from "./easy";
 export { chooseMedium } from "./medium";
 export { chooseHard, plan, positionScore } from "./hard";
 export * from "./simulate";
+export * from "./crown";
 export * from "./names";
 
 /** docs/phase5.md §6.1 */
