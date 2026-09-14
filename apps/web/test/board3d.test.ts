@@ -4,8 +4,8 @@ import { createLayout } from "@/board/layout";
 import { boardBounds, edgeWorld, framingDistance, hexCornerWorld, hexWorld, tileJitter, vertexWorld } from "@/board3d/layout3d";
 import { computeTargets, targetName, wagonMoveFor } from "@/board3d/Interaction";
 import { FrameWatchdog, QUALITY_PRESETS, detectQuality, resolveDpr, stepDown } from "@/board3d/quality";
-import { FOOTPRINT, HERO_PROP, propsForHex, type PropKind, type PropTerrain } from "@/board3d/props";
-import { RECESS_RADIUS, propBoundary } from "@/board3d/slab";
+import { BAR_HALF_LENGTH, FENCE_RADIUS, HEX_AXES, PROP_INNER, propBounds, propLimit, propsForHex, type PropKind, type PropTerrain } from "@/board3d/props";
+import { BACK } from "@/board3d/layout3d";
 
 const close = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) < tol;
 
@@ -131,65 +131,178 @@ describe("docs/phase10.md §5 Wayfarers target modes", () => {
 });
 
 describe("docs/props.md §3 props", () => {
-  const boundaryAt = (x: number, z: number) => propBoundary(Math.atan2(z, x));
+  const LAND: PropTerrain[] = ["forest", "meadow", "farmland", "claypit", "mountain", "wasteland", "gold", "lake"];
+  const HEXES = ["0,0", "2,-1", "-1,2", "1,1"];
+  const of = (t: PropTerrain, kinds: readonly PropKind[], hex = "0,0", density = 1) => propsForHex(hex, t, density).filter((p) => (kinds as readonly string[]).includes(p.kind));
+  const count = (t: PropTerrain, kind: PropKind, hex = "0,0", density = 1) => of(t, [kind], hex, density).length;
+  const dist = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
 
-  it("are seeded per tile, respect the density, and keep off the recess and the edge margin", () => {
+  it("are seeded per tile and identical on every call", () => {
     const a = propsForHex("0,0", "forest", 1);
     expect(propsForHex("0,0", "forest", 1)).toEqual(a);
     expect(propsForHex("1,0", "forest", 1)).not.toEqual(a);
-    expect(a.filter((p) => p.kind === "pine").length).toBeGreaterThanOrEqual(6);
-    const low = propsForHex("0,0", "forest", 0.4);
-    expect(low.length).toBeLessThan(a.length);
-    for (const terrain of ["forest", "meadow", "farmland", "claypit", "mountain", "wasteland", "gold"] as const) {
-      for (const p of propsForHex("2,-1", terrain, 1)) {
-        const r = Math.hypot(p.x, p.z);
-        const foot = FOOTPRINT[p.kind];
-        expect(r).toBeGreaterThan(RECESS_RADIUS);
-        expect(r + foot).toBeLessThanOrEqual(boundaryAt(p.x, p.z) + 1e-9);
-      }
-    }
-    for (const p of propsForHex("0,1", "sea", 1)) expect(Math.hypot(p.x, p.z) + FOOTPRINT[p.kind]).toBeLessThanOrEqual(boundaryAt(p.x, p.z) + 1e-9);
   });
 
-  it("every terrain keeps its hero prop at every density, and the counts follow the brief at High", () => {
-    for (const [terrain, hero] of Object.entries(HERO_PROP) as [PropTerrain, PropKind][]) {
-      for (const density of [1, 0.7, 0.4]) {
-        const kinds = propsForHex("0,0", terrain, density).map((p) => p.kind);
-        expect(kinds.filter((k) => k === hero).length).toBe(1);
+  it("keep a 0.30 clear circle at the token and 0.08 inside the slab edge, the ends of long props included", () => {
+    expect(PROP_INNER).toBeGreaterThanOrEqual(0.3);
+    for (const terrain of LAND) {
+      for (const hex of HEXES) {
+        const props = propsForHex(hex, terrain, 1);
+        expect(props.length).toBeGreaterThan(0);
+        for (const p of props) {
+          for (const b of propBounds(p)) {
+            const r = Math.hypot(b.x, b.z);
+            expect(r - b.r).toBeGreaterThanOrEqual((terrain === "lake" ? 0 : 0.3) - 1e-9);
+            expect(r + b.r).toBeLessThanOrEqual(propLimit(Math.atan2(b.z, b.x)) + 1e-9);
+          }
+        }
       }
     }
-    const counts = (terrain: PropTerrain, kind: PropKind, hex = "0,0") => propsForHex(hex, terrain, 1).filter((p) => p.kind === kind).length;
-    expect(counts("meadow", "sheep")).toBeGreaterThanOrEqual(5);
-    expect(counts("meadow", "sheep")).toBeLessThanOrEqual(6);
-    expect(counts("meadow", "fence")).toBe(2);
-    expect(counts("claypit", "mound")).toBeGreaterThanOrEqual(2);
-    expect(counts("mountain", "peak")).toBeGreaterThanOrEqual(2);
-    expect(counts("mountain", "goldNugget")).toBe(2);
-    expect(counts("wasteland", "rock")).toBeGreaterThanOrEqual(4);
-    expect(counts("gold", "goldNugget")).toBeGreaterThanOrEqual(5);
-    expect(counts("gold", "peak")).toBe(2);
-    expect(counts("sea", "crest")).toBe(2);
-    expect(counts("lake", "reed")).toBeGreaterThanOrEqual(4);
-    // The gull only appears at Medium and above.
-    expect(propsForHex("0,0", "sea", 0.4).some((p) => p.kind === "gull")).toBe(false);
+    for (const density of [1, 0.7, 0.4]) expect(propsForHex("0,1", "sea", density)).toEqual([]);
   });
 
-  it("fields lay four wheat rows evenly around the recess, each turned along its ring", () => {
-    const rows = propsForHex("0,0", "farmland", 1).filter((p) => p.kind === "wheat");
-    expect(rows).toHaveLength(4);
-    const angles = rows.map((p) => Math.atan2(p.z, p.x));
-    for (let i = 0; i < 4; i++) {
-      const r = Math.hypot(rows[i]!.x, rows[i]!.z);
-      expect(r).toBeGreaterThan(0.49);
-      expect(r).toBeLessThan(0.55);
-      // The row's long axis (local +x under a Y rotation) is tangent to the ring.
-      const dx = Math.cos(rows[i]!.rot);
-      const dz = -Math.sin(rows[i]!.rot);
-      expect(Math.abs(dx * Math.cos(angles[i]!) + dz * Math.sin(angles[i]!))).toBeLessThan(1e-9);
+  it("forest: two clusters of 3–5 trees mixing round and pine, scale 0.85–1.15, and a log pile", () => {
+    for (const hex of HEXES) {
+      const trees = of("forest", ["tree", "tree2", "pine"], hex);
+      expect(trees.length).toBeGreaterThanOrEqual(5);
+      expect(trees.length).toBeLessThanOrEqual(10);
+      expect(trees.some((p) => p.kind === "pine")).toBe(true);
+      expect(trees.some((p) => p.kind !== "pine")).toBe(true);
+      for (const t of trees) {
+        expect(t.scale).toBeGreaterThanOrEqual(0.85);
+        expect(t.scale).toBeLessThanOrEqual(1.15);
+        // Every tree has a neighbour close by (a cluster), and the two clusters sit apart.
+        expect(trees.some((o) => o !== t && dist(o, t) < 0.4)).toBe(true);
+      }
+      expect(Math.max(...trees.flatMap((a) => trees.map((b) => dist(a, b))))).toBeGreaterThan(0.7);
+      expect(count("forest", "logPile", hex)).toBe(1);
     }
-    const sorted = [...angles].sort((a, b) => a - b);
-    for (let i = 1; i < 4; i++) expect(sorted[i]! - sorted[i - 1]!).toBeCloseTo(Math.PI / 2, 6);
-    expect(propsForHex("0,0", "farmland", 0.4).filter((p) => p.kind === "windmill")).toHaveLength(1);
+  });
+
+  it("pasture: 4–6 sheep in a group, 2–3 fence sections along one edge, a bush or two", () => {
+    for (const hex of HEXES) {
+      const sheep = of("meadow", ["sheep"], hex);
+      expect(sheep.length).toBeGreaterThanOrEqual(4);
+      expect(sheep.length).toBeLessThanOrEqual(6);
+      for (const s of sheep) expect(sheep.some((o) => o !== s && dist(o, s) < 0.45)).toBe(true);
+      const fences = of("meadow", ["fence"], hex);
+      expect(fences.length).toBeGreaterThanOrEqual(2);
+      expect(fences.length).toBeLessThanOrEqual(3);
+      // One run: every section turned the same way, all at the fence radius along the edge's direction.
+      const phi = -fences[0]!.rot;
+      for (const f of fences) {
+        expect(f.rot).toBeCloseTo(fences[0]!.rot, 9);
+        expect(f.x * Math.cos(phi) + f.z * Math.sin(phi)).toBeCloseTo(FENCE_RADIUS, 6);
+      }
+      expect(count("meadow", "bush", hex)).toBeGreaterThanOrEqual(1);
+      expect(count("meadow", "bush", hex)).toBeLessThanOrEqual(2);
+    }
+  });
+
+  /** The rows' axis and their offsets across it, if the sheaves lie in 3–4 parallel rows on a hex axis. */
+  function rowsOf(sheaves: { x: number; z: number }[]): { axis: number; rows: number[][] } | null {
+    for (const axis of HEX_AXES) {
+      const offsets = sheaves.map((p) => -p.x * Math.sin(axis) + p.z * Math.cos(axis)).sort((a, b) => a - b);
+      const rows: number[][] = [];
+      for (const o of offsets) {
+        const last = rows[rows.length - 1];
+        if (last && o - last[last.length - 1]! < 0.12) last.push(o);
+        else rows.push([o]);
+      }
+      const tight = rows.every((r) => r[r.length - 1]! - r[0]! < 0.1);
+      if (tight && (rows.length === 3 || rows.length === 4)) return { axis, rows };
+    }
+    return null;
+  }
+
+  it("fields: sheaves in 3–4 parallel rows on a hex axis, the windmill off-centre, a hay bale past a row end", () => {
+    for (const hex of HEXES) {
+      const sheaves = of("farmland", ["wheat", "wheat2"], hex);
+      expect(sheaves.length).toBeGreaterThanOrEqual(9);
+      const found = rowsOf(sheaves);
+      expect(found).not.toBeNull();
+      for (const row of found!.rows) expect(row.length).toBeGreaterThanOrEqual(2);
+      const mills = of("farmland", ["windmill"], hex);
+      expect(mills).toHaveLength(1);
+      expect(Math.hypot(mills[0]!.x, mills[0]!.z)).toBeGreaterThan(0.45);
+      expect(count("farmland", "hayBale", hex)).toBeLessThanOrEqual(1);
+    }
+    expect(count("farmland", "hayBale", "0,0") + count("farmland", "hayBale", "2,-1") + count("farmland", "hayBale", "-1,2") + count("farmland", "hayBale", "1,1")).toBeGreaterThanOrEqual(1);
+  });
+
+  it("hills: 2–3 clay mounds mixing tall and wide, a kiln on one side with a brick stack beside it", () => {
+    for (const hex of HEXES) {
+      const mounds = of("claypit", ["moundTall", "moundWide", "moundLow", "moundTerraced"], hex);
+      expect(mounds.length).toBeGreaterThanOrEqual(2);
+      expect(mounds.length).toBeLessThanOrEqual(3);
+      expect(mounds.some((m) => m.kind === "moundTall" || m.kind === "moundTerraced")).toBe(true);
+      expect(mounds.some((m) => m.kind === "moundWide" || m.kind === "moundLow")).toBe(true);
+      const kiln = of("claypit", ["kiln"], hex);
+      expect(kiln).toHaveLength(1);
+      const bricks = of("claypit", ["brickStack"], hex);
+      expect(bricks).toHaveLength(1);
+      expect(dist(bricks[0]!, kiln[0]!)).toBeLessThan(0.36);
+    }
+  });
+
+  it("mountains: one peak centre-back, two ridges flanking it at 0.8–1.0 and different turns, boulders at the feet in front", () => {
+    const back = (p: { x: number; z: number }) => p.x * BACK.x + p.z * BACK.z;
+    for (const hex of HEXES) {
+      const peak = of("mountain", ["peak"], hex);
+      expect(peak).toHaveLength(1);
+      expect(back(peak[0]!)).toBeGreaterThan(0.3);
+      const ridges = of("mountain", ["ridge"], hex);
+      expect(ridges).toHaveLength(2);
+      for (const r of ridges) {
+        expect(r.scale).toBeGreaterThanOrEqual(0.8);
+        expect(r.scale).toBeLessThanOrEqual(1);
+        expect(dist(r, peak[0]!)).toBeLessThan(0.6);
+      }
+      expect(ridges[0]!.rot).not.toBeCloseTo(ridges[1]!.rot, 3);
+      const feet = of("mountain", ["boulder", "rubble"], hex);
+      expect(feet.length).toBeGreaterThanOrEqual(1);
+      for (const f of feet) expect(back(f)).toBeLessThan(0);
+    }
+  });
+
+  it("desert: one cactus, dry bush, skull and flat rock, sparse and spread out", () => {
+    for (const hex of HEXES) {
+      const props = propsForHex(hex, "wasteland", 1);
+      expect(props.map((p) => p.kind).sort()).toEqual(["cactus", "dryBush", "flatRock", "skull"]);
+      for (const a of props) for (const b of props) if (a !== b) expect(dist(a, b)).toBeGreaterThan(0.4);
+    }
+  });
+
+  it("gold and lake keep their props", () => {
+    expect(count("gold", "peak")).toBe(2);
+    expect(count("gold", "sluice")).toBe(1);
+    expect(count("gold", "goldNugget")).toBeGreaterThanOrEqual(4);
+    expect(count("lake", "reed")).toBeGreaterThanOrEqual(4);
+  });
+
+  it("the Low preset halves the clusters and drops scale jitter but keeps every terrain dressed", () => {
+    for (const terrain of LAND) {
+      const low = propsForHex("0,0", terrain, 0.4);
+      const full = propsForHex("0,0", terrain, 1);
+      expect(low.length, terrain).toBeGreaterThan(0);
+      expect(low.length, terrain).toBeLessThan(full.length);
+      // No jitter variants: at most one scale per kind.
+      const byKind = new Map<PropKind, Set<number>>();
+      for (const p of low) byKind.set(p.kind, (byKind.get(p.kind) ?? new Set()).add(p.scale));
+      for (const scales of byKind.values()) expect(scales.size).toBe(1);
+    }
+    expect(of("forest", ["tree", "tree2", "pine"], "0,0", 0.4).length).toBeLessThanOrEqual(4);
+    expect(rowsOf(of("farmland", ["wheat", "wheat2"], "0,0", 0.4))?.rows).toHaveLength(3);
+    expect(of("meadow", ["fence"], "0,0", 0.4)).toHaveLength(2);
+  });
+
+  it("long props report both ends so the edge check sees their real reach", () => {
+    const p = { kind: "fence" as const, x: 0.3, z: 0.4, rot: 0, scale: 1, seed: 0 };
+    const b = propBounds(p);
+    expect(b).toHaveLength(2);
+    expect(b[0]!.z).toBeCloseTo(0.4 - BAR_HALF_LENGTH.fence!, 9);
+    expect(b[1]!.z).toBeCloseTo(0.4 + BAR_HALF_LENGTH.fence!, 9);
+    expect(propBounds({ ...p, kind: "cactus" })).toHaveLength(1);
   });
 });
 

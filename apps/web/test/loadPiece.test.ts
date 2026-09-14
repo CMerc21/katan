@@ -3,7 +3,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { GEOMETRY } from "@katan/engine";
-import { CITY_HEIGHT, PIECES, PIECE_COLORS, WALL_FOOTPRINT, ZONE_BASE, ZONE_MIDDLE, ZONE_TOP, assemblePiece, axisRotationY, dimColor, disposePiece, parsePiece, pieceFit, pieceMaterial, pieceMaterials, prepareGeometry, zoneOf, type PieceName } from "@/board3d/loadPiece";
+import { CITY_HEIGHT, ISLAND_OTHER, ISLAND_PLAYER, MIN_ISLANDS, PIECES, PIECE_COLORS, WALL_FOOTPRINT, ZONE_BASE, ZONE_MIDDLE, ZONE_TOP, assemblePiece, axisRotationY, dimColor, disposePiece, parsePiece, pieceFit, pieceMaterial, pieceMaterials, prepareGeometry, preparedData, zoneOf, type PieceName } from "@/board3d/loadPiece";
+import { findIslands, regroupTriangles } from "@/board3d/islands";
 import { EDGE_LENGTH, HEX_RADIUS, edgeWorld } from "@/board3d/layout3d";
 
 const MODELS = path.resolve(__dirname, "../public/models");
@@ -36,7 +37,7 @@ describe("piece config (world units, hex edge = 1)", () => {
   it("every piece has positive world dimensions and a model path name", () => {
     for (const name of ALL) {
       const fit = PIECES[name].fit;
-      expect(fit.height).toBeGreaterThan(0);
+      expect("height" in fit ? fit.height : fit.length).toBeGreaterThan(0);
       if ("width" in fit) {
         expect(fit.width).toBeGreaterThan(0);
         expect(fit.length).toBeGreaterThan(0);
@@ -48,7 +49,7 @@ describe("piece config (world units, hex edge = 1)", () => {
   it("pins the sizes given for the new pieces", () => {
     const dims = (n: PieceName) => {
       const f = PIECES[n].fit;
-      return "width" in f ? [f.width, f.height, f.length] : [f.height];
+      return "width" in f ? [f.width, f.height, f.length] : "height" in f ? [f.height] : [f.length];
     };
     expect(dims("metropolis")).toEqual([0.5, 0.65, 0.5]);
     expect(dims("metropolis_walled")).toEqual([WALL_FOOTPRINT, 0.7, WALL_FOOTPRINT]);
@@ -88,7 +89,7 @@ describe("city upgrades are larger than the plain city", () => {
   };
 
   it("both upgrades stand taller than the plain city", () => {
-    expect(PIECES.city.fit.height).toBe(CITY_HEIGHT);
+    expect("height" in PIECES.city.fit ? PIECES.city.fit.height : NaN).toBe(CITY_HEIGHT);
     for (const n of ["city_walled", "metropolis", "metropolis_walled"] as const) {
       expect(size(n).height).toBeGreaterThan(CITY_HEIGHT);
     }
@@ -224,6 +225,76 @@ describe("fit and lift", () => {
   });
 });
 
+describe("mesh islands", () => {
+  it("are welded connected components, numbered by descending triangle count then centroid Y, and stable across loads", async () => {
+    const g = await parsePiece("city", glb("city"));
+    const a = findIslands(g);
+    const b = findIslands(g);
+    expect(a.islands.map((i) => [i.id, i.triangles])).toEqual(b.islands.map((i) => [i.id, i.triangles]));
+    expect(Array.from(a.triangleIsland)).toEqual(Array.from(b.triangleIsland));
+    for (let i = 1; i < a.islands.length; i++) {
+      const p = a.islands[i - 1]!;
+      const q = a.islands[i]!;
+      expect(p.triangles > q.triangles || (p.triangles === q.triangles && p.centroid.y <= q.centroid.y)).toBe(true);
+    }
+    expect(a.islands.reduce((n, i) => n + i.triangles, 0)).toBe(g.getAttribute("position").count / 3);
+    expect(a.islands[0]!.id).toBe(0);
+  });
+
+  it("two separate boxes are two islands; one box is one", () => {
+    expect(findIslands(new THREE.BoxGeometry(1, 1, 1).toNonIndexed()).islands).toHaveLength(1);
+    const big = new THREE.BoxGeometry(1, 1, 1).toNonIndexed().getAttribute("position").array as Float32Array;
+    const small = new THREE.BoxGeometry(0.5, 0.5, 0.5).toNonIndexed().translate(3, 0, 0).getAttribute("position").array as Float32Array;
+    const merged = new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array([...big, ...small]), 3));
+    const isl = findIslands(merged).islands;
+    expect(isl).toHaveLength(2);
+    expect(isl[0]!.triangles).toBe(12);
+    expect(isl[1]!.maxRadius).toBeGreaterThan(2.5);
+  });
+
+  it("regroupTriangles carries every attribute along, so UVs survive the shuffle", () => {
+    const g = new THREE.BoxGeometry(1, 1, 1).toNonIndexed();
+    const tris = g.getAttribute("position").count / 3;
+    const out = regroupTriangles(g, (t) => (t % 2 === 0 ? 1 : 0), 2);
+    expect(out.getAttribute("uv").count).toBe(g.getAttribute("uv").count);
+    expect(out.groups.map((gr) => gr.count / 3)).toEqual([tris / 2, tris / 2]);
+    const uvIn = g.getAttribute("uv");
+    const uvOut = out.getAttribute("uv");
+    for (let k = 0; k < 3; k++) {
+      expect(uvOut.getX(k)).toBe(uvIn.getX(3 + k));
+      expect(uvOut.getY(k)).toBe(uvIn.getY(3 + k));
+    }
+  });
+});
+
+describe("baked textures", () => {
+  const map = new THREE.DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1);
+  it("a textured export keeps its UVs and texture, and the non-player material shows it", () => {
+    const g = prepareGeometry(new THREE.BoxGeometry(1, 1, 1), PIECES.city, undefined, map);
+    expect(g.getAttribute("uv")).toBeDefined();
+    expect(preparedData(g).map).toBe(map);
+    expect(preparedData(g).colorMode).toBe("zones"); // a box is one island: the band fallback
+    const mats = pieceMaterials(PIECES.city, { color: "#3060c0", neutral: PIECE_COLORS.grey }, g) as THREE.MeshStandardMaterial[];
+    expect(mats[ZONE_MIDDLE]!.map).toBe(map);
+    expect(mats[ZONE_BASE]!.map).toBeNull();
+    expect(mats[ZONE_BASE]!.color.getHexString()).toBe("3060c0");
+    for (const m of mats) expect(m.flatShading).toBe(true);
+  });
+  it("an untextured export falls back to the flat neutral; a single piece takes the texture unless it is fully player-coloured", () => {
+    const plain = prepareGeometry(new THREE.BoxGeometry(1, 1, 1), PIECES.city);
+    expect(preparedData(plain).map).toBeNull();
+    const mats = pieceMaterials(PIECES.city, { color: "#3060c0", neutral: PIECE_COLORS.grey }, plain) as THREE.MeshStandardMaterial[];
+    expect(mats[ZONE_MIDDLE]!.map).toBeNull();
+    expect(mats[ZONE_MIDDLE]!.color.getHexString()).toBe(PIECE_COLORS.grey.slice(1));
+    const merchant = prepareGeometry(new THREE.BoxGeometry(1, 1, 1), PIECES.merchant, undefined, map);
+    expect((pieceMaterials(PIECES.merchant, { color: PIECE_COLORS.merchant }, merchant) as THREE.MeshStandardMaterial).map).toBe(map);
+    const road = prepareGeometry(new THREE.BoxGeometry(1, 1, 1), PIECES.road, undefined, map);
+    const rm = pieceMaterials(PIECES.road, { color: "#c03030" }, road) as THREE.MeshStandardMaterial;
+    expect(rm.map).toBeNull();
+    expect(rm.color.getHexString()).toBe("c03030");
+  });
+});
+
 describe("materials", () => {
   it("a zoned piece gets the player colour on base and top and the neutral in the middle", () => {
     const mats = pieceMaterials(PIECES.city, { color: "#3060c0", neutral: "#7a8798" }) as THREE.MeshStandardMaterial[];
@@ -274,34 +345,42 @@ describe("GLB files in public/models", () => {
     expect(Math.abs(box.min.y + box.max.y)).toBeLessThan(0.1);
   });
 
-  it.each(ZONED)("%s is split into base / middle / top draw groups that honour the thresholds", async (name) => {
+  it.each(ZONED)("%s colours its hand-mapped islands, or falls back to height bands below the island minimum", async (name) => {
     const g = await parsePiece(name, glb(name));
-    const zones = PIECES[name].zones!;
+    const config = PIECES[name];
     const pos = g.getAttribute("position");
-    expect(g.groups.map((gr) => gr.materialIndex)).toEqual([ZONE_BASE, ZONE_MIDDLE, ZONE_TOP]);
+    const { islands, triangleIsland } = findIslands(g);
+    const { colorMode } = preparedData(g);
     expect(g.groups.reduce((sum, gr) => sum + gr.count, 0)).toBe(pos.count);
-    for (const gr of g.groups) {
-      for (let v = gr.start; v < gr.start + gr.count; v += 3) {
-        const y = (pos.getY(v) + pos.getY(v + 1) + pos.getY(v + 2)) / 3;
-        expect(zoneOf(y, zones)).toBe(gr.materialIndex);
+    if (config.playerColorIslands && islands.length >= MIN_ISLANDS) {
+      expect(colorMode).toBe("islands");
+      expect(g.groups.map((gr) => gr.materialIndex)).toEqual([ISLAND_PLAYER, ISLAND_OTHER]);
+      const listed = new Set(config.playerColorIslands);
+      for (const gr of g.groups) {
+        expect(gr.count).toBeGreaterThan(0);
+        for (let v = gr.start; v < gr.start + gr.count; v += 3) expect(listed.has(triangleIsland[v / 3]!)).toBe(gr.materialIndex === ISLAND_PLAYER);
+      }
+      for (const id of config.playerColorIslands) expect(id).toBeLessThan(islands.length);
+    } else {
+      expect(colorMode).toBe("zones");
+      expect(g.groups.map((gr) => gr.materialIndex)).toEqual([ZONE_BASE, ZONE_MIDDLE, ZONE_TOP]);
+      for (const gr of g.groups) {
+        // A threshold that misses the model would leave a zone empty and drop the colour it carries.
+        if (gr.materialIndex === ZONE_MIDDLE || (gr.materialIndex === ZONE_BASE && config.zones!.baseMaxY !== undefined) || (gr.materialIndex === ZONE_TOP && config.zones!.topMinY !== undefined)) expect(gr.count).toBeGreaterThan(0);
+        for (let v = gr.start; v < gr.start + gr.count; v += 3) {
+          const y = (pos.getY(v) + pos.getY(v + 1) + pos.getY(v + 2)) / 3;
+          expect(zoneOf(y, config.zones!)).toBe(gr.materialIndex);
+        }
       }
     }
   });
 
-  it.each(ZONED)("%s puts real geometry in every zone it declares", async (name) => {
-    const g = await parsePiece(name, glb(name));
-    const zones = PIECES[name].zones!;
-    const count = (zone: number) => g.groups.find((gr) => gr.materialIndex === zone)!.count;
-    // A threshold that misses the model would leave a zone empty and drop the colour it carries.
-    expect(count(ZONE_MIDDLE)).toBeGreaterThan(0);
-    if (zones.baseMaxY !== undefined) expect(count(ZONE_BASE)).toBeGreaterThan(0);
-    else expect(count(ZONE_BASE)).toBe(0);
-    if (zones.topMinY !== undefined) expect(count(ZONE_TOP)).toBeGreaterThan(0);
-    else expect(count(ZONE_TOP)).toBe(0);
-    // Nor should a threshold swallow the whole piece. The share can be small and still be right:
-    // the cottage's walls are a thin band between a wide base disc and a big thatched roof (~14%).
-    const total = g.getAttribute("position").count;
-    expect(count(ZONE_MIDDLE) / total).toBeGreaterThan(0.05);
+  it("every piece with a hand-mapped island list really has at least the island minimum", async () => {
+    for (const name of ZONED) {
+      if (!PIECES[name].playerColorIslands) continue;
+      const g = await parsePiece(name, glb(name));
+      expect(findIslands(g).islands.length).toBeGreaterThanOrEqual(MIN_ISLANDS);
+    }
   });
 
   it.each(ON_DISK)("%s assembles with its foot at y = 0 and the configured world size", async (name) => {
@@ -314,6 +393,7 @@ describe("GLB files in public/models", () => {
     const world = new THREE.Box3().setFromObject(group);
     expect(world.min.y).toBeCloseTo(0, 5);
     const f = PIECES[name].fit;
+    if (!("height" in f)) throw new Error("pieces fit by height");
     expect(world.max.y).toBeCloseTo(f.height, 5);
     if ("width" in f) {
       expect(world.max.x - world.min.x).toBeCloseTo(f.width, 5);

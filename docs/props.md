@@ -25,23 +25,20 @@ Companion to `docs/phase7-5.md` §1; implemented in `apps/web/src/board3d` (`sla
 
 ## 3. Per-terrain prop layouts
 
-Props avoid the center recess and a 0.06 R margin at the slab edge. Layout positions are seeded; the counts below are the defaults at High quality (Medium ×0.7, Low ×0.4, minimum 1 hero prop).
+Props are GLB models (`apps/web/public/models/props/<kind>.glb`; the table, fits and colours are `PROP_MODELS` in `src/board3d/propModels.ts`). Every kind is one InstancedMesh across the whole board, so nineteen tiles of trees are a handful of draw calls. Props cast and receive shadows and are never player-coloured: one material per kind, the baked texture where the export has one, otherwise a flat palette colour (`flatShading: true` throughout). A kind the rules name but no model serves (today: the pasture bush) or whose file fails to load is logged once and drawn with its procedural stand-in (`buildPropGeometry` in `Props.tsx`, the primitives the earlier brief described). Terrain-sized props (peaks, ridges, clay mounds) sink 0.02 R into the slab so no gap shows at the base; small props 0.005 R.
 
-**Forest** — 6–8 pines (3 stacked 6-segment cones, radii 0.14/0.11/0.08 R, tier overlap 25%, alternating `#8DBF5A` / `#4F7A48`, trunk `#7A5233`), 2–3 oaks (icosphere canopy detail 1, radius 0.16 R, `#7DB45A`, plus 3 smaller spheres, tapered trunk), 1 log cabin (box `#8B4A2B` with 4 horizontal groove stripes, gabled prism roof `#6FA35C`, chimney box), 2 log piles (3 cylinders), 1–2 stumps (cylinder, lighter top disc), 1 fallen log. Hero prop: cabin.
+Layouts are seeded per tile (`src/board3d/props.ts`), so a given board looks the same on every reload and on every client. Every prop keeps a clear circle of 0.30 R at the tile centre for the number token and stays 0.08 R inside the slab edge — a long prop's two ends included — so nothing overhangs a neighbour or collides with roads and settlements on the edges and vertices. A prop that does not fit where its rule puts it is nudged: outward off the token, inward off the edge, or swung around the tile centre past a neighbour; a prop that still finds no room is dropped rather than misplaced.
 
-**Pasture** — 5–6 sheep (icosphere body detail 1 radius 0.09 R white `#F4EFE6`, head small dark sphere `#2B2118`, 4 stub legs), 1 stone shepherd's hut (box with stone-ish darker face color `#9A9A94`, thatch roof as squashed faceted dome `#D9B25C`, door quad), 2 fence runs (thin posts + 2 rails, 4–6 segments, `#A67C4F`), a coiled rope disc and a crook as optional details. Hero: hut. Sheep bob 0.01 R at random phase; one rotates 15° every few seconds.
+- **Forest** — two clusters of 3–5 trees on opposite sides, mixing round trees (`tree`, `tree_2`) and pines, random yaw, scale 0.85–1.15; a log pile at one cluster's edge, its logs lying along the ring.
+- **Pasture** — 2–3 fence sections in one run along a tile edge (radius 0.64 R; three sections close ranks to 0.30 R apart so the outer two clear the corners), 4–6 sheep in a loose group on the far side, a bush or two flanking the flock (procedural until a bush model exists).
+- **Fields** — sheaves (`wheat`, `wheat_2`) in 3–4 parallel rows along one hex axis (through opposite edge midpoints, ±3°), 0.17 R apart along the row; the windmill 0.6 R off-centre to one side, turned to face the tile centre; a hay bale past one row's end.
+- **Hills** — 2–3 clay mounds mixing a tall one (`mound_tall`, `mound_terraced`) and a wide one (`mound_wide`, `mound_low`) side by side along the ring, overlapping slightly (clash distance × 0.7); the kiln on one side with the brick stack beside it. The kiln smokes on the idle presets.
+- **Mountains** — one peak centre-back (0.535 R toward the tile's back, the side away from the default camera; 0.44 R tall, the widest thing that fits between the token and the edge), two ridges flanking it ±54° at 0.8–1.0 scale with their own yaw, overlapping to read as one range; boulders and a rubble outcrop at the feet on the front side.
+- **Desert** — one cactus, dry bush, skull and flat rock, one per quadrant at 0.52–0.72 R: sparse, spread out.
+- **Sea** — no props.
+- **Gold (Phase 9)** — two peaks, a sluice and six nuggets (sluice and nuggets procedural). **Lake (Phase 10)** — reeds around the water (procedural).
 
-**Fields** — 4 wheat rows arranged around the recess, each row a thin box base with 6–8 heads (elongated spheres `#E3B04B` on short stems `#A67C4F`), 1 windmill (cylinder stone base `#9A9A94`, tapered wood body `#A67C4F`, hub with 4 lattice blades made from thin boxes, rotates 0.15 rad/s). Hero: windmill. Rows sway ±2°.
-
-**Hills** — 3 terraced mounds (stacked low-poly discs, 2–3 tiers, `#D97A4D` → `#E8955E`), 1 kiln (low-poly dome `#B84E3A` with a few lighter brick quads, arched door quad, tall chimney box), 1 brick stack (box with brick-pattern face `#C8553D`/`#A9432E`), 1 cart (box body, 2 disc wheels, 2 shaft cylinders). Hero: kiln. Chimney emits small sphere puffs every 4 s.
-
-**Mountains** — 3 peaks (irregular cones, 6 radial segments, vertices jittered ±10%, `#8E97A3`, white snow cone `#F4EFE6` covering the top 30%), 1 rounded rock mound with a mine entrance (box frame `#C9976A` and a dark quad), 4–5 ore nuggets (octahedra 0.05–0.08 R, two gold `#E8B84A` emissive 0.2, rest silver `#C9CFD6`). Hero: mine.
-
-**Desert** — 1 saguaro cactus (cylinder trunk, 2 bent arm cylinders, `#6FA35C`), 4–6 rocks (small dodecahedra `#B8A58A`), 1 bone pile (3 short white cylinders with knobs), 2 coins optional. Sparse. Hero: cactus. No idle motion.
-
-**Sea** — top face displaced ±0.03 R, 2 white crests (elongated squashed icosphere `#F4EFE6`, 0.15 R long) placed off-center, gentle vertex ripple (0.01 R amplitude, 0.6 Hz). No recess. Optional gull sprite at Medium+.
-
-**Gold (Phase 9)** — mountains layout with 2 peaks, a sluice (angled box trough on legs) and 6 gold nuggets. **Lake (Phase 10)** — desert-height slab with a recessed water disc (radius 0.6 R) and reeds (thin cylinders `#6FA35C`).
+Reduced detail (the Low preset, density 0.4): clusters halve — two trees a cluster, 2–3 sheep, two mounds, two fences, one boulder, cactus and skull only, three wheat rows — and every scale is 1, so there are no jitter variants; but every terrain keeps its dressing. Sheep bob and turn and sheaves sway on the idle presets.
 
 ## 4. Pieces (from the pieces reference)
 

@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "build:functions": "node scripts/build-functions.mjs",
     "seed:local": "node scripts/seed-local.mjs",
+    "inspect:model": "node scripts/inspect-model.ts",
     "deploy:functions": "pnpm build:functions && supabase functions deploy"
   },
   "devDependencies": {

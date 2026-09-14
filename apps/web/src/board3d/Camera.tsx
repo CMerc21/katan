@@ -12,10 +12,9 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, type ComponentRef } from "react";
 import * as THREE from "three";
 import { easeInOut } from "./geo";
-import { framingDistance, type Bounds, type World } from "./layout3d";
+import { DEFAULT_AZIMUTH, DEFAULT_ELEVATION, framingDistance, type Bounds, type World } from "./layout3d";
 
-export const DEFAULT_AZIMUTH = (-35 * Math.PI) / 180;
-export const DEFAULT_ELEVATION = (48 * Math.PI) / 180;
+export { DEFAULT_AZIMUTH, DEFAULT_ELEVATION } from "./layout3d";
 export const MIN_ELEVATION = (20 * Math.PI) / 180;
 export const MAX_ELEVATION = (80 * Math.PI) / 180;
 export const FOV = 40;

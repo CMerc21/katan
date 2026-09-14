@@ -9,6 +9,11 @@ import { edgeVerticesOf, hexCenter, parseEdgeId, parseHexId, vertexPosition, typ
 import { LAND_HEIGHT, SEA_SLAB_HEIGHT, slabJitter } from "./slab";
 
 export const HEX_RADIUS = 1;
+/** The default camera heading (`Camera.tsx`): the camera sits at (sin az, cos az) from the table centre, elevated. Pure so layouts can face it. */
+export const DEFAULT_AZIMUTH = (-35 * Math.PI) / 180;
+export const DEFAULT_ELEVATION = (48 * Math.PI) / 180;
+/** The unit direction pointing away from the default camera: a tile's "back". */
+export const BACK = { x: -Math.sin(DEFAULT_AZIMUTH), z: -Math.cos(DEFAULT_AZIMUTH) } as const;
 /** A hex edge is as long as the circumradius: the distance between two adjacent vertices (pinned in test/board3d.test.ts). */
 export const EDGE_LENGTH = HEX_RADIUS;
 /** Land slabs are 0.22 R tall (docs/props.md §1); pieces and props stand on this plane. */
