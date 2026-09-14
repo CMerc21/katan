@@ -29,7 +29,7 @@ import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { EDGE_LENGTH } from "./layout3d";
 
-export type PieceName = "robber" | "settlement" | "city" | "road" | "metropolis" | "city_walled" | "ship" | "barbarian_ship" | "pirate" | "merchant" | "knight_1" | "knight_2" | "knight_3" | "port_sign";
+export type PieceName = "robber" | "settlement" | "city" | "road" | "metropolis" | "metropolis_walled" | "city_walled" | "ship" | "barbarian_ship" | "pirate" | "merchant" | "knight_1" | "knight_2" | "knight_3" | "port_sign";
 
 /** Y thresholds in the raw model's local space (before scaling). */
 export interface PieceZones {
@@ -51,6 +51,13 @@ export interface PieceConfig {
 
 /** The 1.5× the procedural figures are drawn at (docs/props.md), already folded into the world sizes below. */
 const FIGURE_SCALE = 1.5;
+/**
+ * The plain city's world height. Both upgrades stand taller than it, and the
+ * walled models share one footprint so the wall ring reads the same size on a
+ * walled city and a walled metropolis.
+ */
+export const CITY_HEIGHT = 0.34 * FIGURE_SCALE;
+export const WALL_FOOTPRINT = 0.62;
 const GREY = "#8a8f99";
 const WOOD = "#8b6a45";
 const NEAR_BLACK = "#1a1a1a";
@@ -65,13 +72,17 @@ export const PIECES: Record<PieceName, PieceConfig> = {
   // Base ring to the crown of the thatched roof: (0.12 + 0.8·0.08) × 1.5.
   settlement: { zones: { baseMaxY: -0.34, topMinY: -0.11 }, fit: { height: 0.18 * FIGURE_SCALE } },
   // Base ring to the top of the keep's flag pole: (0.2 + 0.14) × 1.5.
-  city: { zones: { baseMaxY: -0.41, topMinY: 0.27 }, fit: { height: 0.34 * FIGURE_SCALE } },
+  city: { zones: { baseMaxY: -0.41, topMinY: 0.27 }, fit: { height: CITY_HEIGHT } },
   // 1.0 long on local Z, 0.46 wide, 0.10 thick. Stops short of the vertices where settlements sit.
   road: { zones: null, fullPlayerColor: true, fit: { width: 0.18 * EDGE_LENGTH, height: 0.08 * EDGE_LENGTH, length: 0.8 * EDGE_LENGTH } },
-  // Replaces the city at a metropolis vertex; the crown is the top zone.
-  metropolis: { zones: { baseMaxY: -0.42, topMinY: 0.38 }, fit: { width: 0.34, height: 0.44, length: 0.34 } },
-  // Replaces the city when the vertex has a wall; base disc and flag in the player colour, wall ring and tower grey.
-  city_walled: { zones: { baseMaxY: -0.32, topMinY: 0.2 }, fit: { width: 0.46, height: 0.34, length: 0.46 } },
+  // Replaces the city at a metropolis vertex: taller than the plain city (CITY_HEIGHT), the crown is the top zone.
+  metropolis: { zones: { baseMaxY: -0.42, topMinY: 0.38 }, fit: { width: 0.5, height: 0.65, length: 0.5 } },
+  // Replaces the city when the vertex has a wall: the wall ring makes it wider (WALL_FOOTPRINT) and it stands taller than the plain city.
+  city_walled: { zones: { baseMaxY: -0.32, topMinY: 0.2 }, fit: { width: WALL_FOOTPRINT, height: 0.56, length: WALL_FOOTPRINT } },
+  // A metropolis that also has a wall: one model, the same wall footprint as `city_walled`, the tallest piece on the board.
+  // Thresholds read off the model's own profile: the base disc sits below -0.42 (radius 0.45 against the wall's 0.39) and
+  // the crown above 0.42, with no geometry at all between 0.34 and 0.42.
+  metropolis_walled: { zones: { baseMaxY: -0.42, topMinY: 0.4 }, fit: { width: WALL_FOOTPRINT, height: 0.7, length: WALL_FOOTPRINT } },
   // Sea-edge piece, length on local X; only the sail takes the player colour, the hull bottom (raw Y -0.455) sits on the water.
   ship: { zones: { topMinY: 0.2 }, axis: "x", fit: { width: 0.22, height: 0.26, length: 0.7 } },
   // The fleet's longboat on the table track, length on local X: dark red sail over a near-black hull.

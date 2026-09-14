@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { GEOMETRY } from "@katan/engine";
-import { PIECES, PIECE_COLORS, ZONE_BASE, ZONE_MIDDLE, ZONE_TOP, assemblePiece, axisRotationY, dimColor, disposePiece, parsePiece, pieceFit, pieceMaterial, pieceMaterials, prepareGeometry, zoneOf, type PieceName } from "@/board3d/loadPiece";
+import { CITY_HEIGHT, PIECES, PIECE_COLORS, WALL_FOOTPRINT, ZONE_BASE, ZONE_MIDDLE, ZONE_TOP, assemblePiece, axisRotationY, dimColor, disposePiece, parsePiece, pieceFit, pieceMaterial, pieceMaterials, prepareGeometry, zoneOf, type PieceName } from "@/board3d/loadPiece";
 import { EDGE_LENGTH, HEX_RADIUS, edgeWorld } from "@/board3d/layout3d";
 
 const MODELS = path.resolve(__dirname, "../public/models");
@@ -50,8 +50,9 @@ describe("piece config (world units, hex edge = 1)", () => {
       const f = PIECES[n].fit;
       return "width" in f ? [f.width, f.height, f.length] : [f.height];
     };
-    expect(dims("metropolis")).toEqual([0.34, 0.44, 0.34]);
-    expect(dims("city_walled")).toEqual([0.46, 0.34, 0.46]);
+    expect(dims("metropolis")).toEqual([0.5, 0.65, 0.5]);
+    expect(dims("metropolis_walled")).toEqual([WALL_FOOTPRINT, 0.7, WALL_FOOTPRINT]);
+    expect(dims("city_walled")).toEqual([WALL_FOOTPRINT, 0.56, WALL_FOOTPRINT]);
     expect(dims("ship")).toEqual([0.22, 0.26, 0.7]);
     expect(dims("barbarian_ship")).toEqual([0.3, 0.28, 0.65]);
     expect(dims("pirate")).toEqual([0.36, 0.32, 0.32]);
@@ -65,6 +66,7 @@ describe("piece config (world units, hex edge = 1)", () => {
 
   it("pins the zone thresholds and which pieces turn their length axis", () => {
     expect(PIECES.metropolis.zones).toEqual({ baseMaxY: -0.42, topMinY: 0.38 });
+    expect(PIECES.metropolis_walled.zones).toEqual({ baseMaxY: -0.42, topMinY: 0.4 });
     expect(PIECES.city_walled.zones).toEqual({ baseMaxY: -0.32, topMinY: 0.2 });
     expect(PIECES.ship.zones).toEqual({ topMinY: 0.2 });
     expect(PIECES.barbarian_ship.zones).toEqual({ topMinY: 0.24 });
@@ -75,6 +77,44 @@ describe("piece config (world units, hex edge = 1)", () => {
     expect(PIECES.knight_3.zones).toEqual({ baseMaxY: -0.38, topMinY: 0.19 });
     expect(PIECES.port_sign.zones).toBeNull();
     expect(ALL.filter((n) => PIECES[n].axis === "x")).toEqual(["ship", "barbarian_ship", "pirate"]);
+  });
+});
+
+describe("city upgrades are larger than the plain city", () => {
+  const size = (n: PieceName) => {
+    const f = PIECES[n].fit;
+    if (!("width" in f)) throw new Error(`${n} has no per-axis fit`);
+    return f;
+  };
+
+  it("both upgrades stand taller than the plain city", () => {
+    expect(PIECES.city.fit.height).toBe(CITY_HEIGHT);
+    for (const n of ["city_walled", "metropolis", "metropolis_walled"] as const) {
+      expect(size(n).height).toBeGreaterThan(CITY_HEIGHT);
+    }
+    // The grandest piece on the board is the walled metropolis.
+    expect(size("metropolis_walled").height).toBeGreaterThan(size("metropolis").height);
+    expect(size("metropolis").height).toBeGreaterThan(size("city_walled").height);
+  });
+
+  it("the wall footprint is the same on a walled city and a walled metropolis, and wider than the unwalled models", () => {
+    for (const n of ["city_walled", "metropolis_walled"] as const) {
+      expect(size(n).width).toBe(WALL_FOOTPRINT);
+      expect(size(n).length).toBe(WALL_FOOTPRINT);
+    }
+    expect(WALL_FOOTPRINT).toBeGreaterThan(size("metropolis").width);
+  });
+
+  it("every upgrade has a wider footprint than the plain city model as it actually loads", async () => {
+    const g = await parsePiece("city", glb("city"));
+    const group = assemblePiece("city", g, { color: "#3060c0", neutral: PIECE_COLORS.grey });
+    group.updateMatrixWorld(true);
+    const city = new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3());
+    expect(city.y).toBeCloseTo(CITY_HEIGHT, 5);
+    for (const n of ["city_walled", "metropolis", "metropolis_walled"] as const) {
+      expect(size(n).width).toBeGreaterThan(Math.max(city.x, city.z));
+    }
+    disposePiece(group);
   });
 });
 

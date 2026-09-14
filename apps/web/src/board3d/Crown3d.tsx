@@ -189,33 +189,14 @@ function ProceduralKnight({ color, level, active, ghost, shadows }: { color: Pla
 // ---------------------------------------------------------------------------
 // Walls and metropolises
 
-/** The flat player-coloured ring under a metropolis that also has a wall: outer 0.46, inner 0.36, 0.05 tall (world units). */
-const WALL_RING_SHAPE = (() => {
-  const s = new THREE.Shape();
-  s.absarc(0, 0, 0.46, 0, Math.PI * 2, false);
-  const hole = new THREE.Path();
-  hole.absarc(0, 0, 0.36, 0, Math.PI * 2, true);
-  s.holes.push(hole);
-  return s;
-})();
-
-function FlatWallRing({ color, ghost, shadows }: { color: string; ghost: boolean; shadows: boolean }) {
-  const geometry = useMemo(() => new THREE.ExtrudeGeometry(WALL_RING_SHAPE, { depth: 0.05, bevelEnabled: false, curveSegments: 32 }), []);
-  useEffect(() => () => geometry.dispose(), [geometry]);
-  return (
-    <mesh geometry={geometry} rotation={[-Math.PI / 2, 0, 0]} receiveShadow={shadows} name="wall-ring">
-      <Mat color={color} ghost={ghost} />
-    </mesh>
-  );
-}
-
 /**
- * A city that Crown & Castle has upgraded (docs/phase11.md §11): the
- * metropolis GLB when the vertex holds one, else the walled-city GLB when it
- * has a wall; a walled metropolis is the metropolis over a flat ring in the
- * player's colour. Same vertex placement, entrance rise and hover ghost as
- * `CityFigure`. Until the GLB loads (or if it cannot) it is the city figure
- * with the procedural ring wall and spire drawn over it.
+ * A city that Crown & Castle has upgraded (docs/phase11.md §11): one whole-city
+ * GLB per combination — the walled metropolis, the plain metropolis, or the
+ * walled city — each larger than the plain city, and the two walled models
+ * share a footprint so the wall reads the same size on both. Same vertex
+ * placement, entrance rise and hover ghost as `CityFigure`. Until the GLB
+ * loads (or if it cannot) it is the city figure with the procedural ring wall
+ * and spire drawn over it.
  */
 export function CrownCityFigure({ vertex, color, walled, metropolis, fresh = false, seq = null, ghost = false, shadows = true }: { vertex: VertexId; color: PlayerColor; walled: boolean; metropolis: Track | null; fresh?: boolean; seq?: number | null; ghost?: boolean; shadows?: boolean }) {
   const p = vertexWorld(vertex);
@@ -230,15 +211,12 @@ export function CrownCityFigure({ vertex, color, walled, metropolis, fresh = fal
     if (flag.current) flag.current.scale.x = Math.max(0.001, fresh ? Math.min(1, Math.max(0, (t.current - 0.5) * 2)) : 1);
   });
   const cast = shadows && !ghost;
-  const name: PieceName = metropolis ? "metropolis" : "city_walled";
+  const name: PieceName = metropolis ? (walled ? "metropolis_walled" : "metropolis") : "city_walled";
   const model = usePiece(name, { color: PLAYER_FILL[color], neutral: PIECE_COLORS.grey, ghost, castShadow: cast, receiveShadow: shadows });
   return (
     <group ref={group} position={[p.x, SLAB_HEIGHT, p.z]} name={`city:${vertex}`}>
       {model ? (
-        <>
-          <primitive object={model} />
-          {metropolis && walled && <FlatWallRing color={PLAYER_FILL[color]} ghost={ghost} shadows={shadows} />}
-        </>
+        <primitive object={model} />
       ) : (
         <>
           <group scale={PIECE_SCALE}>
