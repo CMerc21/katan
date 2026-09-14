@@ -288,6 +288,22 @@ describe("GLB files in public/models", () => {
     }
   });
 
+  it.each(ZONED)("%s puts real geometry in every zone it declares", async (name) => {
+    const g = await parsePiece(name, glb(name));
+    const zones = PIECES[name].zones!;
+    const count = (zone: number) => g.groups.find((gr) => gr.materialIndex === zone)!.count;
+    // A threshold that misses the model would leave a zone empty and drop the colour it carries.
+    expect(count(ZONE_MIDDLE)).toBeGreaterThan(0);
+    if (zones.baseMaxY !== undefined) expect(count(ZONE_BASE)).toBeGreaterThan(0);
+    else expect(count(ZONE_BASE)).toBe(0);
+    if (zones.topMinY !== undefined) expect(count(ZONE_TOP)).toBeGreaterThan(0);
+    else expect(count(ZONE_TOP)).toBe(0);
+    // Nor should a threshold swallow the whole piece. The share can be small and still be right:
+    // the cottage's walls are a thin band between a wide base disc and a big thatched roof (~14%).
+    const total = g.getAttribute("position").count;
+    expect(count(ZONE_MIDDLE) / total).toBeGreaterThan(0.05);
+  });
+
   it.each(ON_DISK)("%s assembles with its foot at y = 0 and the configured world size", async (name) => {
     const g = await parsePiece(name, glb(name));
     const group = assemblePiece(name, g, { color: "#1a1a1a", neutral: "#888888", castShadow: true });
