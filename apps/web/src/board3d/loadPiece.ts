@@ -1,21 +1,24 @@
 /**
  * GLB figurines. Meshy exports (apps/web/public/models/<name>.glb) are a
- * single mesh about the origin with no normals and no material.
+ * single mesh pivoted at its centre with no normals and no material.
  * `loadPiece(name, options)` fetches one through GLTFLoader, caches the
  * prepared geometry by name (one download, one normal pass and one zone
  * split per piece for the whole session), and returns a fresh Group per
- * call: the mesh is raised so its foot sits at the group's origin, and the
- * group is scaled to `PIECES[name].fit`: uniformly to a height (the
- * procedural piece's, in the unscaled piece frame Pieces.tsx uses before
- * `PIECE_SCALE`), or per axis to explicit world dimensions (roads: length
- * on the model's Z, width on X, thickness on Y, as fractions of the hex
- * edge).
+ * call: the mesh is lifted by the model's actual minimum Y so its foot sits
+ * at the group's origin (never an assumed -0.5), and the group is scaled to
+ * `PIECES[name].fit` in world units (hex edge = 1): uniformly to a height,
+ * or per axis to explicit width (x), height (y) and length (z).
  *
- * Colour comes from the caller so one helper serves the robber and the
- * player-coloured pieces. A piece with `zones` is split by vertex Y in the
- * raw model space: the base (y ≤ baseMaxY) and the top (y ≥ topMinY) take
- * the caller's `color`, the middle takes `neutral` (plaster, stone). A
- * piece without zones is one material in `color`.
+ * A model whose length runs along its local X (`axis: "x"`) is turned a
+ * quarter turn about Y inside the group so X maps to Z; every piece then
+ * presents its length on Z and the road orientation logic applies.
+ *
+ * Colour comes from the caller so one helper serves every piece. A piece
+ * with `zones` is split by vertex Y in the raw model space (before scale):
+ * the base (y ≤ baseMaxY) and the top (y ≥ topMinY) take the caller's
+ * `color`, the middle takes `neutral` (plaster, stone, wood, hull). Either
+ * threshold may be omitted (a ship colours only its sail). A piece without
+ * zones is one material in `color`.
  *
  * A failed fetch or parse rejects; `usePiece` turns that into `null` so the
  * caller can keep the procedural figure as a fallback.
@@ -26,34 +29,63 @@ import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { EDGE_LENGTH } from "./layout3d";
 
-export type PieceName = "robber" | "settlement" | "city" | "road";
+export type PieceName = "robber" | "settlement" | "city" | "road" | "metropolis" | "city_walled" | "ship" | "barbarian_ship" | "pirate" | "merchant" | "knight_1" | "knight_2" | "knight_3" | "port_sign";
 
 /** Y thresholds in the raw model's local space (before scaling). */
 export interface PieceZones {
-  /** Triangles at or below this are the base. */
-  baseMaxY: number;
-  /** Triangles at or above this are the top. */
-  topMinY: number;
+  /** Triangles at or below this are the base; omit for no base zone. */
+  baseMaxY?: number;
+  /** Triangles at or above this are the top; omit for no top zone. */
+  topMinY?: number;
 }
 
 export interface PieceConfig {
   zones: PieceZones | null;
   /** The whole model in the caller's colour (roads). */
   fullPlayerColor?: boolean;
-  /** Scale uniformly so the Y extent is `height`, or per axis so Z, X and Y extents are `length`, `width`, `thickness`. */
-  fit: { height: number } | { length: number; width: number; thickness: number };
+  /** The model's length runs along its local X; turn it so the length is on Z. */
+  axis?: "x";
+  /** World units: scale uniformly so the Y extent is `height`, or per axis so X, Y and Z extents are `width`, `height`, `length`. */
+  fit: { height: number } | { width: number; height: number; length: number };
 }
 
+/** The 1.5× the procedural figures are drawn at (docs/props.md), already folded into the world sizes below. */
+const FIGURE_SCALE = 1.5;
+const GREY = "#8a8f99";
+const WOOD = "#8b6a45";
+const NEAR_BLACK = "#1a1a1a";
+const DARK_RED = "#7a2a2a";
+
+/** Neutral colours the figures pass as `neutral` / `color`, kept next to the zones they colour. */
+export const PIECE_COLORS = { grey: GREY, wood: WOOD, nearBlack: NEAR_BLACK, darkRed: DARK_RED, merchant: "#c9b58a" } as const;
+
 export const PIECES: Record<PieceName, PieceConfig> = {
-  // Base disc, cone body and the tip of the tilted hood cone: 0.27 + 0.05·cos(0.25).
-  robber: { zones: null, fit: { height: 0.32 } },
-  // Base ring to the crown of the thatched roof: 0.12 + 0.8·0.08.
-  settlement: { zones: { baseMaxY: -0.34, topMinY: -0.11 }, fit: { height: 0.18 } },
-  // Base ring to the top of the keep's flag pole: 0.2 + 0.14.
-  city: { zones: { baseMaxY: -0.41, topMinY: 0.27 }, fit: { height: 0.34 } },
-  // 1.0 long on local Z, 0.46 wide, 0.10 thick, centred. World units, no PIECE_SCALE: the length stops
-  // short of the vertices where settlements sit.
-  road: { zones: null, fullPlayerColor: true, fit: { length: 0.8 * EDGE_LENGTH, width: 0.18 * EDGE_LENGTH, thickness: 0.08 * EDGE_LENGTH } },
+  // Base disc, cone body and the tip of the tilted hood cone: (0.27 + 0.05·cos(0.25)) × 1.5.
+  robber: { zones: null, fit: { height: 0.32 * FIGURE_SCALE } },
+  // Base ring to the crown of the thatched roof: (0.12 + 0.8·0.08) × 1.5.
+  settlement: { zones: { baseMaxY: -0.34, topMinY: -0.11 }, fit: { height: 0.18 * FIGURE_SCALE } },
+  // Base ring to the top of the keep's flag pole: (0.2 + 0.14) × 1.5.
+  city: { zones: { baseMaxY: -0.41, topMinY: 0.27 }, fit: { height: 0.34 * FIGURE_SCALE } },
+  // 1.0 long on local Z, 0.46 wide, 0.10 thick. Stops short of the vertices where settlements sit.
+  road: { zones: null, fullPlayerColor: true, fit: { width: 0.18 * EDGE_LENGTH, height: 0.08 * EDGE_LENGTH, length: 0.8 * EDGE_LENGTH } },
+  // Replaces the city at a metropolis vertex; the crown is the top zone.
+  metropolis: { zones: { baseMaxY: -0.42, topMinY: 0.38 }, fit: { width: 0.34, height: 0.44, length: 0.34 } },
+  // Replaces the city when the vertex has a wall; base disc and flag in the player colour, wall ring and tower grey.
+  city_walled: { zones: { baseMaxY: -0.32, topMinY: 0.2 }, fit: { width: 0.46, height: 0.34, length: 0.46 } },
+  // Sea-edge piece, length on local X; only the sail takes the player colour, the hull bottom (raw Y -0.455) sits on the water.
+  ship: { zones: { topMinY: 0.2 }, axis: "x", fit: { width: 0.22, height: 0.26, length: 0.7 } },
+  // The fleet's longboat on the table track, length on local X: dark red sail over a near-black hull.
+  barbarian_ship: { zones: { topMinY: 0.24 }, axis: "x", fit: { width: 0.3, height: 0.28, length: 0.65 } },
+  // Sea hex centre, length on local X, laid along the hex's flat sides.
+  pirate: { zones: { topMinY: 0.18 }, axis: "x", fit: { width: 0.36, height: 0.32, length: 0.32 } },
+  // Hex centre like the robber; one warm neutral, lifted by its own min Y (-0.436).
+  merchant: { zones: null, fit: { width: 0.3, height: 0.3, length: 0.3 } },
+  // Vertex pieces; the level is which model loads. Base and top in the player colour, body grey.
+  knight_1: { zones: { baseMaxY: -0.42, topMinY: 0.1 }, fit: { width: 0.18, height: 0.26, length: 0.18 } },
+  knight_2: { zones: { baseMaxY: -0.33, topMinY: 0.22 }, fit: { width: 0.2, height: 0.28, length: 0.2 } },
+  knight_3: { zones: { baseMaxY: -0.38, topMinY: 0.19 }, fit: { width: 0.23, height: 0.3, length: 0.23 } },
+  // At each port's edge midpoint on the sea side, facing the land hex.
+  port_sign: { zones: null, fit: { width: 0.26, height: 0.3, length: 0.24 } },
 };
 
 /** Material slot order for a zoned piece. */
@@ -64,9 +96,9 @@ export const ZONE_TOP = 2;
 export const MODEL_PATH = "/models";
 
 export interface PieceMaterialOptions {
-  /** The piece's colour: the player's for pieces, near-black for the robber. */
+  /** The piece's colour: the player's for pieces, the sail's for ships, near-black for the robber. */
   color: string;
-  /** The middle zone's colour on a zoned piece (walls, stone); defaults to `color`. */
+  /** The middle zone's colour on a zoned piece (walls, stone, wood, hull); defaults to `color`. */
   neutral?: string;
   roughness?: number;
   metalness?: number;
@@ -77,6 +109,11 @@ export interface PieceMaterialOptions {
 export interface PieceOptions extends PieceMaterialOptions {
   castShadow?: boolean;
   receiveShadow?: boolean;
+}
+
+/** `color` darkened for an inactive piece (inactive knights: zone colours × 0.55). */
+export function dimColor(color: string, factor = 0.55): string {
+  return `#${new THREE.Color(color).multiplyScalar(factor).getHexString()}`;
 }
 
 const loader = new GLTFLoader();
@@ -94,8 +131,8 @@ function firstMesh(gltf: GLTF): THREE.Mesh {
 
 /** Which zone a triangle belongs to, by the Y of its centroid in raw model space. */
 export function zoneOf(y: number, zones: PieceZones): number {
-  if (y <= zones.baseMaxY) return ZONE_BASE;
-  if (y >= zones.topMinY) return ZONE_TOP;
+  if (zones.baseMaxY !== undefined && y <= zones.baseMaxY) return ZONE_BASE;
+  if (zones.topMinY !== undefined && y >= zones.topMinY) return ZONE_TOP;
   return ZONE_MIDDLE;
 }
 
@@ -128,11 +165,9 @@ export function splitZones(geometry: THREE.BufferGeometry, zones: PieceZones): T
 }
 
 /** Bake the node transform in, keep positions only, split zones, and add the flat normals the export lacks. */
-export function preparePieceGeometry(gltf: GLTF, config: PieceConfig): THREE.BufferGeometry {
-  const mesh = firstMesh(gltf);
-  mesh.updateWorldMatrix(true, false);
-  let geometry = mesh.geometry.clone();
-  geometry.applyMatrix4(mesh.matrixWorld);
+export function prepareGeometry(raw: THREE.BufferGeometry, config: PieceConfig, matrix?: THREE.Matrix4): THREE.BufferGeometry {
+  let geometry = raw.clone();
+  if (matrix) geometry.applyMatrix4(matrix);
   for (const name of Object.keys(geometry.attributes)) if (name !== "position") geometry.deleteAttribute(name);
   // Non-indexed: one vertex per corner, so normals are per face (flat) and triangles can be regrouped.
   if (geometry.index) geometry = geometry.toNonIndexed();
@@ -140,6 +175,12 @@ export function preparePieceGeometry(gltf: GLTF, config: PieceConfig): THREE.Buf
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   return geometry;
+}
+
+export function preparePieceGeometry(gltf: GLTF, config: PieceConfig): THREE.BufferGeometry {
+  const mesh = firstMesh(gltf);
+  mesh.updateWorldMatrix(true, false);
+  return prepareGeometry(mesh.geometry, config, mesh.matrixWorld);
 }
 
 /** Parse a GLB already in memory (tests, or preloaded bytes) into a piece geometry. */
@@ -197,21 +238,29 @@ export function pieceMaterials(config: PieceConfig, options: PieceMaterialOption
   return [player, middle, player.clone()];
 }
 
-/** Per-axis scale that fits the geometry's extents to the config, and the raw-space lift that puts its foot at y = 0. */
+/** The mesh's quarter turn for an `axis: "x"` model: local X → Z. */
+export function axisRotationY(config: PieceConfig): number {
+  return config.axis === "x" ? -Math.PI / 2 : 0;
+}
+
+/**
+ * Per-axis scale that fits the geometry's extents (after the axis turn) to
+ * the config's world size, and the raw-space lift that puts its foot at y = 0.
+ */
 export function pieceFit(config: PieceConfig, geometry: THREE.BufferGeometry): { scale: THREE.Vector3; lift: number } {
   const box = geometry.boundingBox ?? (geometry.computeBoundingBox(), geometry.boundingBox!);
-  const size = box.getSize(new THREE.Vector3());
+  const raw = box.getSize(new THREE.Vector3());
+  // Once turned, the model's X extent presents on Z and its Z extent on X.
+  const size = config.axis === "x" ? new THREE.Vector3(raw.z, raw.y, raw.x) : raw;
   const lift = -box.min.y;
-  if ("height" in config.fit) {
-    const s = config.fit.height / size.y;
-    return { scale: new THREE.Vector3(s, s, s), lift };
-  }
-  return { scale: new THREE.Vector3(config.fit.width / size.x, config.fit.thickness / size.y, config.fit.length / size.z), lift };
+  if ("width" in config.fit) return { scale: new THREE.Vector3(config.fit.width / size.x, config.fit.height / size.y, config.fit.length / size.z), lift };
+  const s = config.fit.height / size.y;
+  return { scale: new THREE.Vector3(s, s, s), lift };
 }
 
 const logged = new Set<PieceName>();
 
-/** Report a piece's fitted world size once per session (before `PIECE_SCALE`, where the caller applies it). */
+/** Report a piece's fitted world size once per session. */
 function logFit(name: PieceName, group: THREE.Group): void {
   if (logged.has(name)) return;
   logged.add(name);
@@ -221,12 +270,13 @@ function logFit(name: PieceName, group: THREE.Group): void {
   console.info(`[board3d] ${name}.glb world size: x ${fmt(size.x)} × y ${fmt(size.y)} × z ${fmt(size.z)}`);
 }
 
-/** Wrap a prepared geometry: mesh lifted so the foot is at the origin, group scaled to the piece's fit. */
+/** Wrap a prepared geometry: mesh turned for its length axis and lifted so the foot is at the origin, group scaled to the piece's fit. */
 export function assemblePiece(name: PieceName, geometry: THREE.BufferGeometry, options: PieceOptions): THREE.Group {
   const config = PIECES[name];
   const mesh = new THREE.Mesh(geometry, pieceMaterials(config, options));
   const { scale, lift } = pieceFit(config, geometry);
   mesh.position.y = lift;
+  mesh.rotation.y = axisRotationY(config);
   mesh.castShadow = options.castShadow ?? false;
   mesh.receiveShadow = options.receiveShadow ?? false;
   mesh.name = `${name}-mesh`;
@@ -257,7 +307,7 @@ export function disposePiece(group: THREE.Group): void {
 /**
  * The loaded piece for React: `null` while loading and after a failure, so
  * the caller renders its procedural figure instead. Rebuilt (cheaply, the
- * geometry is cached) when the material options change.
+ * geometry is cached) when the name or the material options change.
  */
 export function usePiece(name: PieceName, options: PieceOptions): THREE.Group | null {
   const [group, setGroup] = useState<THREE.Group | null>(null);

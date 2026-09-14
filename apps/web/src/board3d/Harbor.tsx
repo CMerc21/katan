@@ -4,13 +4,16 @@
  * Harbours (docs/props.md §5): two posts and a plank pier reaching 0.35 R
  * over the water from the coast edge, a tall post with a gallows-style
  * crossbar at the landward end, and a small sign hanging from the crossbar
- * with the ratio and resource (readable from both sides).
+ * with the ratio and resource (readable from both sides). The signpost GLB
+ * (port_sign.glb, wood) stands at the pier's seaward end facing the land
+ * hex; the ratio label stays on the hanging sign, where it is readable.
  */
 
 import { useMemo } from "react";
 import * as THREE from "three";
 import type { Port } from "@katan/engine";
 import { SEA_HEIGHT, SLAB_HEIGHT, edgeWorld, outwardWorld, type World } from "./layout3d";
+import { PIECE_COLORS, usePiece } from "./loadPiece";
 import * as P from "./palette";
 import { signTexture } from "./textures";
 
@@ -20,8 +23,15 @@ export function Harbor({ port, centre, owned, shadows, land }: { port: Port; cen
   const angle = Math.atan2(out.z, out.x);
   const texture = useMemo(() => signTexture(port.kind), [port.kind]);
   const deck = SLAB_HEIGHT - 0.01;
+  const sign = usePiece("port_sign", { color: PIECE_COLORS.wood, castShadow: shadows, receiveShadow: shadows });
   return (
     <group position={[mid.x, 0, mid.z]} rotation={[0, -angle, 0]} name={`harbor:${port.edge}`}>
+      {/* The group's +X points out to sea; the signpost stands on the pier's far end and turns its face (the model's +Z) back toward the land hex. */}
+      {sign && (
+        <group position={[0.3, deck + 0.0125, 0.16]} rotation={[0, -Math.PI / 2, 0]} name="port-sign">
+          <primitive object={sign} />
+        </group>
+      )}
       {/* Planks running outward from the coast, 0.35 R over the water. */}
       {[0.05, 0.13, 0.21, 0.29].map((x) => (
         <mesh key={x} position={[x, deck, 0]} castShadow={shadows}>

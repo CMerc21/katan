@@ -17,7 +17,7 @@ import type { EdgeId, PlayerColor, VertexId } from "@katan/engine";
 import { PLAYER_FILL } from "@/game/theme";
 import { easeOutBack, easeOutCubic, progress } from "./geo";
 import { SEA_HEIGHT, SLAB_HEIGHT, edgeWorld, vertexWorld } from "./layout3d";
-import { usePiece } from "./loadPiece";
+import { PIECE_COLORS, usePiece } from "./loadPiece";
 import * as P from "./palette";
 import { RECESS_DEPTH } from "./slab";
 
@@ -69,7 +69,7 @@ export function FlagFigure({ color, height = 0.12, ghost = false, scaleX = 1 }: 
 }
 
 /** Ease-in wrapper: scale from 0 with overshoot (settlements), or a custom motion. */
-function useEntrance(fresh: boolean, seq: number | null, ms: number) {
+export function useEntrance(fresh: boolean, seq: number | null, ms: number) {
   const started = useRef<number | null>(null);
   const key = useRef<number | null>(null);
   const value = useRef(1);
@@ -93,25 +93,27 @@ export function SettlementFigure({ vertex, color, fresh = false, seq = null, gho
     const g = group.current;
     if (!g) return;
     const s = fresh && t.current < 1 ? easeOutBack(t.current) : 1;
-    g.scale.setScalar(PIECE_SCALE * Math.max(0.001, s));
+    g.scale.setScalar(Math.max(0.001, s));
     if (smoke.current) {
       const puff = fresh && t.current < 1 ? t.current : 0;
       smoke.current.visible = puff > 0;
-      smoke.current.position.y = 0.2 + puff * 0.2;
-      smoke.current.scale.setScalar(0.02 + puff * 0.05);
+      smoke.current.position.y = (0.2 + puff * 0.2) * PIECE_SCALE;
+      smoke.current.scale.setScalar((0.02 + puff * 0.05) * PIECE_SCALE);
       (smoke.current.material as THREE.MeshStandardMaterial).opacity = 0.6 * (1 - puff);
     }
   });
   const cast = shadows && !ghost;
   const model = usePiece("settlement", { color: colorOf(color), neutral: P.WALL_PLASTER, ghost, castShadow: cast, receiveShadow: shadows });
   return (
-    <group ref={group} position={[p.x, SLAB_HEIGHT, p.z]} scale={PIECE_SCALE} name={`settlement:${vertex}`}>
+    <group ref={group} position={[p.x, SLAB_HEIGHT, p.z]} name={`settlement:${vertex}`}>
       {model ? (
         <primitive object={model} />
       ) : (
-        <ProceduralSettlement color={color} ghost={ghost} shadows={shadows} />
+        <group scale={PIECE_SCALE}>
+          <ProceduralSettlement color={color} ghost={ghost} shadows={shadows} />
+        </group>
       )}
-      <mesh ref={smoke} visible={false} position={[0.04, 0.2, 0]}>
+      <mesh ref={smoke} visible={false} position={[0.04 * PIECE_SCALE, 0.2 * PIECE_SCALE, 0]}>
         <sphereGeometry args={[1, 6, 5]} />
         <meshStandardMaterial color={P.SMOKE} transparent opacity={0.5} depthWrite={false} />
       </mesh>
@@ -178,14 +180,20 @@ export function CityFigure({ vertex, color, fresh = false, seq = null, ghost = f
   const cast = shadows && !ghost;
   const model = usePiece("city", { color: colorOf(color), neutral: P.KEEP_STONE, ghost, castShadow: cast, receiveShadow: shadows });
   return (
-    <group ref={group} position={[p.x, SLAB_HEIGHT, p.z]} scale={PIECE_SCALE} name={`city:${vertex}`}>
-      {model ? <primitive object={model} /> : <ProceduralCity color={color} ghost={ghost} shadows={shadows} flag={flag} />}
+    <group ref={group} position={[p.x, SLAB_HEIGHT, p.z]} name={`city:${vertex}`}>
+      {model ? (
+        <primitive object={model} />
+      ) : (
+        <group scale={PIECE_SCALE}>
+          <ProceduralCity color={color} ghost={ghost} shadows={shadows} flag={flag} />
+        </group>
+      )}
     </group>
   );
 }
 
 /** The stone keep with a gatehouse and flag (docs/props.md §4); the fallback when city.glb is unavailable. `flag` unfurls on entrance. */
-function ProceduralCity({ color, ghost, shadows, flag }: { color: PlayerColor; ghost: boolean; shadows: boolean; flag: RefObject<THREE.Group | null> }) {
+export function ProceduralCity({ color, ghost, shadows, flag }: { color: PlayerColor; ghost: boolean; shadows: boolean; flag: RefObject<THREE.Group | null> }) {
   const cast = shadows && !ghost;
   return (
     <>
@@ -296,8 +304,26 @@ export function ShipFigure({ edge, color, ghost = false, shadows = true, black =
   const sail = black ? P.PIRATE_SAIL : colorOf(color);
   const hull = black ? P.PIRATE_HULL : P.HULL;
   const cast = shadows && !ghost;
+  const model = usePiece("ship", { color: sail, neutral: black ? P.PIRATE_HULL : PIECE_COLORS.wood, ghost, castShadow: cast, receiveShadow: shadows });
   return (
-    <group ref={group} position={centred ? [0, SEA_HEIGHT, 0] : [mid.x, SEA_HEIGHT, mid.z]} rotation={[0, centred ? 0 : -angle, 0]} scale={PIECE_SCALE * 0.85} name={`ship:${edge}`}>
+    <group ref={group} position={centred ? [0, SEA_HEIGHT, 0] : [mid.x, SEA_HEIGHT, mid.z]} rotation={[0, centred ? 0 : -angle, 0]} name={`ship:${edge}`}>
+      {/* The GLB's length is on Z (its local X, turned by loadPiece); the same quarter turn as the road lays it along the edge. */}
+      {model ? (
+        <group rotation={[0, Math.PI / 2, 0]}>
+          <primitive object={model} />
+        </group>
+      ) : (
+        <ProceduralShip color={color} sail={sail} hull={hull} ghost={ghost} shadows={shadows} />
+      )}
+    </group>
+  );
+}
+
+/** The plank hull with a curved sail on a base ring (docs/props.md §4), long on X; the fallback when ship.glb is unavailable. */
+function ProceduralShip({ color, sail, hull, ghost, shadows }: { color: PlayerColor; sail: string; hull: string; ghost: boolean; shadows: boolean }) {
+  const cast = shadows && !ghost;
+  return (
+    <group scale={PIECE_SCALE * 0.85}>
       <BaseRing color={colorOf(color)} radius={0.14} ghost={ghost} shadows={shadows} />
       <mesh position={[0, 0.055, 0]} castShadow={cast}>
         <boxGeometry args={[0.44, 0.07, 0.16]} />
@@ -344,7 +370,7 @@ export function RobberFigure({ ghost = false, shadows = true }: { ghost?: boolea
   const model = usePiece("robber", { color: P.ROBBER_MODEL, roughness: 0.8, ghost, castShadow: cast, receiveShadow: shadows });
   if (model) {
     return (
-      <group scale={PIECE_SCALE} name="robber">
+      <group name="robber">
         <primitive object={model} />
       </group>
     );
@@ -392,8 +418,27 @@ export function robberOffset(centred = false): { dx: number; dz: number; dy: num
   return centred ? { dx: 0, dz: 0, dy: -RECESS_DEPTH } : { dx: 0.42, dz: 0.22, dy: 0 };
 }
 
-/** The pirate: a dark hull with a square black sail and a pennant, no base ring (docs/props.md §5). */
+/**
+ * The pirate: the GLB (public/models/pirate.glb, dark red sail over a
+ * near-black hull) laid along the hex's flat sides, or the procedural dark
+ * hull with a square black sail until it loads. No base ring (docs/props.md §5).
+ */
 export function PirateFigure({ ghost = false, shadows = true }: { ghost?: boolean; shadows?: boolean }) {
+  const cast = shadows && !ghost;
+  const model = usePiece("pirate", { color: PIECE_COLORS.darkRed, neutral: PIECE_COLORS.nearBlack, ghost, castShadow: cast, receiveShadow: shadows });
+  if (model) {
+    // Hexes are pointy-topped, so their flat sides run along Z; loadPiece already put the model's length on Z.
+    return (
+      <group name="pirate">
+        <primitive object={model} />
+      </group>
+    );
+  }
+  return <ProceduralPirate ghost={ghost} shadows={shadows} />;
+}
+
+/** The dark hull with a square black sail and a pennant; the fallback when pirate.glb is unavailable. */
+function ProceduralPirate({ ghost, shadows }: { ghost: boolean; shadows: boolean }) {
   const cast = shadows && !ghost;
   return (
     <group scale={PIECE_SCALE * 0.95} rotation={[0, 0.6, 0]} name="pirate">

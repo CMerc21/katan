@@ -2,14 +2,17 @@
 
 /**
  * Crown & Castle on the diorama (docs/phase11.md §11, docs/props.md §4–§5):
- * knights as three-level figurines in the player's colour (grey while
- * inactive) with a pipped shield, a crenellated ring wall around walled
- * cities, the metropolis spire with a gold crown rising from the keep, the
- * rotund merchant beside his cart, and the barbarian longship that the
- * on-table track (`src/board/props/BarbarianTrack`) sails along its markers.
- * Everything is primitives; nothing
- * is loaded. `CrownBoard` renders whatever the view holds; the figures are
- * exported for the interaction layer's ghosts.
+ * knights as three GLB figurines (knight_1..3.glb, the level is which model
+ * loads; base and top zones in the player's colour, dimmed while inactive),
+ * the walled city and the metropolis as whole-city GLBs that replace the
+ * city model at that vertex (`CrownCityFigure`), the merchant and the
+ * barbarian longship that the on-table track
+ * (`src/board/props/BarbarianTrack`) sails along its markers. Each figure
+ * keeps its procedural version (the pipless knights, the crenellated ring
+ * wall over the city, the spire and gold crown, the cart, the dragon-prowed
+ * longship) as the fallback until its GLB loads or if it cannot.
+ * `CrownBoard` renders whatever the view holds; the figures are exported
+ * for the interaction layer's ghosts.
  */
 
 import { useFrame } from "@react-three/fiber";
@@ -18,29 +21,16 @@ import * as THREE from "three";
 import type { HexId, KnightLevel, PlayerColor, Track, VertexId } from "@katan/engine";
 import type { RedactedState } from "@/driver/types";
 import { PLAYER_FILL, TRACK_COLOR } from "@/game/theme";
-import { easeOutBack, progress } from "./geo";
+import { easeOutBack, easeOutCubic, progress } from "./geo";
 import { SLAB_HEIGHT, hexWorld, vertexWorld } from "./layout3d";
+import { PIECE_COLORS, dimColor, usePiece, type PieceName } from "./loadPiece";
 import * as P from "./palette";
-import { BaseRing, Mat, PIECE_SCALE } from "./Pieces";
+import { BaseRing, Mat, PIECE_SCALE, ProceduralCity, useEntrance } from "./Pieces";
 
 // ---------------------------------------------------------------------------
 // Knights
 
-/** Pip positions on the shield face for each level. */
-const PIPS: Record<KnightLevel, [number, number][]> = {
-  1: [[0, 0]],
-  2: [
-    [-0.012, 0.008],
-    [0.012, -0.008],
-  ],
-  3: [
-    [-0.014, 0.01],
-    [0, 0],
-    [0.014, -0.01],
-  ],
-};
-
-function Shield({ level, tint, kite, ghost, position, rotation }: { level: KnightLevel; tint: string; kite: boolean; ghost: boolean; position: [number, number, number]; rotation: [number, number, number] }) {
+function Shield({ tint, kite, ghost, position, rotation }: { tint: string; kite: boolean; ghost: boolean; position: [number, number, number]; rotation: [number, number, number] }) {
   return (
     <group position={position} rotation={rotation}>
       {kite ? (
@@ -60,22 +50,23 @@ function Shield({ level, tint, kite, ghost, position, rotation }: { level: Knigh
           <Mat color={tint} ghost={ghost} />
         </mesh>
       )}
-      {PIPS[level].map(([x, y], i) => (
-        <mesh key={i} position={[x, y, 0.006]}>
-          <sphereGeometry args={[0.006, 6, 5]} />
-          <Mat color={P.WOOL} ghost={ghost} />
-        </mesh>
-      ))}
     </group>
   );
 }
 
+/** The GLB for a knight level: the level is shown by which model loads. */
+export function knightModel(level: KnightLevel): PieceName {
+  return level === 1 ? "knight_1" : level === 2 ? "knight_2" : "knight_3";
+}
+
 /**
- * A knight of `level` on a base ring in the player's colour (docs/props.md §4):
- * level 1 a squat body with a plain helm and a low shield, level 2 two stacked
- * spheres with a pointed helm and a side shield, level 3 a larger body with a
- * great helm, plume, kite shield, raised sword and cape. Inactive knights turn
- * grey and their ring dims. `fresh` pops it in.
+ * A knight of `level` at a vertex: the level's GLB with base and top zones in
+ * the player's colour over a grey body, or the procedural figure until it
+ * loads (docs/props.md §4: level 1 a squat body with a plain helm and a low
+ * shield, level 2 two stacked spheres with a pointed helm and a side shield,
+ * level 3 a larger body with a great helm, plume, kite shield, raised sword
+ * and cape). Inactive knights have every zone colour × 0.55 and a rough
+ * finish (the procedural one turns grey and its ring dims). `fresh` pops it in.
  */
 export function KnightFigure({ vertex, color, level, active, ghost = false, shadows = true, fresh = false }: { vertex?: VertexId; color: PlayerColor; level: KnightLevel; active: boolean; ghost?: boolean; shadows?: boolean; fresh?: boolean }) {
   const p = vertex ? vertexWorld(vertex) : null;
@@ -88,8 +79,32 @@ export function KnightFigure({ vertex, color, level, active, ghost = false, shad
     if (fresh && started.current === null) started.current = now;
     const t = started.current === null ? 1 : progress(started.current, 320, now);
     const s = fresh && t < 1 ? easeOutBack(t) : 1;
-    g.scale.setScalar(PIECE_SCALE * Math.max(0.001, s));
+    g.scale.setScalar(Math.max(0.001, s));
   });
+  const cast = shadows && !ghost;
+  const model = usePiece(knightModel(level), {
+    color: active ? PLAYER_FILL[color] : dimColor(PLAYER_FILL[color]),
+    neutral: active ? PIECE_COLORS.grey : dimColor(PIECE_COLORS.grey),
+    roughness: active ? 0.8 : 1,
+    ghost,
+    castShadow: cast,
+    receiveShadow: shadows,
+  });
+  return (
+    <group ref={group} position={p ? [p.x, SLAB_HEIGHT, p.z] : [0, 0, 0]} name={vertex ? `knight:${vertex}` : "knight"}>
+      {model ? (
+        <primitive object={model} />
+      ) : (
+        <group scale={PIECE_SCALE}>
+          <ProceduralKnight color={color} level={level} active={active} ghost={ghost} shadows={shadows} />
+        </group>
+      )}
+    </group>
+  );
+}
+
+/** The three-level primitive knight on a base ring; the fallback when the level's GLB is unavailable. */
+function ProceduralKnight({ color, level, active, ghost, shadows }: { color: PlayerColor; level: KnightLevel; active: boolean; ghost: boolean; shadows: boolean }) {
   const tint = active ? PLAYER_FILL[color] : P.INACTIVE;
   const cast = shadows && !ghost;
   const body = level === 1 ? 0.07 : level === 2 ? 0.09 : 0.11;
@@ -97,7 +112,7 @@ export function KnightFigure({ vertex, color, level, active, ghost = false, shad
   const bodyY = 0.02 + body;
   const headY = bodyY + body * 0.85 + head * 0.8;
   return (
-    <group ref={group} position={p ? [p.x, SLAB_HEIGHT, p.z] : [0, 0, 0]} scale={PIECE_SCALE} name={vertex ? `knight:${vertex}` : "knight"}>
+    <>
       <BaseRing color={PLAYER_FILL[color]} ghost={ghost} shadows={shadows} dim={!active} />
       <mesh position={[0, bodyY, 0]} castShadow={cast}>
         <sphereGeometry args={[body, 10, 8]} />
@@ -113,7 +128,7 @@ export function KnightFigure({ vertex, color, level, active, ghost = false, shad
             <sphereGeometry args={[head * 1.05, 10, 4, 0, Math.PI * 2, 0, Math.PI / 2]} />
             <Mat color={tint} ghost={ghost} />
           </mesh>
-          <Shield level={1} tint={tint} kite={false} ghost={ghost} position={[body * 0.9, bodyY - 0.02, 0.03]} rotation={[0, 0.5, 0]} />
+          <Shield tint={tint} kite={false} ghost={ghost} position={[body * 0.9, bodyY - 0.02, 0.03]} rotation={[0, 0.5, 0]} />
         </>
       )}
       {level === 2 && (
@@ -126,7 +141,7 @@ export function KnightFigure({ vertex, color, level, active, ghost = false, shad
             <boxGeometry args={[0.05, 0.006, 0.012]} />
             <Mat color={P.DARK} ghost={ghost} />
           </mesh>
-          <Shield level={2} tint={tint} kite={false} ghost={ghost} position={[body + 0.02, bodyY, 0.01]} rotation={[0, Math.PI / 2 - 0.4, 0]} />
+          <Shield tint={tint} kite={false} ghost={ghost} position={[body + 0.02, bodyY, 0.01]} rotation={[0, Math.PI / 2 - 0.4, 0]} />
         </>
       )}
       {level === 3 && (
@@ -148,7 +163,7 @@ export function KnightFigure({ vertex, color, level, active, ghost = false, shad
             <cylinderGeometry args={[0.01, 0.006, 0.06, 5]} />
             <Mat color={tint} ghost={ghost} />
           </mesh>
-          <Shield level={3} tint={tint} kite ghost={ghost} position={[body * 0.55, bodyY + 0.01, body * 0.95]} rotation={[0, 0, 0]} />
+          <Shield tint={tint} kite ghost={ghost} position={[body * 0.55, bodyY + 0.01, body * 0.95]} rotation={[0, 0, 0]} />
           {/* Sword raised in the other hand. */}
           <group position={[-body * 0.95, bodyY + 0.04, 0.02]} rotation={[0, 0, 0.35]}>
             <mesh position={[0, 0.07, 0]}>
@@ -167,19 +182,82 @@ export function KnightFigure({ vertex, color, level, active, ghost = false, shad
           </mesh>
         </>
       )}
-    </group>
+    </>
   );
 }
 
 // ---------------------------------------------------------------------------
 // Walls and metropolises
 
-/** A low crenellated ring wall around the city at `vertex` (docs/props.md §5). */
-export function WallRing({ vertex, ghost = false, shadows = true }: { vertex: VertexId; ghost?: boolean; shadows?: boolean }) {
+/** The flat player-coloured ring under a metropolis that also has a wall: outer 0.46, inner 0.36, 0.05 tall (world units). */
+const WALL_RING_SHAPE = (() => {
+  const s = new THREE.Shape();
+  s.absarc(0, 0, 0.46, 0, Math.PI * 2, false);
+  const hole = new THREE.Path();
+  hole.absarc(0, 0, 0.36, 0, Math.PI * 2, true);
+  s.holes.push(hole);
+  return s;
+})();
+
+function FlatWallRing({ color, ghost, shadows }: { color: string; ghost: boolean; shadows: boolean }) {
+  const geometry = useMemo(() => new THREE.ExtrudeGeometry(WALL_RING_SHAPE, { depth: 0.05, bevelEnabled: false, curveSegments: 32 }), []);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  return (
+    <mesh geometry={geometry} rotation={[-Math.PI / 2, 0, 0]} receiveShadow={shadows} name="wall-ring">
+      <Mat color={color} ghost={ghost} />
+    </mesh>
+  );
+}
+
+/**
+ * A city that Crown & Castle has upgraded (docs/phase11.md §11): the
+ * metropolis GLB when the vertex holds one, else the walled-city GLB when it
+ * has a wall; a walled metropolis is the metropolis over a flat ring in the
+ * player's colour. Same vertex placement, entrance rise and hover ghost as
+ * `CityFigure`. Until the GLB loads (or if it cannot) it is the city figure
+ * with the procedural ring wall and spire drawn over it.
+ */
+export function CrownCityFigure({ vertex, color, walled, metropolis, fresh = false, seq = null, ghost = false, shadows = true }: { vertex: VertexId; color: PlayerColor; walled: boolean; metropolis: Track | null; fresh?: boolean; seq?: number | null; ghost?: boolean; shadows?: boolean }) {
+  const p = vertexWorld(vertex);
+  const group = useRef<THREE.Group>(null);
+  const flag = useRef<THREE.Group>(null);
+  const t = useEntrance(fresh, seq, 300);
+  useFrame(() => {
+    const g = group.current;
+    if (!g) return;
+    const k = fresh && t.current < 1 ? easeOutCubic(t.current) : 1;
+    g.position.y = SLAB_HEIGHT - (1 - k) * 0.25;
+    if (flag.current) flag.current.scale.x = Math.max(0.001, fresh ? Math.min(1, Math.max(0, (t.current - 0.5) * 2)) : 1);
+  });
+  const cast = shadows && !ghost;
+  const name: PieceName = metropolis ? "metropolis" : "city_walled";
+  const model = usePiece(name, { color: PLAYER_FILL[color], neutral: PIECE_COLORS.grey, ghost, castShadow: cast, receiveShadow: shadows });
+  return (
+    <group ref={group} position={[p.x, SLAB_HEIGHT, p.z]} name={`city:${vertex}`}>
+      {model ? (
+        <>
+          <primitive object={model} />
+          {metropolis && walled && <FlatWallRing color={PLAYER_FILL[color]} ghost={ghost} shadows={shadows} />}
+        </>
+      ) : (
+        <>
+          <group scale={PIECE_SCALE}>
+            <ProceduralCity color={color} ghost={ghost} shadows={shadows} flag={flag} />
+          </group>
+          {walled && <WallRing vertex={vertex} ghost={ghost} shadows={shadows} centred />}
+          {metropolis && <MetropolisCrown vertex={vertex} track={metropolis} ghost={ghost} shadows={shadows} centred />}
+        </>
+      )}
+    </group>
+  );
+}
+
+/** A low crenellated ring wall around the city at `vertex` (docs/props.md §5); `centred` draws it inside a parent already at the vertex. */
+export function WallRing({ vertex, ghost = false, shadows = true, centred = false }: { vertex: VertexId; ghost?: boolean; shadows?: boolean; centred?: boolean }) {
   const p = vertexWorld(vertex);
   const r = 0.13;
   return (
-    <group position={[p.x, SLAB_HEIGHT, p.z]} scale={PIECE_SCALE} name={`wall:${vertex}`}>
+    <group position={centred ? [0, 0, 0] : [p.x, SLAB_HEIGHT, p.z]} scale={PIECE_SCALE} name={`wall:${vertex}`}>
       <mesh position={[0, 0.025, 0]} castShadow={shadows && !ghost}>
         <cylinderGeometry args={[r + 0.012, r + 0.014, 0.05, 24, 1, true]} />
         <Mat color={P.KEEP_STONE} ghost={ghost} side={THREE.DoubleSide} />
@@ -206,12 +284,12 @@ export function WallRing({ vertex, ghost = false, shadows = true }: { vertex: Ve
  * about 0.40 R, its pointed roof in the improvement track's colour, topped by
  * a small gold crown, with two side turrets. Drawn over the city figure.
  */
-export function MetropolisCrown({ vertex, track, ghost = false, shadows = true }: { vertex: VertexId; track: Track; ghost?: boolean; shadows?: boolean }) {
+export function MetropolisCrown({ vertex, track, ghost = false, shadows = true, centred = false }: { vertex: VertexId; track: Track; ghost?: boolean; shadows?: boolean; centred?: boolean }) {
   const p = vertexWorld(vertex);
   const c = TRACK_COLOR[track];
   const cast = shadows && !ghost;
   return (
-    <group position={[p.x, SLAB_HEIGHT, p.z]} scale={PIECE_SCALE} name={`metropolis:${vertex}`}>
+    <group position={centred ? [0, 0, 0] : [p.x, SLAB_HEIGHT, p.z]} scale={PIECE_SCALE} name={`metropolis:${vertex}`}>
       <mesh position={[-0.02, 0.27, -0.01]} castShadow={cast}>
         <cylinderGeometry args={[0.035, 0.055, 0.2, 4]} />
         <Mat color={P.KEEP_STONE} ghost={ghost} />
@@ -262,8 +340,22 @@ export function merchantOffset(): { dx: number; dz: number } {
   return { dx: -0.46, dz: 0.28 };
 }
 
-/** A rotund green figure with a ledger beside a two-wheel cart of crates, on a green base ring; the caller positions the group. */
+/** The merchant GLB (one warm neutral) at a hex like the robber, or the procedural figure until it loads; the caller positions the group. */
 export function MerchantFigure({ ghost = false, shadows = true }: { ghost?: boolean; shadows?: boolean }) {
+  const cast = shadows && !ghost;
+  const model = usePiece("merchant", { color: PIECE_COLORS.merchant, ghost, castShadow: cast, receiveShadow: shadows });
+  if (model) {
+    return (
+      <group name="merchant">
+        <primitive object={model} />
+      </group>
+    );
+  }
+  return <ProceduralMerchant ghost={ghost} shadows={shadows} />;
+}
+
+/** A rotund green figure with a ledger beside a two-wheel cart of crates, on a green base ring; the fallback when merchant.glb is unavailable. */
+function ProceduralMerchant({ ghost, shadows }: { ghost: boolean; shadows: boolean }) {
   const cast = shadows && !ghost;
   return (
     <group scale={PIECE_SCALE * 0.9} name="merchant">
@@ -345,8 +437,25 @@ const TATTERED_SAIL = (() => {
   return s;
 })();
 
-/** The barbarian longship (docs/props.md §5): dragon prow, shields along each side, a tattered square sail, no base ring. */
+/**
+ * The barbarian longship, hull along its local X so the track can aim it:
+ * the GLB (dark red sail over a near-black hull; loadPiece puts its length on
+ * Z, so a quarter turn brings it back to X), or the procedural dragon-prowed
+ * boat (docs/props.md §5) until it loads. No base ring.
+ */
 export function LongshipFigure({ shadows = true }: { shadows?: boolean }) {
+  const model = usePiece("barbarian_ship", { color: PIECE_COLORS.darkRed, neutral: PIECE_COLORS.nearBlack, castShadow: shadows, receiveShadow: shadows });
+  if (model) {
+    return (
+      <group rotation={[0, Math.PI / 2, 0]} name="longship">
+        <primitive object={model} />
+      </group>
+    );
+  }
+  return <ProceduralLongship shadows={shadows} />;
+}
+
+function ProceduralLongship({ shadows }: { shadows: boolean }) {
   const geometry = useMemo(() => new THREE.ShapeGeometry(TATTERED_SAIL), []);
   useEffect(() => () => geometry.dispose(), [geometry]);
   return (
@@ -426,13 +535,7 @@ export function CrownBoard({ view, shadows, freshKnight }: { view: RedactedState
       {c.knights.map((k) => (
         <KnightFigure key={`${k.owner}:${k.at}`} vertex={k.at} color={colorOf.get(k.owner) ?? "white"} level={k.level} active={k.active} shadows={shadows} fresh={freshKnight === k.at} />
       ))}
-      {Object.entries(c.players).flatMap(([id, cp]) => [
-        ...cp.walls.map((v) => <WallRing key={`w:${id}:${v}`} vertex={v} shadows={shadows} />),
-        ...(["trade", "politics", "science"] as const).flatMap((t) => {
-          const v = cp.metropolises[t];
-          return v ? [<MetropolisCrown key={`m:${t}`} vertex={v} track={t} shadows={shadows} />] : [];
-        }),
-      ])}
+      {/* Walls and metropolises are whole-city models: Board3D draws `CrownCityFigure` in place of the city (see `crownCityUpgrades`). */}
       {merchant && (
         <group position={[merchant.x + mo.dx, SLAB_HEIGHT, merchant.z + mo.dz]}>
           <MerchantFigure shadows={shadows} />
@@ -458,6 +561,29 @@ export function crownPieceList(view: RedactedState): { key: string; piece: strin
     }
   }
   if (c.merchant) out.push({ key: "merchant", piece: "merchant", color: colorOf(c.merchant.playerId), text: `${nameOf(c.merchant.playerId)} merchant on ${c.merchant.hex}` });
+  return out;
+}
+
+/** The wall and metropolis at each city vertex, so Board3D can pick the whole-city model to draw there. */
+export function crownCityUpgrades(view: RedactedState): Map<VertexId, { walled: boolean; metropolis: Track | null }> {
+  const out = new Map<VertexId, { walled: boolean; metropolis: Track | null }>();
+  const c = view.crown;
+  if (!c || !view.scenario?.crown) return out;
+  const at = (v: VertexId) => {
+    let u = out.get(v);
+    if (!u) {
+      u = { walled: false, metropolis: null };
+      out.set(v, u);
+    }
+    return u;
+  };
+  for (const cp of Object.values(c.players)) {
+    for (const v of cp.walls) at(v).walled = true;
+    for (const t of ["trade", "politics", "science"] as const) {
+      const v = cp.metropolises[t];
+      if (v) at(v).metropolis = t;
+    }
+  }
   return out;
 }
 

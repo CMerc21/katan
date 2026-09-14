@@ -15,7 +15,7 @@ import { PLAYER_FILL } from "@/game/theme";
 import { SLAB_HEIGHT, edgeWorld, hexWorld, vertexWorld } from "./layout3d";
 import { CityFigure, PirateFigure, RobberFigure, SettlementFigure, ShipFigure, pirateOffset, robberOffset } from "./Pieces";
 import { CastleFigure, GuardFigure, WagonFigure, guardOffset } from "./Wayfarers3d";
-import { KnightFigure, MerchantFigure, MetropolisCrown, WallRing, merchantOffset } from "./Crown3d";
+import { CrownCityFigure, KnightFigure, MerchantFigure, merchantOffset } from "./Crown3d";
 
 /**
  * Targeting modes: the base builds, Tides' ships, the Wayfarers modes
@@ -318,15 +318,15 @@ function VertexGhost({ action, vertex, color }: { action: Action; vertex: Vertex
     case "KNIGHT_DISPLACE":
       return <KnightFigure vertex={vertex} color={color} level={1} active ghost />;
     case "BUILD_WALL":
-      return <WallRing vertex={vertex} ghost />;
+      return <CrownCityFigure vertex={vertex} color={color} walled metropolis={null} ghost />;
     case "PLACE_METROPOLIS":
-      return <MetropolisCrown vertex={vertex} track="trade" ghost />;
+      return <CrownCityFigure vertex={vertex} color={color} walled={false} metropolis="trade" ghost />;
     case "CHOOSE_DOWNGRADE":
       return <SettlementFigure vertex={vertex} color={color} ghost />;
     case "CHOOSE_DESERTER":
       return null;
     case "PLAY_PROGRESS":
-      if (action.card === "engineer") return <WallRing vertex={vertex} ghost />;
+      if (action.card === "engineer") return <CrownCityFigure vertex={vertex} color={color} walled metropolis={null} ghost />;
       if (action.card === "medicine") return <CityFigure vertex={vertex} color={color} ghost />;
       return null;
     default:

@@ -30,7 +30,7 @@ import { bankLayout } from "@/board/props/layout";
 import { Icon } from "@/hud/icons";
 import { Tiles, type TileInfo } from "./Tiles";
 import { WayfarersBoard, wayfarersPieceList } from "./Wayfarers3d";
-import { CrownBoard, crownPieceList } from "./Crown3d";
+import { CrownBoard, CrownCityFigure, crownCityUpgrades, crownPieceList } from "./Crown3d";
 
 export type { CrownPick, TargetMode };
 
@@ -148,6 +148,7 @@ export function Board3D(props: Board3DProps) {
   );
   const propHexes = useMemo<PropHex[]>(() => tiles.filter((t) => (t.kind === "land" && t.terrain) || t.kind === "sea").map((t) => ({ id: t.id, terrain: t.kind === "sea" ? "sea" : (t.terrain as Terrain) })), [tiles]);
   const robberCentred = view.board.hexes[view.robberHex]?.token === null;
+  const cityUpgrades = useMemo(() => crownCityUpgrades(view), [view]);
   const landSet = useMemo(() => new Set(hexIds), [hexIds]);
   const bounds = useMemo(() => boardBounds([...hexIds, ...view.board.sea]), [hexIds, view.board.sea]);
   const centre = useMemo<World>(() => ({ x: bounds.cx, z: bounds.cz }), [bounds]);
@@ -271,7 +272,15 @@ export function Board3D(props: Board3DProps) {
             {view.players.flatMap((p) => [
               ...p.roads.map((e) => <RoadFigure key={`r:${e}`} edge={e} color={p.color} fresh={justBuilt?.piece === "road" && justBuilt.at === e} seq={justBuilt?.seq ?? null} shadows={preset.shadows} />),
               ...p.settlements.map((v) => <SettlementFigure key={`s:${v}`} vertex={v} color={p.color} fresh={justBuilt?.piece === "settlement" && justBuilt.at === v} seq={justBuilt?.seq ?? null} shadows={preset.shadows} />),
-              ...p.cities.map((v) => <CityFigure key={`c:${v}`} vertex={v} color={p.color} fresh={justBuilt?.piece === "city" && justBuilt.at === v} seq={justBuilt?.seq ?? null} shadows={preset.shadows} />),
+              ...p.cities.map((v) => {
+                const up = cityUpgrades.get(v);
+                const fresh = justBuilt?.piece === "city" && justBuilt.at === v;
+                return up ? (
+                  <CrownCityFigure key={`c:${v}`} vertex={v} color={p.color} walled={up.walled} metropolis={up.metropolis} fresh={fresh} seq={justBuilt?.seq ?? null} shadows={preset.shadows} />
+                ) : (
+                  <CityFigure key={`c:${v}`} vertex={v} color={p.color} fresh={fresh} seq={justBuilt?.seq ?? null} shadows={preset.shadows} />
+                );
+              }),
               ...p.ships.map((e) => <ShipFigure key={`sh:${e}`} edge={e} color={p.color} fresh={freshShip?.at === e} seq={freshShip?.seq ?? null} shadows={preset.shadows} />),
             ])}
           </group>
