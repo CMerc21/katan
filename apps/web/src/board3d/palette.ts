@@ -10,8 +10,9 @@ import type { Terrain } from "@katan/engine";
 export const EARTH = "#8A5A3C";
 export const EARTH_BAND = "#C9976A";
 export const RECESS_FLOOR = "#B8865A";
-export const SEA_SIDE = "#3FA8C4";
-export const SEA_TOP = "#5FC8DC";
+// The sea is the largest single colour on the table; desaturated 15% so it sits behind the tiles.
+export const SEA_SIDE = "#49A2BA";
+export const SEA_TOP = "#68C2D3";
 export const FRAME_WOOD = "#4a3323";
 
 // §2 Terrain tops
@@ -92,4 +93,6 @@ export const EVENT_SCIENCE = "#e8c33a";
 export const KEY_LIGHT = "#FFE7C2";
 export const FILL_SKY = "#CFE3F0";
 export const FILL_GROUND = "#6B4A33";
+/** The High preset's back light: cool, so a warm piece reads against the tile behind it. */
+export const RIM_LIGHT = "#BFD8E8";
 export const TABLE_WALNUT = "#5B3A24";

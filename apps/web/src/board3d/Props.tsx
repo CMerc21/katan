@@ -17,6 +17,7 @@ import type { HexId } from "@katan/engine";
 import { box, cone, cyl, dodeca, facetedCone, halfSphere, ico, merge, octa, part, sphere } from "./geo";
 import { SEA_HEIGHT, SLAB_HEIGHT, hexWorld } from "./layout3d";
 import * as P from "./palette";
+import { outlineMaterial } from "./outline";
 import { PROP_MODELS, PROP_MODEL_PATH, loadPropGeometry, propMaterial } from "./propModels";
 import { ALL_KINDS, propsForHex, type PropInstance, type PropKind, type PropTerrain } from "./props";
 import { reliefField } from "./slab";
@@ -220,8 +221,24 @@ export function layoutProps(hexes: readonly PropHex[], density: number): Map<Pro
 
 function PropKindMesh({ kind, items, idle, shadows }: { kind: PropKind; items: Placed[]; idle: boolean; shadows: boolean }) {
   const ref = useRef<THREE.InstancedMesh>(null);
+  const hull = useRef<THREE.InstancedMesh>(null);
   const draw = usePropDraw(kind);
   const dummy = useMemo(() => new THREE.Object3D(), []);
+  // The outline hull is a second instanced draw over the same geometry and the
+  // same matrices, so a whole terrain's props cost one extra call, not one each.
+  const outline = useMemo(() => outlineMaterial(), []);
+  useEffect(() => () => outline.dispose(), [outline]);
+
+  /** Write one instance's matrix to the mesh and its hull. */
+  const write = (i: number) => {
+    dummy.updateMatrix();
+    ref.current?.setMatrixAt(i, dummy.matrix);
+    hull.current?.setMatrixAt(i, dummy.matrix);
+  };
+  const flush = () => {
+    if (ref.current) ref.current.instanceMatrix.needsUpdate = true;
+    if (hull.current) hull.current.instanceMatrix.needsUpdate = true;
+  };
 
   useLayoutEffect(() => {
     const mesh = ref.current;
@@ -230,17 +247,16 @@ function PropKindMesh({ kind, items, idle, shadows }: { kind: PropKind; items: P
       dummy.position.set(p.wx, p.wy - draw.sink, p.wz);
       dummy.rotation.set(0, p.rot, 0);
       dummy.scale.setScalar(p.scale);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
+      write(i);
     });
-    mesh.instanceMatrix.needsUpdate = true;
+    flush();
     mesh.computeBoundingSphere();
+    hull.current?.computeBoundingSphere();
   }, [items, dummy, draw]);
 
   const animated = idle && (SWAYING.has(kind) || BOBBING.has(kind));
   useFrame(({ clock }) => {
-    const mesh = ref.current;
-    if (!mesh || !animated) return;
+    if (!ref.current || !animated) return;
     const t = clock.getElapsedTime();
     items.forEach((p, i) => {
       dummy.position.set(p.wx, p.wy - draw.sink, p.wz);
@@ -257,13 +273,19 @@ function PropKindMesh({ kind, items, idle, shadows }: { kind: PropKind; items: P
         dummy.rotation.set(0, p.rot + turn, 0);
       }
       dummy.scale.setScalar(p.scale);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
+      write(i);
     });
-    mesh.instanceMatrix.needsUpdate = true;
+    flush();
   });
 
-  return <instancedMesh key={draw.fromModel ? "model" : "procedural"} ref={ref} args={[draw.geometry, draw.material, Math.max(1, items.length)]} castShadow={shadows} receiveShadow={shadows} frustumCulled={false} name={`prop:${kind}`} />;
+  const count = Math.max(1, items.length);
+  const key = draw.fromModel ? "model" : "procedural";
+  return (
+    <>
+      <instancedMesh key={`o:${key}`} ref={hull} args={[draw.geometry, outline, count]} castShadow={false} receiveShadow={false} frustumCulled={false} renderOrder={-1} name={`prop-outline:${kind}`} />
+      <instancedMesh key={key} ref={ref} args={[draw.geometry, draw.material, count]} castShadow={shadows} receiveShadow={shadows} frustumCulled={false} name={`prop:${kind}`} />
+    </>
+  );
 }
 
 /** A puff leaves the kiln's top every 4 s and drifts up for 3 s. */

@@ -10,7 +10,7 @@ import type { Step } from "@/game/eventQueue";
 import { clearDriver } from "@/game/store";
 import { errorText, playerName } from "@/game/labels";
 import { effectiveSpeed, loadSettings, useSettings, type Quality } from "@/game/settings";
-import { QUALITY_PRESETS, resolveDpr, stepDown, type QualitySource } from "@/board3d/quality";
+import { QUALITY_PRESETS, resolveDpr } from "@/board3d/quality";
 import type { CrownPick, TargetMode } from "@/board3d/Board3D";
 import { NO_PICK } from "@/board3d/Interaction";
 import { boardBounds } from "@/board3d/layout3d";
@@ -148,30 +148,16 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
   // HUD sound hooks (docs/phase12.md §8): read the live setting so a toggle applies at once.
   useEffect(() => installHudSounds(() => loadSettings().sound && effectiveSpeed(loadSettings()) !== "off"), []);
 
-  // Graphics quality (docs/phase7-5.md §6): a manual preset is used as is and the watchdog stays off;
-  // Auto starts from detection and may be stepped down by the watchdog for this session only.
-  const [detected, setDetected] = useState<Quality>("medium");
-  const [degraded, setDegraded] = useState<Quality | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const pushToast = useCallback((text: string, kind?: string) => setToasts((q) => [...q, { id: Date.now() + q.length, text, kind }]), []);
   const shiftToast = useCallback((id: number) => setToasts((q) => q.filter((t) => t.id !== id)), []);
-  const manual = settings.quality !== "auto";
-  const quality: Quality = manual ? settings.quality : (degraded ?? detected);
-  const qualitySource: QualitySource = manual ? "manual" : degraded ? "watchdog" : "auto";
-  useEffect(() => setDegraded(null), [settings.quality]);
-  const onDegrade = useCallback(
-    (from: Quality) => {
-      const next = stepDown(from);
-      if (!next) return;
-      setDegraded(next);
-      pushToast(`Graphics lowered to ${next} to keep the game smooth`, "quality");
-    },
-    [pushToast],
-  );
+
+  // Graphics quality (docs/phase7-5.md §6): whatever the settings panel says, for the whole session.
+  const quality: Quality = settings.quality;
   useEffect(() => {
     const dpr = resolveDpr(quality, window.devicePixelRatio);
-    console.info(`[katan] graphics preset: ${quality} (${qualitySource}, render dpr ${dpr}, device dpr ${window.devicePixelRatio})`);
-  }, [quality, qualitySource]);
+    console.info(`[katan] graphics preset: ${quality} (render dpr ${dpr}, device dpr ${window.devicePixelRatio})`);
+  }, [quality]);
 
   const [mode, setModeRaw] = useState<TargetMode>(null);
   const [moveFrom, setMoveFrom] = useState<EdgeId | null>(null);
@@ -341,8 +327,6 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
           onSkip={draining ? skip : undefined}
           onCancelMode={() => setMode(null)}
           quality={quality}
-          {...(manual ? {} : { onDegrade })}
-          onDetected={setDetected}
           followTurns={settings.followTurns}
           overlay={
             interactive && view.phase.kind === "steal" && view.players[view.currentPlayer]!.id === me
@@ -394,7 +378,6 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
         error={seatIsBot ? "A bot is playing your seat. Take it back to act." : error}
         waitingOn={waitingOn}
         glint={glint}
-        activeQuality={{ quality, source: qualitySource }}
         toasts={toasts}
         pushToast={pushToast}
         shiftToast={shiftToast}

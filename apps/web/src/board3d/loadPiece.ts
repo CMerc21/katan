@@ -37,6 +37,7 @@ import { useEffect, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { findIslands, regroupTriangles } from "./islands";
+import { outlineMesh } from "./outline";
 import { EDGE_LENGTH } from "./layout3d";
 
 export type PieceName = "robber" | "settlement" | "city" | "road" | "metropolis" | "metropolis_walled" | "city_walled" | "ship" | "barbarian_ship" | "pirate" | "merchant" | "knight_1" | "knight_2" | "knight_3" | "port_sign";
@@ -354,6 +355,15 @@ export function assembleModel(name: string, config: PieceConfig, geometry: THREE
   const group = new THREE.Group();
   group.name = `${name}-glb`;
   group.scale.copy(scale);
+  // The inverted hull rides inside the group, so it inherits the fit, the lift
+  // and whatever the caller animates. A ghost preview is already translucent
+  // and reads as a hint, so it gets no outline.
+  if (!options.ghost) {
+    const hull = outlineMesh(geometry);
+    hull.position.y = lift;
+    hull.rotation.y = axisRotationY(config);
+    group.add(hull);
+  }
   group.add(mesh);
   logFit(name, group);
   return group;
@@ -364,7 +374,7 @@ export async function loadPiece(name: PieceName, options: PieceOptions): Promise
   return assemblePiece(name, await loadPieceGeometry(name), options);
 }
 
-/** Dispose everything a `loadPiece` group owns except the shared geometry and its shared texture. */
+/** Dispose everything a `loadPiece` group owns (its outline included) except the shared geometry and texture. */
 export function disposePiece(group: THREE.Group): void {
   group.traverse((o) => {
     const m = o as THREE.Mesh;

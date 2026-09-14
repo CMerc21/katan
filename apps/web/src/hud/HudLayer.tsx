@@ -34,7 +34,7 @@ import { ChatPanel, EmotePanel, InfoPanel, LeavePanel, LogList, StatsPanel, type
 import { PlayerBanner } from "./PlayerBanner";
 import { Chip } from "./primitives";
 import { ResourceTray, type TrayPicking } from "./ResourceTray";
-import { SettingsBody, type ActiveQuality } from "./SettingsMenu";
+import { SettingsBody } from "./SettingsMenu";
 import { SidePanel } from "./SidePanel";
 import { TurnBanner } from "./TurnBanner";
 import type { WagonControls } from "./WayfarersActions";
@@ -63,7 +63,6 @@ export interface HudLayerProps {
   error: string | null;
   waitingOn: string | undefined;
   glint: string | null;
-  activeQuality: ActiveQuality;
   toasts: readonly Toast[];
   pushToast: (text: string, kind?: string) => void;
   shiftToast: (id: number) => void;
@@ -88,7 +87,7 @@ function isTyping(e: KeyboardEvent): boolean {
 }
 
 export function HudLayer(props: HudLayerProps) {
-  const { driver, view, me, legal, seats, connected, botifiable, onBotify, step, draining, onSkip, interactive, revealed, mode, onMode, crownPick, wagon, onDispatch, error, waitingOn, glint, activeQuality, toasts, pushToast, shiftToast, tradePicking, onTrade, onPickResources, onFish, onImprove, onProgress, onExit, onCapability, children } = props;
+  const { driver, view, me, legal, seats, connected, botifiable, onBotify, step, draining, onSkip, interactive, revealed, mode, onMode, crownPick, wagon, onDispatch, error, waitingOn, glint, toasts, pushToast, shiftToast, tradePicking, onTrade, onPickResources, onFish, onImprove, onProgress, onExit, onCapability, children } = props;
   const [panel, setPanel] = useState<RailKey | null>(null);
   const [cardsOpen, setCardsOpen] = useState(false);
   const [rolls, setRolls] = useState<Roll[]>([]);
@@ -258,7 +257,7 @@ export function HudLayer(props: HudLayerProps) {
         )}
         {panel === "settings" && (
           <SidePanel title={PANEL_TITLE.settings} onClose={() => setPanel(null)} testId="panel-settings">
-            <SettingsBody showGraphics activeQuality={activeQuality} />
+            <SettingsBody showGraphics />
           </SidePanel>
         )}
         {panel === "leave" && (

@@ -8,8 +8,7 @@
  * assistive users (and the e2e specs) can act without raycasting.
  */
 
-import { EffectComposer, TiltShift2, Vignette } from "@react-three/postprocessing";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import type { Action, EdgeId, HexId, PlayerColor, Terrain, VertexId } from "@katan/engine";
@@ -20,11 +19,12 @@ import { CameraRig } from "./Camera";
 import { AnimatedPirate, AnimatedRobber, DiceTray3D, Projector, projectWorld, type CameraSnapshot } from "./Effects3d";
 import { Harbor } from "./Harbor";
 import { INTERACTION_LAYER, InteractionLayer, NO_PICK, computeTargets, targetLabel, targetName, type CrownPick, type TargetMode } from "./Interaction";
-import { boardBounds, hexWorld, edgeWorld, vertexWorld, SLAB_HEIGHT, type World } from "./layout3d";
-import { KEY_LIGHT, FILL_GROUND, FILL_SKY } from "./palette";
+import { boardBounds, hexWorld, edgeWorld, vertexWorld, SLAB_HEIGHT, type Bounds, type World } from "./layout3d";
+import { KEY_LIGHT, FILL_GROUND, FILL_SKY, RIM_LIGHT } from "./palette";
+import { describeShadowFit, fitShadowCamera } from "./shadow";
 import { CityFigure, RoadFigure, SettlementFigure, ShipFigure } from "./Pieces";
 import { Props, type PropHex } from "./Props";
-import { FrameWatchdog, QUALITY_PRESETS, detectQuality, readDeviceInfo, type Quality } from "./quality";
+import { QUALITY_PRESETS, type Quality } from "./quality";
 import { woodTexture } from "./textures";
 import { bankLayout } from "@/board/props/layout";
 import { Icon } from "@/hud/icons";
@@ -54,12 +54,8 @@ export interface Board3DProps {
   onSkip?: (() => void) | undefined;
   /** Esc / tap on empty table cancels targeting mode. */
   onCancelMode?: () => void;
-  /** Effective quality (after auto-detection and step-downs). */
+  /** The player's graphics preset (docs/phase7-5.md §6). */
   quality: Quality;
-  /** The watchdog asked for one step down (docs/phase7-5.md §6). Omit it (a manual preset) and no watchdog runs. */
-  onDegrade?: (next: Quality) => void;
-  /** Auto-detection result on first load, when the setting is "auto". */
-  onDetected?: (q: Quality) => void;
   followTurns?: boolean;
   /** HTML anchored to a hex (the steal popover) or a vertex (the knight menu). */
   overlay?: { hex: HexId; node: ReactNode } | { vertex: VertexId; node: ReactNode } | null;
@@ -67,30 +63,63 @@ export interface Board3DProps {
   children?: ReactNode;
 }
 
-/** Key and fill (docs/props.md §6): a warm directional key from azimuth −40°, elevation 42°, with PCF soft shadows, and a sky/ground hemisphere fill. */
+/**
+ * Key, fill and rim (docs/props.md §6). A warm directional key from azimuth
+ * −40°, elevation 42° does the modelling and casts the shadows; a dim
+ * sky/ground hemisphere and a dim directional fill from the opposite side
+ * open the shadows without flattening them; the rim is a cool back light
+ * that separates a piece from the tile behind it, on the High preset only.
+ *
+ * The key's shadow camera is fitted to the board's real extents
+ * (`fitShadowCamera`) rather than a padded bounding radius, so the map's
+ * texels land on tiles instead of on empty table.
+ */
 export const KEY_AZIMUTH = (-40 * Math.PI) / 180;
 export const KEY_ELEVATION = (42 * Math.PI) / 180;
+export const FILL_AZIMUTH = KEY_AZIMUTH + Math.PI;
+export const FILL_ELEVATION = (28 * Math.PI) / 180;
+export const RIM_AZIMUTH = KEY_AZIMUTH + Math.PI * 0.85;
+export const RIM_ELEVATION = (20 * Math.PI) / 180;
 
-function Lights({ shadows, shadowMap, bounds }: { shadows: boolean; shadowMap: number; bounds: { cx: number; cz: number; radius: number } }) {
-  const r = bounds.radius * 1.6;
-  const d = r * 1.8;
+/** Where a light stands, given the board it lights and how far out it sits. */
+export function lightPosition(bounds: Bounds, azimuth: number, elevation: number, distance: number): [number, number, number] {
+  return [bounds.cx + distance * Math.cos(elevation) * Math.sin(azimuth), distance * Math.sin(elevation), bounds.cz + distance * Math.cos(elevation) * Math.cos(azimuth)];
+}
+
+function Lights({ shadows, shadowMap, rimLight, bounds }: { shadows: boolean; shadowMap: number; rimLight: boolean; bounds: Bounds }) {
+  const d = bounds.radius * 2.9;
+  const key = lightPosition(bounds, KEY_AZIMUTH, KEY_ELEVATION, d);
+  const target = useMemo(() => {
+    const o = new THREE.Object3D();
+    o.position.set(bounds.cx, 0, bounds.cz);
+    return o;
+  }, [bounds]);
+  const shadowFit = useMemo(() => fitShadowCamera(bounds, { x: key[0], y: key[1], z: key[2] }, { x: bounds.cx, y: 0, z: bounds.cz }), [bounds, key[0], key[1], key[2]]);
+  useEffect(() => {
+    if (shadows) console.info(describeShadowFit(bounds, shadowFit));
+  }, [shadows, bounds, shadowFit]);
   return (
     <>
-      <hemisphereLight args={[FILL_SKY, FILL_GROUND, 0.5]} />
+      <hemisphereLight args={[FILL_SKY, FILL_GROUND, 0.35]} />
+      <directionalLight position={lightPosition(bounds, FILL_AZIMUTH, FILL_ELEVATION, d)} intensity={0.35} color={FILL_SKY} />
+      {rimLight && <directionalLight position={lightPosition(bounds, RIM_AZIMUTH, RIM_ELEVATION, d)} intensity={0.9} color={RIM_LIGHT} />}
+      <primitive object={target} />
       <directionalLight
-        position={[bounds.cx + d * Math.cos(KEY_ELEVATION) * Math.sin(KEY_AZIMUTH), d * Math.sin(KEY_ELEVATION), bounds.cz + d * Math.cos(KEY_ELEVATION) * Math.cos(KEY_AZIMUTH)]}
-        intensity={1.6}
+        position={key}
+        target={target}
+        intensity={3}
         color={KEY_LIGHT}
         castShadow={shadows}
         shadow-mapSize={[shadowMap || 1024, shadowMap || 1024]}
         shadow-bias={-0.0005}
         shadow-normalBias={0.01}
-        shadow-camera-left={-r}
-        shadow-camera-right={r}
-        shadow-camera-top={r}
-        shadow-camera-bottom={-r}
-        shadow-camera-near={0.5}
-        shadow-camera-far={d * 2.5}
+        shadow-radius={2}
+        shadow-camera-left={shadowFit.left}
+        shadow-camera-right={shadowFit.right}
+        shadow-camera-top={shadowFit.top}
+        shadow-camera-bottom={shadowFit.bottom}
+        shadow-camera-near={shadowFit.near}
+        shadow-camera-far={shadowFit.far}
       />
     </>
   );
@@ -108,25 +137,8 @@ function Table({ bounds, shadows, onTap, onDoubleTap }: { bounds: { cx: number; 
 }
 
 /** Steps down after sustained slow frames (docs/phase7-5.md §6); mounted only while the setting is Auto. */
-function Watchdog({ onDegrade }: { onDegrade: () => void }) {
-  const dog = useMemo(() => new FrameWatchdog(), []);
-  useFrame((_, delta) => {
-    if (dog.sample(delta * 1000, performance.now())) onDegrade();
-  });
-  return null;
-}
-
-function Detector({ onDetected }: { onDetected: (q: Quality) => void }) {
-  const gl = useThree((s) => s.gl);
-  useEffect(() => {
-    const ctx = gl.getContext();
-    onDetected(detectQuality(readDeviceInfo(ctx)));
-  }, [gl, onDetected]);
-  return null;
-}
-
 export function Board3D(props: Board3DProps) {
-  const { view, legal, mode, moveFrom = null, onPickShip, wagonPath = [], onPickStep, crownPick = NO_PICK, onPickKnight, onPick, meColor, onAction, step = null, onSkip, onCancelMode, quality, onDegrade, onDetected, followTurns = false, overlay = null, children } = props;
+  const { view, legal, mode, moveFrom = null, onPickShip, wagonPath = [], onPickStep, crownPick = NO_PICK, onPickKnight, onPick, meColor, onAction, step = null, onSkip, onCancelMode, quality, followTurns = false, overlay = null, children } = props;
   const preset = QUALITY_PRESETS[quality];
   const anchors = useAnchors();
   const [resetToken, setResetToken] = useState(0);
@@ -251,7 +263,7 @@ export function Board3D(props: Board3DProps) {
         shadows={preset.shadows ? { type: THREE.PCFSoftShadowMap } : false}
         dpr={[1, preset.dpr]}
         raycaster={{ layers }}
-        gl={{ antialias: quality !== "low", powerPreference: "high-performance" }}
+        gl={{ antialias: quality !== "low", powerPreference: "high-performance", toneMappingExposure: 0.95 }}
         onPointerMissed={() => {
           if (onSkip) onSkip();
           else onCancelMode?.();
@@ -260,7 +272,7 @@ export function Board3D(props: Board3DProps) {
       >
         <color attach="background" args={["#2a1c13"]} />
         <CameraRig bounds={bounds} resetToken={resetToken} focus={focus} hero={hero} />
-        <Lights shadows={preset.shadows} shadowMap={preset.shadowMap} bounds={bounds} />
+        <Lights shadows={preset.shadows} shadowMap={preset.shadowMap} rimLight={preset.rimLight} bounds={bounds} />
         <Table bounds={bounds} shadows={preset.shadows} onTap={() => (onSkip ? onSkip() : onCancelMode?.())} onDoubleTap={() => setResetToken((t) => t + 1)} />
         <group name="board">
           <Tiles tiles={tiles} robberHex={view.robberHex} rolled={rolled} rollKey={rollKey} blockedHex={blockedHex} shadows={preset.shadows} idle={preset.idleMotion} />
@@ -293,14 +305,6 @@ export function Board3D(props: Board3DProps) {
           {children}
         </group>
         <Projector snapshot={snapshot} onChange={bumpCamera} />
-        {onDetected && <Detector onDetected={onDetected} />}
-        {onDegrade && <Watchdog onDegrade={() => onDegrade(quality)} />}
-        {preset.postfx && (
-          <EffectComposer enabled multisampling={0}>
-            <Vignette offset={0.3} darkness={0.45} />
-            <TiltShift2 blur={0.1} taper={0.35} start={[0, 0.5]} end={[1, 0.5]} direction={[0, 1]} samples={6} />
-          </EffectComposer>
-        )}
       </Canvas>
 
       {/* A text summary of the pieces for assistive tech (and the specs count them here). */}

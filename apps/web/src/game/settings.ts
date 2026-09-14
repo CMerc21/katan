@@ -15,11 +15,11 @@ export type Quality = "high" | "medium" | "low";
 export interface Settings {
   readonly animation: AnimationSpeed;
   readonly sound: boolean;
-  readonly quality: Quality | "auto";
+  readonly quality: Quality;
   readonly followTurns: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { animation: "normal", sound: false, quality: "auto", followTurns: false };
+export const DEFAULT_SETTINGS: Settings = { animation: "normal", sound: false, quality: "medium", followTurns: false };
 
 const KEY = "katan.settings";
 const listeners = new Set<(s: Settings) => void>();
@@ -28,8 +28,9 @@ let remoteSync: ((s: Settings) => void) | null = null;
 function isSpeed(v: unknown): v is AnimationSpeed {
   return v === "normal" || v === "fast" || v === "off";
 }
-function isQuality(v: unknown): v is Quality | "auto" {
-  return v === "high" || v === "medium" || v === "low" || v === "auto";
+function isQuality(v: unknown): v is Quality {
+  // "auto" was a tier once; a stored value from then falls back to the default.
+  return v === "high" || v === "medium" || v === "low";
 }
 
 export function parseSettings(raw: unknown): Settings {

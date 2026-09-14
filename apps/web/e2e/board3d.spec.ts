@@ -79,10 +79,12 @@ test("reset view and settings menu graphics options are present", async ({ page 
   await expect(page.getByTestId("reset-view")).toBeVisible();
   await page.getByTestId("reset-view").click();
   await page.getByTestId("settings").click();
-  await expect(page.getByTestId("quality-auto")).toBeVisible();
+  // There is no Auto tier any more: the three presets are the whole list.
+  await expect(page.getByTestId("quality-auto")).toHaveCount(0);
+  for (const q of ["high", "medium", "low"]) await expect(page.getByTestId(`quality-${q}`)).toBeVisible();
+  await page.getByTestId("quality-high").click();
+  await expect(page.getByTestId("board3d")).toHaveAttribute("data-quality", "high");
   await page.getByTestId("quality-medium").click();
   await expect(page.getByTestId("board3d")).toHaveAttribute("data-quality", "medium");
-  const active = page.getByTestId("quality-active");
-  await expect(active).toHaveAttribute("data-quality", "medium");
-  await expect(active).toHaveAttribute("data-source", "manual");
+  await expect(page.getByTestId("quality-active")).toHaveAttribute("data-quality", "medium");
 });

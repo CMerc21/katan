@@ -81,7 +81,7 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
   const [isPublic, setIsPublic] = useState(false);
   const [tokenDraft, setTokenDraft] = useState("");
   const dragStart = useRef<{ at: HexCoord; shift: boolean; button: number } | null>(null);
-  const quality = settings.quality === "auto" ? "medium" : settings.quality;
+  const quality = settings.quality;
 
   const scenario = useMemo(() => toScenario(state), [state]);
   const issues = useMemo(() => (scenario ? validateScenario(scenario) : validateBoard(state.def, { allowIslands: true })), [scenario, state.def]);

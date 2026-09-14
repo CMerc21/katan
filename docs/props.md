@@ -69,12 +69,16 @@ Reduced detail (the Low preset, density 0.4): clusters halve — two trees a clu
 - **Event die (Phase 11):** rounded box like the number dice with solid-colored faces instead of pips: 3 faces black (fleet, with a small ship glyph sprite), 1 blue (politics), 1 green (trade), 1 yellow (science); the red number die uses white pips.
 - **Flag:** short pole cylinder with a small triangular flag plane in player color; used on cities and as the island-bonus pennant in Phase 9.
 
-## 6. Lighting and post
+## 6. Lighting, outlines and tone
 
-- Key: directional, warm `#FFE7C2`, intensity 1.6, from azimuth −40°, elevation 42°, casting soft shadows (PCF, map 2048 on High).
-- Fill: hemisphere sky `#CFE3F0` ground `#6B4A33`, intensity 0.5.
+- Key: directional, warm `#FFE7C2`, intensity 3.0, from azimuth −40°, elevation 42°, casting soft shadows (PCF, `shadow.radius` 2, map 2048 on High and 1024 on Medium).
+- Fill: hemisphere sky `#CFE3F0` ground `#6B4A33` at 0.35, plus a directional fill of the same sky colour at 0.35 from the opposite azimuth, elevation 28°. Dim on purpose: the key does the modelling and the fills only open the shadows.
+- Rim (High only): directional `#BFD8E8` at 0.9 from behind the board, elevation 20°, so a piece separates from the tile behind it.
+- Shadow camera: fitted to the board's real extents rather than a padded bounding radius (`fitShadowCamera` in `src/board3d/shadow.ts`, unit tested). The eight corners of the board's bounding box, floor to tallest piece, are projected onto the light's own basis and the orthographic bounds taken from that, so a 2048 map spends its texels on tiles. The fit is logged once: `[board3d] shadow camera fitted: left … right … top … bottom … | board extents …`.
+- Outlines: an inverted hull on the pieces and the tile props, never on tiles. A **fixed world-space offset** of 0.008 units along the vertex normal, not a proportional hull — a scale factor gives a road a hairline and a metropolis a slab. `MeshBasicMaterial` in `#2a2320`, `side: BackSide`, `depthWrite: false`, the offset applied in `onBeforeCompile` after the model-view transform (view space is world scale) and folding in `instanceMatrix` so instanced props line up. See `src/board3d/outline.ts`.
 - Table: plane with a subtle procedural wood-grain shader or a single tiling texture, walnut `#5B3A24`, receives shadows.
-- Post (High only): vignette 0.3, tilt-shift blur on the top and bottom 20% of the frame.
+- Tone: `toneMappingExposure` 0.95. The sea is desaturated 15% from the source palette (`#3FA8C4`/`#5FC8DC` → `#49A2BA`/`#68C2D3`); it is the largest single colour on the table and was pulling attention off the tiles.
+- No post-processing. The vignette and tilt-shift pass that used to run on High is gone, because High is now Medium plus the shadow map and the rim light and nothing else.
 
 ## 7. Implementation notes and deviations
 
@@ -85,5 +89,4 @@ Reduced detail (the Low preset, density 0.4): clusters halve — two trees a clu
 - **Walls** have no levels in the engine (one wall per city), so the stacked-stone marker of §5 is not drawn.
 - **The island-bonus pennant** of §5 is not on the board yet: the client view exposes which islands earned a chip but not the hexes of each island, so the flag is used on cities only.
 - **The robber** stands in the recess only on the desert (no token there); elsewhere it stands beside the token as before.
-- **Post-processing** uses the tilt-shift's focus line across mid-frame with a taper of 0.35 of the diagonal, which blurs roughly the top and bottom fifth; vignette 0.3.
 - Lighting azimuth is measured like the camera's (−35° is the default view), so the key comes from just left of the default camera and shadows fall away from the viewer.

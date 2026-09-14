@@ -13,6 +13,13 @@ const glb = (name: PieceName): ArrayBuffer => {
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 };
 const ALL = Object.keys(PIECES) as PieceName[];
+
+/** The piece's own mesh inside its group; the group also holds the outline hull. */
+function pieceMesh(group: THREE.Group, name: string): THREE.Mesh {
+  const mesh = group.children.find((c) => c.name === `${name}-mesh`) as THREE.Mesh | undefined;
+  if (!mesh) throw new Error(`no ${name}-mesh in the group`);
+  return mesh;
+}
 const ON_DISK = ALL.filter((n) => existsSync(path.join(MODELS, `${n}.glb`)));
 const ZONED = ON_DISK.filter((n) => PIECES[n].zones && !PIECES[n].fullPlayerColor);
 
@@ -183,7 +190,7 @@ describe("fit and lift", () => {
     for (const name of ["barbarian_ship", "pirate"] as const) {
       const g = prepareGeometry(meshyBox(1, 0.8, 0.4), PIECES[name]);
       const group = assemblePiece(name, g, { color: PIECE_COLORS.darkRed, neutral: PIECE_COLORS.nearBlack });
-      const mesh = group.children[0] as THREE.Mesh;
+      const mesh = pieceMesh(group, name);
       expect(mesh.rotation.y).toBeCloseTo(-Math.PI / 2, 9);
       expect(mesh.rotation.x).toBe(0);
       group.updateMatrixWorld(true);
@@ -222,6 +229,43 @@ describe("fit and lift", () => {
       expect(world.min.y).toBeCloseTo(0, 5);
       disposePiece(group);
     }
+  });
+});
+
+describe("piece outlines", () => {
+  it("every solid piece carries an inverted hull over the same geometry, drawn first and casting nothing", async () => {
+    const g = await parsePiece("city", glb("city"));
+    const group = assemblePiece("city", g, { color: "#3060c0", neutral: PIECE_COLORS.grey, castShadow: true });
+    const hull = group.children.find((c) => c.name === "outline") as THREE.Mesh;
+    expect(hull).toBeDefined();
+    expect(hull.geometry).toBe(g);
+    expect(hull.castShadow).toBe(false);
+    expect(hull.renderOrder).toBeLessThan(0);
+    expect((hull.material as THREE.MeshBasicMaterial).side).toBe(THREE.BackSide);
+    // It sits exactly where the piece sits, so the silhouette lines up.
+    expect(hull.position.y).toBeCloseTo(pieceMesh(group, "city").position.y, 9);
+    disposePiece(group);
+  });
+
+  it("the hull is shader-only: it does not change the piece's world size", async () => {
+    const g = await parsePiece("city", glb("city"));
+    const solid = assemblePiece("city", g, { color: "#3060c0", ghost: true });
+    const outlined = assemblePiece("city", g, { color: "#3060c0" });
+    solid.updateMatrixWorld(true);
+    outlined.updateMatrixWorld(true);
+    const a = new THREE.Box3().setFromObject(solid).getSize(new THREE.Vector3());
+    const b = new THREE.Box3().setFromObject(outlined).getSize(new THREE.Vector3());
+    expect(b.x).toBeCloseTo(a.x, 9);
+    expect(b.y).toBeCloseTo(a.y, 9);
+    disposePiece(solid);
+    disposePiece(outlined);
+  });
+
+  it("a ghost preview gets no outline", async () => {
+    const g = await parsePiece("city", glb("city"));
+    const ghost = assemblePiece("city", g, { color: "#3060c0", ghost: true });
+    expect(ghost.children.some((c) => c.name === "outline")).toBe(false);
+    disposePiece(ghost);
   });
 });
 
@@ -386,7 +430,7 @@ describe("GLB files in public/models", () => {
   it.each(ON_DISK)("%s assembles with its foot at y = 0 and the configured world size", async (name) => {
     const g = await parsePiece(name, glb(name));
     const group = assemblePiece(name, g, { color: "#1a1a1a", neutral: "#888888", castShadow: true });
-    const mesh = group.children[0] as THREE.Mesh;
+    const mesh = pieceMesh(group, name);
     expect(mesh.position.y).toBeCloseTo(-g.boundingBox!.min.y, 6);
     expect(mesh.castShadow).toBe(true);
     group.updateMatrixWorld(true);

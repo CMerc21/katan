@@ -35,6 +35,11 @@ test("3-player hotseat: setup by clicking, roll, end turn twice", async ({ page 
     if (m.type() === "error" && !m.text().includes("404")) errors.push(m.text());
   });
 
+  // Auto-detection is gone, so a spec must pin its own preset: SwiftShader cannot
+  // drive Medium's shadows at 2x inside the test budget (every other spec does this).
+  await page.addInitScript(() => {
+    window.localStorage.setItem("katan.settings", JSON.stringify({ animation: "normal", sound: false, quality: "low", followTurns: false }));
+  });
   await page.goto("/");
   await page.waitForLoadState("networkidle");
   await page.getByTestId("count-3").click();

@@ -3,29 +3,18 @@
 /**
  * The Settings panel body (docs/phase7.md §2.1, §7; docs/phase7-5.md §3, §6):
  * animation speed, sound, graphics quality and follow-turns. Rendered inside
- * the left rail's Settings SidePanel (docs/phase12.md §3).
+ * the left rail's Settings SidePanel (docs/phase12.md §3). The preset is the
+ * player's outright: there is no auto tier and nothing changes it mid-game.
  */
 
 import { prefersReducedMotion, useSettings, type AnimationSpeed, type Quality } from "@/game/settings";
-import type { QualitySource } from "@/board3d/quality";
 import { Button } from "@/components/ui";
-
-export interface ActiveQuality {
-  readonly quality: Quality;
-  readonly source: QualitySource;
-}
-
-const SOURCE_TEXT: Record<QualitySource, string> = {
-  manual: "your choice; the frame watchdog will not change it",
-  auto: "auto-detected; lowered automatically if frames stay slow",
-  watchdog: "lowered by the frame watchdog for this session",
-};
 
 function label(q: string): string {
   return q[0]!.toUpperCase() + q.slice(1);
 }
 
-export function SettingsBody({ showGraphics = false, activeQuality }: { showGraphics?: boolean; activeQuality?: ActiveQuality | undefined }) {
+export function SettingsBody({ showGraphics = false }: { showGraphics?: boolean }) {
   const [settings, update] = useSettings();
   const reduced = prefersReducedMotion();
   return (
@@ -50,17 +39,15 @@ export function SettingsBody({ showGraphics = false, activeQuality }: { showGrap
           <fieldset className="mt-3">
             <legend className="font-semibold">Graphics</legend>
             <div className="mt-1 flex flex-wrap gap-1" role="radiogroup">
-              {(["auto", "high", "medium", "low"] as (Quality | "auto")[]).map((q) => (
+              {(["high", "medium", "low"] as Quality[]).map((q) => (
                 <Button key={q} size="sm" role="radio" aria-checked={settings.quality === q} variant={settings.quality === q ? "primary" : "secondary"} onClick={() => update({ quality: q })} data-testid={`quality-${q}`}>
                   {label(q)}
                 </Button>
               ))}
             </div>
-            {activeQuality && (
-              <p className="mt-1 text-xs text-ink-soft" data-testid="quality-active" data-quality={activeQuality.quality} data-source={activeQuality.source}>
-                Active: {label(activeQuality.quality)} ({SOURCE_TEXT[activeQuality.source]})
-              </p>
-            )}
+            <p className="mt-1 text-xs text-ink-soft" data-testid="quality-active" data-quality={settings.quality}>
+              High adds a sharper shadow map and a rim light.
+            </p>
           </fieldset>
           <label className="mt-3 flex items-center gap-2">
             <input type="checkbox" checked={settings.followTurns} onChange={(e) => update({ followTurns: e.target.checked })} data-testid="follow-turns" />

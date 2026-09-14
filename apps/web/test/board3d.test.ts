@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
+import * as THREE from "three";
 import { GEOMETRY, createGame, legalActions, type Action } from "@katan/engine";
 import { createLayout } from "@/board/layout";
 import { boardBounds, edgeWorld, framingDistance, hexCornerWorld, hexWorld, tileJitter, vertexWorld } from "@/board3d/layout3d";
 import { computeTargets, targetName, wagonMoveFor } from "@/board3d/Interaction";
-import { FrameWatchdog, QUALITY_PRESETS, detectQuality, resolveDpr, stepDown } from "@/board3d/quality";
+import { QUALITY_PRESETS, QUALITY_ORDER, resolveDpr } from "@/board3d/quality";
+import { MAX_PIECE_HEIGHT, describeShadowFit, fitShadowCamera } from "@/board3d/shadow";
+import { OUTLINE_COLOR, OUTLINE_OFFSET, outlineMaterial, outlineMesh } from "@/board3d/outline";
+import { FILL_AZIMUTH, KEY_AZIMUTH, KEY_ELEVATION, lightPosition } from "@/board3d/Board3D";
 import { BAR_HALF_LENGTH, FENCE_RADIUS, HEX_AXES, PROP_INNER, propBounds, propLimit, propsForHex, type PropKind, type PropTerrain } from "@/board3d/props";
 import { BACK } from "@/board3d/layout3d";
 
@@ -306,19 +310,24 @@ describe("docs/props.md §3 props", () => {
   });
 });
 
-describe("docs/phase7-5.md §6 quality", () => {
-  it("auto-detects conservatively and steps down one level at a time", () => {
-    expect(detectQuality({ maxTextureSize: 16384, maxRenderbufferSize: 16384, dpr: 2, cores: 12, mobile: false, software: false })).toBe("high");
-    expect(detectQuality({ maxTextureSize: 8192, maxRenderbufferSize: 8192, dpr: 2, cores: 4, mobile: false, software: false })).toBe("medium");
-    expect(detectQuality({ maxTextureSize: 8192, maxRenderbufferSize: 8192, dpr: 3, cores: 8, mobile: true, software: false })).toBe("medium");
-    expect(detectQuality({ maxTextureSize: 4096, maxRenderbufferSize: 4096, dpr: 2, cores: 4, mobile: true, software: false })).toBe("low");
-    expect(detectQuality({ maxTextureSize: 16384, maxRenderbufferSize: 16384, dpr: 1, cores: 16, mobile: false, software: true })).toBe("low");
-    expect(stepDown("high")).toBe("medium");
-    expect(stepDown("medium")).toBe("low");
-    expect(stepDown("low")).toBeNull();
+describe("docs/phase7-5.md §6 graphics tiers", () => {
+  it("High is Medium plus a 2048 shadow map and the rim light, and nothing else", () => {
+    const { high, medium } = QUALITY_PRESETS;
+    expect(high.shadowMap).toBe(2048);
+    expect(medium.shadowMap).toBe(1024);
+    expect(high.rimLight).toBe(true);
+    expect(medium.rimLight).toBe(false);
+    // Every other field is identical, so the two tiers differ only in those two ways.
+    const rest = (p: typeof high) => ({ shadows: p.shadows, propDensity: p.propDensity, dpr: p.dpr, idleMotion: p.idleMotion });
+    expect(rest(high)).toEqual(rest(medium));
+  });
+
+  it("Low is the tier that really differs, and no preset carries a post-processing flag", () => {
     expect(QUALITY_PRESETS.low.shadows).toBe(false);
-    expect(QUALITY_PRESETS.high.postfx).toBe(true);
-    expect(QUALITY_PRESETS.medium.propDensity).toBe(0.7);
+    expect(QUALITY_PRESETS.low.shadowMap).toBe(0);
+    expect(QUALITY_PRESETS.low.rimLight).toBe(false);
+    expect(QUALITY_PRESETS.low.propDensity).toBeLessThan(QUALITY_PRESETS.medium.propDensity);
+    for (const q of QUALITY_ORDER) expect(QUALITY_PRESETS[q]).not.toHaveProperty("postfx");
   });
 
   it("high and medium render at the true device pixel ratio capped at 2; low at 1", () => {
@@ -329,48 +338,125 @@ describe("docs/phase7-5.md §6 quality", () => {
     expect(resolveDpr("low", 2)).toBe(1);
     expect(resolveDpr("high", 0.5)).toBe(1);
     expect(resolveDpr("high", Number.NaN)).toBe(1);
-    expect(QUALITY_PRESETS.low.postfx).toBe(false);
-    expect(QUALITY_PRESETS.medium.postfx).toBe(false);
   });
+});
 
-  it("the watchdog ignores the warm-up, a single hitch and an occasional slow frame", () => {
-    const dog = new FrameWatchdog({ thresholdMs: 33, windowMs: 5000, warmupMs: 5000 });
-    let now = 0;
-    // Load: 6 s of 200 ms frames while shaders compile: the first 5 s are warm-up, so no verdict yet.
-    for (let i = 0; i < 30; i++) expect(dog.sample(200, (now += 200))).toBe(false);
-    // Then a steady 60 fps with one 400 ms hitch: never fires.
-    for (let i = 0; i < 300; i++) expect(dog.sample(16, (now += 16))).toBe(false);
-    expect(dog.sample(400, (now += 400))).toBe(false);
-    for (let i = 0; i < 300; i++) expect(dog.sample(16, (now += 16))).toBe(false);
-    // A third of the frames slow: still not sustained.
-    for (let i = 0; i < 600; i++) {
-      const slow = i % 3 === 0;
-      expect(dog.sample(slow ? 40 : 16, (now += slow ? 40 : 16))).toBe(false);
+describe("the key light's shadow camera is fitted to the board", () => {
+  const board = { minX: -3, maxX: 3, minZ: -2.5, maxZ: 2.5 };
+  const bounds = { cx: 0, cz: 0, radius: 3.2 };
+  const key = lightPosition({ ...bounds, ...board }, KEY_AZIMUTH, KEY_ELEVATION, bounds.radius * 2.9);
+  const light = { x: key[0], y: key[1], z: key[2] };
+  const target = { x: 0, y: 0, z: 0 };
+
+  /** Project a world point onto the light's right/up axes, the same basis the fit uses. */
+  function project(p: { x: number; y: number; z: number }) {
+    const sub = (a: typeof p, b: typeof p) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
+    const cross = (a: typeof p, b: typeof p) => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+    const dot = (a: typeof p, b: typeof p) => a.x * b.x + a.y * b.y + a.z * b.z;
+    const norm = (a: typeof p) => {
+      const l = Math.hypot(a.x, a.y, a.z);
+      return { x: a.x / l, y: a.y / l, z: a.z / l };
+    };
+    const f = norm(sub(target, light));
+    const r = norm(cross(f, { x: 0, y: 1, z: 0 }));
+    const u = norm(cross(r, f));
+    const v = sub(p, light);
+    return { x: dot(v, r), y: dot(v, u), d: dot(v, f) };
+  }
+
+  it("contains every corner of the board's bounding box, floor and piece height alike", () => {
+    const f = fitShadowCamera(board, light, target);
+    for (const x of [board.minX, board.maxX]) {
+      for (const z of [board.minZ, board.maxZ]) {
+        for (const y of [0, MAX_PIECE_HEIGHT]) {
+          const p = project({ x, y, z });
+          expect(p.x).toBeGreaterThanOrEqual(f.left);
+          expect(p.x).toBeLessThanOrEqual(f.right);
+          expect(p.y).toBeGreaterThanOrEqual(f.bottom);
+          expect(p.y).toBeLessThanOrEqual(f.top);
+          expect(p.d).toBeGreaterThanOrEqual(f.near);
+          expect(p.d).toBeLessThanOrEqual(f.far);
+        }
+      }
     }
   });
 
-  it("the watchdog fires once after 5 s of mostly slow frames, then warms up again", () => {
-    const dog = new FrameWatchdog({ thresholdMs: 33, windowMs: 5000, warmupMs: 5000 });
-    let now = 0;
-    for (let i = 0; i < 400; i++) expect(dog.sample(16, (now += 16))).toBe(false); // warm-up and a bit of play
-    // 40 ms frames with the odd fast one in between: a fast frame does not reset the window.
-    let fired = 0;
-    for (let i = 0; i < 150; i++) {
-      const fast = i % 10 === 0;
-      if (dog.sample(fast ? 16 : 40, (now += fast ? 16 : 40))) fired++;
-    }
-    expect(fired).toBe(1);
-    expect(now).toBeLessThan(400 * 16 + 6000);
-    // Right after firing the new preset compiles: 3 s of slow frames are ignored.
-    for (let i = 0; i < 75; i++) expect(dog.sample(40, (now += 40))).toBe(false);
+  it("wastes no room: it is tighter than the padded bounding radius it replaced, and hugs the board", () => {
+    const f = fitShadowCamera(board, light, target);
+    const width = f.right - f.left;
+    const height = f.top - f.bottom;
+    const oldHalf = bounds.radius * 1.6;
+    expect(width).toBeLessThan(oldHalf * 2);
+    expect(height).toBeLessThan(oldHalf * 2);
+    // The light looks across the board at 40°, so its width is the board's footprint
+    // turned into the light's basis — never smaller than the board, never the old square.
+    expect(width).toBeGreaterThanOrEqual(board.maxX - board.minX);
+    const turned = Math.abs((board.maxX - board.minX) * Math.cos(KEY_AZIMUTH)) + Math.abs((board.maxZ - board.minZ) * Math.sin(KEY_AZIMUTH));
+    expect(width).toBeLessThan(turned + MAX_PIECE_HEIGHT + 0.5);
+    expect(f.near).toBeGreaterThan(0);
+    expect(f.far).toBeGreaterThan(f.near);
   });
 
-  it("the watchdog treats a stall (a hidden tab) as no signal", () => {
-    const dog = new FrameWatchdog({ thresholdMs: 33, windowMs: 5000, warmupMs: 0 });
-    let now = 0;
-    for (let i = 0; i < 100; i++) expect(dog.sample(40, (now += 40))).toBe(false);
-    expect(dog.sample(30_000, (now += 30_000))).toBe(false);
-    // The window starts over: another 4 s of slow frames is not yet sustained.
-    for (let i = 0; i < 100; i++) expect(dog.sample(40, (now += 40))).toBe(false);
+  it("follows the board: a wider board gets a wider frustum, and an off-centre board is not clipped", () => {
+    const narrow = fitShadowCamera(board, light, target);
+    const wide = fitShadowCamera({ ...board, minX: -6, maxX: 6 }, light, target);
+    expect(wide.right - wide.left).toBeGreaterThan(narrow.right - narrow.left);
+    const off = { minX: 4, maxX: 10, minZ: 4, maxZ: 10 };
+    const centre = { x: 7, y: 0, z: 7 };
+    const offKey = lightPosition({ cx: 7, cz: 7, radius: 3, ...off }, KEY_AZIMUTH, KEY_ELEVATION, 9);
+    const f = fitShadowCamera(off, { x: offKey[0], y: offKey[1], z: offKey[2] }, centre);
+    expect(f.left).toBeLessThan(0);
+    expect(f.right).toBeGreaterThan(0);
+  });
+
+  it("logs the frustum and the board extents it was fitted to", () => {
+    const line = describeShadowFit(board, fitShadowCamera(board, light, target));
+    expect(line).toContain("shadow camera fitted");
+    for (const field of ["left", "right", "top", "bottom", "near", "far"]) expect(line).toContain(field);
+    expect(line).toContain("board extents");
+    expect(line).toContain("6.000 wide");
+    expect(line).toContain("5.000 deep");
+  });
+
+  it("the fill light sits opposite the key", () => {
+    expect(FILL_AZIMUTH - KEY_AZIMUTH).toBeCloseTo(Math.PI, 9);
+  });
+});
+
+describe("inverted-hull outlines", () => {
+  it("are a fixed world-space offset along the normal, not a scaled hull", () => {
+    const m = outlineMaterial();
+    expect(OUTLINE_OFFSET).toBe(0.008);
+    // onBeforeCompile mutates the shader object it is handed.
+    const shader = { vertexShader: "#include <project_vertex>" };
+    m.onBeforeCompile(shader as never, null as never);
+    expect(shader.vertexShader).not.toContain("#include <project_vertex>");
+    expect(shader.vertexShader).toContain("0.00800");
+    // The offset is added after the model-view transform, so it is in view space.
+    expect(shader.vertexShader).toContain("mvPosition = modelViewMatrix * mvPosition;");
+    expect(shader.vertexShader).toContain("mvPosition.xyz += normalize( normalMatrix * outlineNormal )");
+    // Instanced props fold the instance matrix into the normal.
+    expect(shader.vertexShader).toContain("#ifdef USE_INSTANCING");
+    expect(shader.vertexShader).toContain("outlineNormal = im * outlineNormal;");
+    m.dispose();
+  });
+
+  it("draws only back faces, never writes depth, and never casts a shadow", () => {
+    const m = outlineMaterial();
+    expect(m.side).toBe(THREE.BackSide);
+    expect(m.depthWrite).toBe(false);
+    expect(`#${m.color.getHexString()}`).toBe(OUTLINE_COLOR);
+    const mesh = outlineMesh(new THREE.BoxGeometry(1, 1, 1));
+    expect(mesh.castShadow).toBe(false);
+    expect(mesh.receiveShadow).toBe(false);
+    expect(mesh.name).toBe("outline");
+    m.dispose();
+  });
+
+  it("gives two materials with different offsets different program cache keys", () => {
+    const a = outlineMaterial(0.008);
+    const b = outlineMaterial(0.02);
+    expect(a.customProgramCacheKey()).not.toBe(b.customProgramCacheKey());
+    expect(a.customProgramCacheKey()).toBe(outlineMaterial(0.008).customProgramCacheKey());
   });
 });
