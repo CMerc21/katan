@@ -185,9 +185,10 @@ export function HudLayer(props: HudLayerProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [panel, cardsOpen, endTurnEnabled, tradeEnabled, onDispatch, onTrade, me]);
 
+  // The cards panel covers part of the table, so it closes whenever the board needs a pick (robber, steal, setup, prompts).
   useEffect(() => {
-    if (!interactive) setCardsOpen(false);
-  }, [interactive]);
+    if (!interactive || (phase.kind !== "action" && phase.kind !== "roll")) setCardsOpen(false);
+  }, [interactive, phase.kind]);
 
   const rows = useMemo(() => costRows(view, me, interactive ? hand : null, legal), [view, me, interactive, hand, legal]);
   const cp = crown ? view.crown?.players[me] : undefined;
