@@ -334,15 +334,23 @@ function VertexGhost({ action, vertex, color }: { action: Action; vertex: Vertex
   }
 }
 
-export function InteractionLayer({ targets, color, onAction, onHover, onPickShip, onPickStep, onPickKnight, onPick }: { targets: Targets; color: PlayerColor; onAction: (a: Action) => void; onHover?: (h: Hover) => void; onPickShip?: (edge: EdgeId) => void; onPickStep?: (vertex: VertexId) => void; onPickKnight?: (vertex: VertexId) => void; onPick?: (id: string) => void }) {
+export function InteractionLayer({ targets, color, onAction, onHover, onPickShip, onPickStep, onPickKnight, onPick, idle = true }: { targets: Targets; color: PlayerColor; onAction: (a: Action) => void; onHover?: (h: Hover) => void; onPickShip?: (edge: EdgeId) => void; onPickStep?: (vertex: VertexId) => void; onPickKnight?: (vertex: VertexId) => void; onPick?: (id: string) => void; idle?: boolean }) {
   const accent = PLAYER_FILL[color];
   const [hover, setHover] = useState<Hover>(null);
   const rings = useRef<THREE.Object3D[]>([]);
   rings.current = [];
   const pressed = useRef<string | null>(null);
 
+  /**
+   * The rings breathe, gently. This is gated on `idle` (the quality preset's
+   * idle motion, as Tiles and Props are) for two reasons: with animations off
+   * nothing on the board should move, and an ungated pulse left 40-odd rings
+   * mid-animation in every frame, which put a ~3.8% frame-to-frame noise floor
+   * under `e2e/visual.spec.ts` and forced its tolerance so wide that a whole
+   * palette change passed unnoticed.
+   */
   useFrame(({ clock }) => {
-    const s = 1 + Math.sin(clock.getElapsedTime() * 4.5) * 0.12;
+    const s = idle ? 1 + Math.sin(clock.getElapsedTime() * 4.5) * 0.07 : 1;
     for (const r of rings.current) r.scale.set(s, s, 1);
   });
 
@@ -402,7 +410,7 @@ export function InteractionLayer({ targets, color, onAction, onHover, onPickShip
               rotation={[-Math.PI / 2, 0, 0]}
             >
               <ringGeometry args={[0.2, 0.3, 28]} />
-              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.7} depthWrite={false} />
+              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.42} depthWrite={false} />
             </mesh>
             {hovered && <VertexGhost action={action} vertex={v} color={color} />}
           </group>
@@ -427,7 +435,7 @@ export function InteractionLayer({ targets, color, onAction, onHover, onPickShip
               rotation={[-Math.PI / 2, 0, 0]}
             >
               <ringGeometry args={[0.28, 0.36, 28]} />
-              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.5} depthWrite={false} />
+              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.34} depthWrite={false} />
             </mesh>
           </group>
         );
@@ -450,7 +458,7 @@ export function InteractionLayer({ targets, color, onAction, onHover, onPickShip
               rotation={[-Math.PI / 2, 0, 0]}
             >
               <ringGeometry args={[0.24, 0.34, 28]} />
-              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.6} depthWrite={false} />
+              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.38} depthWrite={false} />
             </mesh>
           </group>
         );
@@ -484,7 +492,7 @@ export function InteractionLayer({ targets, color, onAction, onHover, onPickShip
             </mesh>
             <mesh rotation={[-Math.PI / 2, Math.PI / 6, 0]} position={[0, 0.01, 0]}>
               <ringGeometry args={[0.8, 0.96, 6]} />
-              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.6} depthWrite={false} />
+              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.38} depthWrite={false} />
             </mesh>
           </group>
         );
@@ -525,7 +533,7 @@ export function InteractionLayer({ targets, color, onAction, onHover, onPickShip
               rotation={[-Math.PI / 2, 0, 0]}
             >
               <ringGeometry args={[0.32, 0.42, 28]} />
-              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.7} depthWrite={false} />
+              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.42} depthWrite={false} />
             </mesh>
           </group>
         );
@@ -548,7 +556,7 @@ export function InteractionLayer({ targets, color, onAction, onHover, onPickShip
               rotation={[-Math.PI / 2, 0, 0]}
             >
               <ringGeometry args={[0.14, 0.24, 20]} />
-              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.7} depthWrite={false} />
+              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.42} depthWrite={false} />
             </mesh>
             {hovered && <WagonFigure vertex={v} color={color} cargo={[]} ghost />}
           </group>
@@ -570,7 +578,7 @@ export function InteractionLayer({ targets, color, onAction, onHover, onPickShip
             </mesh>
             <mesh rotation={[-Math.PI / 2, Math.PI / 6, 0]} position={[0, 0.01, 0]}>
               <ringGeometry args={[0.8, 0.96, 6]} />
-              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.6} depthWrite={false} />
+              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.38} depthWrite={false} />
             </mesh>
             {hovered && action.type !== "REBUILD_HEX" && !(action.type === "PLAY_PROGRESS" && action.card === "inventor") && (
               <group position={[o.dx, 0, o.dz]}>

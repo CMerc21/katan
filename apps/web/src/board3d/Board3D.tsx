@@ -349,7 +349,7 @@ export function Board3D(props: Board3DProps) {
           <CrownBoard view={view} shadows={preset.shadows} freshKnight={freshKnight} />
           <AnimatedRobber hex={view.robberHex} shadows={preset.shadows} centred={robberCentred} />
           {view.pirateHex !== null && <AnimatedPirate hex={view.pirateHex} shadows={preset.shadows} />}
-          <InteractionLayer targets={targets} color={meColor} onAction={onAction} {...(onPickShip ? { onPickShip } : {})} {...(onPickStep ? { onPickStep } : {})} {...(onPickKnight ? { onPickKnight } : {})} {...(onPick ? { onPick } : {})} />
+          <InteractionLayer targets={targets} color={meColor} onAction={onAction} idle={preset.idleMotion} {...(onPickShip ? { onPickShip } : {})} {...(onPickStep ? { onPickStep } : {})} {...(onPickKnight ? { onPickKnight } : {})} {...(onPick ? { onPick } : {})} />
           <DiceTray3D bounds={bounds} dice={view.lastRoll} rollKey={rollKey} shadows={preset.shadows} eventDie={eventDie} redDie={view.scenario?.crown === true} />
           {children}
         </group>

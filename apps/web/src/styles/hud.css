@@ -5,9 +5,11 @@
  * is reserved for the build-cost card.
  */
 :root {
-  --hud-panel: rgba(38, 38, 40, 0.86);
-  --hud-panel-solid: #262628;
-  --hud-border: rgba(255, 255, 255, 0.08);
+  /* Warm near-black, not neutral grey: the chrome sits on a walnut table, and
+     a cool grey panel reads as a foreign UI layer pasted over the diorama. */
+  --hud-panel: rgba(30, 22, 17, 0.82);
+  --hud-panel-solid: #211915;
+  --hud-border: rgba(238, 222, 196, 0.12);
   --hud-radius: 8px;
   --hud-text: #f4f1ea;
   --hud-text-dim: rgba(244, 241, 234, 0.6);
@@ -21,8 +23,9 @@
   --player-teal: #1f8a8a;
   --player-gold: #c99a2e;
   --hud-margin: 16px;
-  --hud-top: 120px;
-  --hud-bottom: 96px;
+  /* The bands were 120 / 96 and ate 30% of a 720p screen. */
+  --hud-top: 84px;
+  --hud-bottom: 88px;
 }
 
 /* --- Layer and grid ------------------------------------------------------ */
@@ -42,6 +45,32 @@
 }
 .hud-layer * {
   box-sizing: border-box;
+}
+
+/*
+ * Scrims behind the top and bottom bands. Without them the banners and the
+ * tray are hard-edged slabs floating over the diorama; with them the chrome
+ * fades into the table and the board reads as one continuous scene. They are
+ * real elements rendered first in `HudLayer` rather than pseudo-elements: a
+ * negative z-index would have to escape the layer's own stacking context, and
+ * `::after` comes last in tree order, so the bottom one would paint over the
+ * tray it is meant to sit behind.
+ */
+.hud-scrim {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+.hud-scrim-top {
+  top: 0;
+  height: calc(var(--hud-top) + var(--hud-margin) + 28px);
+  background: linear-gradient(to bottom, rgba(16, 11, 7, 0.78) 0%, rgba(16, 11, 7, 0.5) 50%, rgba(16, 11, 7, 0) 100%);
+}
+.hud-scrim-bottom {
+  bottom: 0;
+  height: calc(var(--hud-bottom) + var(--hud-margin) + 28px);
+  background: linear-gradient(to top, rgba(16, 11, 7, 0.78) 0%, rgba(16, 11, 7, 0.46) 50%, rgba(16, 11, 7, 0) 100%);
 }
 .hud-interactive {
   pointer-events: auto;
@@ -135,17 +164,21 @@
 }
 .hud-banner {
   position: relative;
-  /* Basis 288 so four fit on one line at 1280 wide (lines break on the basis, before shrinking); grow to 400. */
-  flex: 1 1 288px;
-  max-width: 400px;
-  min-width: 288px;
-  height: 110px;
+  /* Lighter than a stock .hud-panel: the scrim behind the band carries the
+     contrast, so the banner only needs an edge. */
+  background: rgba(30, 22, 17, 0.55);
+  box-shadow: none;
+  /* Basis 232 so four fit on one line at 1280 wide (lines break on the basis, before shrinking); grow to 300. */
+  flex: 1 1 232px;
+  max-width: 300px;
+  min-width: 232px;
+  height: 76px;
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  grid-template-rows: 30px minmax(0, 1fr);
-  column-gap: 12px;
-  row-gap: 6px;
-  padding: 10px 0 0 10px;
+  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-rows: 24px minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 4px;
+  padding: 8px 0 0 8px;
   pointer-events: auto;
 }
 .hud-banner[aria-current="true"] .hud-portrait {
@@ -154,9 +187,9 @@
 .hud-portrait {
   grid-row: 1 / span 2;
   position: relative;
-  width: 72px;
-  height: 72px;
-  border: 4px solid var(--player);
+  width: 56px;
+  height: 56px;
+  border: 3px solid var(--player);
   border-radius: 6px;
   background: var(--hud-panel-solid);
   overflow: visible;
@@ -178,17 +211,17 @@
 }
 .hud-vp .hud-num {
   color: inherit;
-  font-size: 18px;
+  font-size: 15px;
 }
 .hud-pill .hud-num {
   font-size: 12px;
 }
 .hud-vp {
   position: absolute;
-  left: -10px;
-  top: -10px;
-  width: 36px;
-  height: 36px;
+  left: -8px;
+  top: -8px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   background: var(--hud-accent);
   border: 3px solid var(--hud-panel-solid);
@@ -248,17 +281,17 @@
 .hud-ribbon {
   grid-column: 2;
   grid-row: 1;
-  height: 30px;
-  margin-right: 10px;
-  padding: 0 22px 0 10px;
+  height: 24px;
+  margin-right: 8px;
+  padding: 0 18px 0 8px;
   background: var(--player);
   color: #fff;
   clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 50%, 100% 100%, 0 100%);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-weight: 700;
-  font-size: 15px;
+  font-size: 13px;
   letter-spacing: 0.02em;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
   position: relative;
@@ -328,8 +361,8 @@
 .hud-stats {
   grid-column: 2;
   grid-row: 2;
-  margin-right: 10px;
-  margin-bottom: 8px;
+  margin-right: 8px;
+  margin-bottom: 6px;
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
@@ -342,12 +375,12 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: 3px 0;
+  gap: 1px;
+  padding: 1px 0;
   color: var(--hud-text-dim);
 }
 .hud-stat .hud-num {
-  font-size: 22px;
+  font-size: 17px;
 }
 .hud-stat[data-title="true"] {
   color: var(--hud-accent);
@@ -357,15 +390,15 @@
   color: var(--hud-accent);
 }
 .hud-stat svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   fill: currentColor;
 }
 .hud-banner-extra {
   position: absolute;
-  left: 92px;
-  right: 10px;
-  bottom: -14px;
+  left: 74px;
+  right: 8px;
+  bottom: -13px;
   display: flex;
   flex-wrap: wrap;
   gap: 3px;
@@ -387,9 +420,9 @@
   border-color: transparent;
 }
 .hud-banners[data-compact="true"] .hud-banner {
-  flex-basis: 96px;
-  min-width: 96px;
-  grid-template-columns: 72px;
+  flex-basis: 80px;
+  min-width: 80px;
+  grid-template-columns: 56px;
 }
 .hud-banners[data-compact="true"] .hud-ribbon,
 .hud-banners[data-compact="true"] .hud-stats,
@@ -405,12 +438,18 @@
   position: relative;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
+  /* Pinned, not content-sized: an auto row grows to the tallest child, and
+     because the band is aligned to the bottom of the viewport that growth
+     pushes every child in the row off the bottom edge rather than upward. */
+  grid-template-rows: var(--hud-bottom);
   align-items: end;
 }
 .hud-tray {
-  width: 640px;
+  background: rgba(30, 22, 17, 0.55);
+  box-shadow: none;
+  width: 560px;
   max-width: 100%;
-  height: 72px;
+  height: 58px;
   display: flex;
   align-items: stretch;
   justify-content: center;
@@ -431,14 +470,16 @@
   cursor: default;
   border-radius: 6px;
 }
+/* A hand of zeros should recede far enough that any non-zero count reads on
+   its own; the tray used to be eight equally loud numerals. */
 .hud-cell[data-zero="true"] {
-  color: var(--hud-text-dim);
+  color: rgba(244, 241, 234, 0.32);
 }
 .hud-cell[data-zero="true"] .hud-num {
-  color: var(--hud-text-dim);
+  color: rgba(244, 241, 234, 0.32);
 }
 .hud-cell[data-zero="true"] .hud-cell-icon {
-  opacity: 0.45;
+  opacity: 0.28;
 }
 .hud-cell[data-clickable="true"] {
   cursor: pointer;
@@ -447,13 +488,13 @@
   background: rgba(255, 255, 255, 0.08);
 }
 .hud-cell .hud-num {
-  font-size: 26px;
+  font-size: 21px;
   min-width: 1.2em;
   text-align: right;
 }
 .hud-cell-icon {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
 }
@@ -530,11 +571,14 @@
   justify-content: flex-end;
   gap: 12px;
   pointer-events: auto;
+  /* `.hud-round-label` hangs 15px below its button; without this the labels
+     sit on the viewport edge and read as clipped. */
+  padding-bottom: 18px;
 }
 .hud-round {
   position: relative;
-  width: 84px;
-  height: 84px;
+  width: 68px;
+  height: 68px;
   border-radius: 50%;
   border: 3px solid transparent;
   background: var(--hud-panel-solid);
@@ -549,8 +593,8 @@
     opacity 200ms;
 }
 .hud-round[data-size="small"] {
-  width: 52px;
-  height: 52px;
+  width: 46px;
+  height: 46px;
 }
 .hud-round svg {
   width: 44%;
@@ -1092,9 +1136,9 @@
 
 @media (max-width: 1279px), (max-height: 719px) {
   .hud-banners .hud-banner {
-    flex-basis: 96px;
-    min-width: 96px;
-    grid-template-columns: 72px;
+    flex-basis: 80px;
+    min-width: 80px;
+    grid-template-columns: 56px;
   }
   .hud-banners .hud-ribbon,
   .hud-banners .hud-stats,

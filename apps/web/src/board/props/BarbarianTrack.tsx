@@ -23,6 +23,41 @@ import { barbarianTrackLayout } from "./layout";
 
 const MOVE_MS = 600;
 
+/*
+ * Keeping the pills on screen. They are anchored to a world point beside the
+ * track, which sits off the board's top-left corner (`barbarianTrackLayout`).
+ * On a wide viewport, or a large Phase 8 board, that point projects outside
+ * the canvas and the pills were clipped by the window edge — "Active knights"
+ * rendered as "ctive knights". `pillPosition` below keeps drei's projection
+ * but holds the result inside the viewport, clear of the HUD's top band and
+ * left rail.
+ */
+/** Room the pill block needs; the longest is "Barbarian strength NN". */
+const PILL_WIDTH = 190;
+const PILL_HEIGHT = 56;
+/** Clear of the left rail (80) and the top band (`--hud-top` + `--hud-margin`). */
+const GUTTER_LEFT = 96;
+const GUTTER_TOP = 112;
+const GUTTER_RIGHT = 16;
+const GUTTER_BOTTOM = 120;
+
+const projected = new THREE.Vector3();
+
+function clamp(v: number, lo: number, hi: number): number {
+  return hi < lo ? lo : Math.min(hi, Math.max(lo, v));
+}
+
+function pillPosition(el: THREE.Object3D, camera: THREE.Camera, size: { width: number; height: number }): number[] {
+  projected.setFromMatrixPosition(el.matrixWorld).project(camera);
+  const halfW = size.width / 2;
+  const halfH = size.height / 2;
+  // Behind the camera, `project` mirrors the point; the clamp below parks it
+  // at the near edge either way, which is what we want for a status readout.
+  const x = projected.x * halfW + halfW;
+  const y = -(projected.y * halfH) + halfH;
+  return [clamp(x, GUTTER_LEFT, size.width - PILL_WIDTH - GUTTER_RIGHT), clamp(y, GUTTER_TOP + PILL_HEIGHT / 2, size.height - GUTTER_BOTTOM)];
+}
+
 function easeInOut(t: number): number {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }
@@ -82,7 +117,7 @@ export function BarbarianTrack({ view, bounds }: { view: RedactedState; bounds: 
         );
       })}
       <FleetShip from={from} to={to} key_={c.fleet} />
-      <Html position={[layout.centre.x + layout.radius + 0.25, 0.25, layout.centre.z]} zIndexRange={[5, 0]} style={{ pointerEvents: "none", transform: "translateY(-50%)" }}>
+      <Html position={[layout.centre.x + layout.radius + 0.25, 0.25, layout.centre.z]} zIndexRange={[5, 0]} calculatePosition={pillPosition} style={{ pointerEvents: "none", transform: "translateY(-50%)" }}>
         <div
           className="flex w-max flex-col items-start gap-1"
           role="group"

@@ -204,6 +204,9 @@ export function HudLayer(props: HudLayerProps) {
   return (
     <HelpTipProvider>
       <div className="hud-layer" data-testid="hud">
+        {/* First in tree order, so they paint under every other HUD element. */}
+        <div className="hud-scrim hud-scrim-top" aria-hidden="true" />
+        <div className="hud-scrim hud-scrim-bottom" aria-hidden="true" />
         <div className="hud-banners" role="list" aria-label="Players">
           {ordered.map((p) => (
             <PlayerBanner

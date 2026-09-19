@@ -24,7 +24,26 @@ async function fixedGame(page: Page): Promise<void> {
   await page.waitForTimeout(800); // let the camera settle
 }
 
-const options = { maxDiffPixelRatio: 0.03, animations: "disabled" as const };
+/*
+ * Tight on purpose. The old tolerance was maxDiffPixelRatio 0.03 at
+ * Playwright's default per-pixel threshold (0.2 YIQ), and a whole palette
+ * overhaul moved only 1.96% of pixels by that measure, so it passed unnoticed.
+ * The tolerance had to be that wide because the target rings pulsed from an
+ * ungated `useFrame`, which put a ~3.8% frame-to-frame noise floor under every
+ * capture. With the pulse gated on idle motion (`InteractionLayer`) two
+ * consecutive captures of this fixture are now pixel-identical, so the guard
+ * can be sharp.
+ *
+ * The per-pixel threshold matters more than the ratio. Measured on this
+ * fixture, reverting one terrain (pasture) to its pre-ladder colour moves 0%
+ * of pixels at Playwright's default 0.2 and still 0% at 0.1, but 4.8% at 0.05
+ * — so 0.05 is the loosest setting that actually catches a palette
+ * regression. The 1% ratio leaves room for renderer variance between
+ * SwiftShader in CI and a GPU locally, which is also why the fixture runs on
+ * the Low preset. If it proves flaky on other hardware, raise the ratio
+ * rather than the threshold: the threshold is what gives the guard teeth.
+ */
+const options = { maxDiffPixelRatio: 0.01, threshold: 0.05, animations: "disabled" as const };
 
 test("default view", async ({ page }) => {
   await fixedGame(page);
