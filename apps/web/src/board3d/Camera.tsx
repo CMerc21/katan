@@ -18,7 +18,11 @@ export const DEFAULT_AZIMUTH = (-35 * Math.PI) / 180;
 export const DEFAULT_ELEVATION = (48 * Math.PI) / 180;
 export const MIN_ELEVATION = (20 * Math.PI) / 180;
 export const MAX_ELEVATION = (80 * Math.PI) / 180;
-export const FOV = 40;
+/**
+ * 32°, not a photographic 40°. The flatter perspective is what makes the
+ * board read as a physical miniature rather than a scene you are standing in.
+ */
+export const FOV = 32;
 
 export function defaultCameraPosition(bounds: Bounds, aspect: number): THREE.Vector3 {
   const d = framingDistance(bounds.radius, FOV, aspect, 0.1);

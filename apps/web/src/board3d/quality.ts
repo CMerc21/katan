@@ -18,15 +18,22 @@ export interface QualityPreset {
   readonly idleMotion: boolean;
   /** Shadow map size (docs/props.md §6: 2048 on High); 0 when shadows are off. */
   readonly shadowMap: number;
+  /** `scene.environmentIntensity` for the image-based light (`environment.ts`). */
+  readonly envIntensity: number;
+  /** Contact shadows under the pieces and props: a second pass over the scene, so High only. */
+  readonly contactShadows: boolean;
 }
 
 /** The hard cap on the render pixel ratio, whatever the display reports. */
 export const MAX_DPR = 2;
 
 export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
-  high: { shadows: true, postfx: true, propDensity: 1, dpr: MAX_DPR, idleMotion: true, shadowMap: 2048 },
-  medium: { shadows: true, postfx: false, propDensity: 0.7, dpr: MAX_DPR, idleMotion: true, shadowMap: 1024 },
-  low: { shadows: false, postfx: false, propDensity: 0.4, dpr: 1, idleMotion: false, shadowMap: 0 },
+  high: { shadows: true, postfx: true, propDensity: 1, dpr: MAX_DPR, idleMotion: true, shadowMap: 2048, envIntensity: 0.4, contactShadows: true },
+  // Post-FX moved to Medium: the vignette and tilt-shift are most of what makes
+  // the board read as a miniature, and they are cheap next to the shadow pass.
+  medium: { shadows: true, postfx: true, propDensity: 0.7, dpr: MAX_DPR, idleMotion: true, shadowMap: 1024, envIntensity: 0.4, contactShadows: false },
+  // No shadows on Low, so the image-based light carries a little more of the fill.
+  low: { shadows: false, postfx: false, propDensity: 0.4, dpr: 1, idleMotion: false, shadowMap: 0, envIntensity: 0.55, contactShadows: false },
 };
 
 /** Where the active preset came from: the user's setting, auto-detection, or a watchdog step-down. */

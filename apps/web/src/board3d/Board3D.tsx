@@ -9,6 +9,7 @@
  */
 
 import { EffectComposer, TiltShift2, Vignette } from "@react-three/postprocessing";
+import { ContactShadows } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
@@ -20,8 +21,9 @@ import { CameraRig } from "./Camera";
 import { AnimatedPirate, AnimatedRobber, DiceTray3D, Projector, projectWorld, type CameraSnapshot } from "./Effects3d";
 import { Harbor } from "./Harbor";
 import { INTERACTION_LAYER, InteractionLayer, NO_PICK, computeTargets, targetLabel, targetName, type CrownPick, type TargetMode } from "./Interaction";
-import { boardBounds, hexWorld, edgeWorld, vertexWorld, SLAB_HEIGHT, type World } from "./layout3d";
-import { KEY_LIGHT, FILL_GROUND, FILL_SKY } from "./palette";
+import { boardBounds, hexWorld, edgeWorld, vertexWorld, SLAB_HEIGHT, type Bounds, type World } from "./layout3d";
+import { DioramaEnvironment } from "./environment";
+import { KEY_LIGHT, FILL_GROUND, FILL_SKY, RIM_LIGHT } from "./palette";
 import { CityFigure, RoadFigure, SettlementFigure, ShipFigure } from "./Pieces";
 import { Props, type PropHex } from "./Props";
 import { FrameWatchdog, QUALITY_PRESETS, detectQuality, readDeviceInfo, type Quality } from "./quality";
@@ -67,24 +69,66 @@ export interface Board3DProps {
   children?: ReactNode;
 }
 
-/** Key and fill (docs/props.md §6): a warm directional key from azimuth −40°, elevation 42°, with PCF soft shadows, and a sky/ground hemisphere fill. */
+/**
+ * Key, rim and fill (docs/props.md §6). A warm directional key from azimuth
+ * −40°, elevation 42° with PCF soft shadows; a dim cool rim from the opposite
+ * side, which draws a lit edge on every figurine without filling the shadows;
+ * and a small hemisphere on top of the image-based light in `environment.ts`.
+ *
+ * The key's shadow camera is fitted to the land, not the whole board. The sea
+ * and frame tiles cast nothing worth seeing, and on a board with a wide sea
+ * they were taking most of the shadow map's resolution — which is why nothing
+ * used to read as standing on anything.
+ */
 export const KEY_AZIMUTH = (-40 * Math.PI) / 180;
 export const KEY_ELEVATION = (42 * Math.PI) / 180;
+export const RIM_AZIMUTH = KEY_AZIMUTH + Math.PI;
+export const RIM_ELEVATION = (26 * Math.PI) / 180;
 
-function Lights({ shadows, shadowMap, bounds }: { shadows: boolean; shadowMap: number; bounds: { cx: number; cz: number; radius: number } }) {
-  const r = bounds.radius * 1.6;
-  const d = r * 1.8;
+export const KEY_INTENSITY = 1.35;
+export const RIM_INTENSITY = 0.3;
+export const HEMI_INTENSITY = 0.12;
+
+/** The shadow frustum reaches this far past the land's radius, so piers and coastal ships still cast. */
+export const SHADOW_MARGIN = 1.5;
+
+/**
+ * `NeutralToneMapping` (Khronos PBR Neutral) replaces r3f's ACES default. ACES
+ * is built for filmed footage and desaturates exactly the saturated mid-tones
+ * this palette is made of — it was turning the terrain colours in `palette.ts`
+ * to mud. Neutral keeps them and only rolls off the highlights.
+ */
+export const EXPOSURE = 1.18;
+/** The contact-shadow plane clears the land tops' relief (±`LAND_RELIEF`). */
+export const CONTACT_LIFT = 0.03;
+
+function lightPosition(cx: number, cz: number, azimuth: number, elevation: number, distance: number): [number, number, number] {
+  return [cx + distance * Math.cos(elevation) * Math.sin(azimuth), distance * Math.sin(elevation), cz + distance * Math.cos(elevation) * Math.cos(azimuth)];
+}
+
+function Lights({ shadows, shadowMap, bounds, landBounds }: { shadows: boolean; shadowMap: number; bounds: Bounds; landBounds: Bounds }) {
+  const r = landBounds.radius + SHADOW_MARGIN;
+  const d = Math.max(bounds.radius, r) * 2;
+  // The key aims at the land's centre. Leaving the target at the world origin
+  // put the shadow frustum off the board on any map not centred there.
+  const target = useMemo(() => {
+    const o = new THREE.Object3D();
+    o.position.set(landBounds.cx, 0, landBounds.cz);
+    return o;
+  }, [landBounds.cx, landBounds.cz]);
   return (
     <>
-      <hemisphereLight args={[FILL_SKY, FILL_GROUND, 0.5]} />
+      <primitive object={target} />
+      <hemisphereLight args={[FILL_SKY, FILL_GROUND, HEMI_INTENSITY]} />
       <directionalLight
-        position={[bounds.cx + d * Math.cos(KEY_ELEVATION) * Math.sin(KEY_AZIMUTH), d * Math.sin(KEY_ELEVATION), bounds.cz + d * Math.cos(KEY_ELEVATION) * Math.cos(KEY_AZIMUTH)]}
-        intensity={1.6}
+        position={lightPosition(landBounds.cx, landBounds.cz, KEY_AZIMUTH, KEY_ELEVATION, d)}
+        target={target}
+        intensity={KEY_INTENSITY}
         color={KEY_LIGHT}
         castShadow={shadows}
         shadow-mapSize={[shadowMap || 1024, shadowMap || 1024]}
-        shadow-bias={-0.0005}
-        shadow-normalBias={0.01}
+        shadow-bias={-0.0004}
+        shadow-normalBias={0.012}
         shadow-camera-left={-r}
         shadow-camera-right={r}
         shadow-camera-top={r}
@@ -92,6 +136,7 @@ function Lights({ shadows, shadowMap, bounds }: { shadows: boolean; shadowMap: n
         shadow-camera-near={0.5}
         shadow-camera-far={d * 2.5}
       />
+      <directionalLight position={lightPosition(bounds.cx, bounds.cz, RIM_AZIMUTH, RIM_ELEVATION, d)} intensity={RIM_INTENSITY} color={RIM_LIGHT} />
     </>
   );
 }
@@ -151,6 +196,8 @@ export function Board3D(props: Board3DProps) {
   const cityUpgrades = useMemo(() => crownCityUpgrades(view), [view]);
   const landSet = useMemo(() => new Set(hexIds), [hexIds]);
   const bounds = useMemo(() => boardBounds([...hexIds, ...view.board.sea]), [hexIds, view.board.sea]);
+  // The shadow frustum and the contact-shadow plane are fitted to the land alone.
+  const landBounds = useMemo(() => boardBounds(hexIds), [hexIds]);
   const centre = useMemo<World>(() => ({ x: bounds.cx, z: bounds.cz }), [bounds]);
   const targets = useMemo(() => computeTargets(legal, view.phase.kind, mode, moveFrom, wagonPath, crownPick), [legal, view.phase.kind, mode, moveFrom, wagonPath, crownPick]);
 
@@ -251,7 +298,7 @@ export function Board3D(props: Board3DProps) {
         shadows={preset.shadows ? { type: THREE.PCFSoftShadowMap } : false}
         dpr={[1, preset.dpr]}
         raycaster={{ layers }}
-        gl={{ antialias: quality !== "low", powerPreference: "high-performance" }}
+        gl={{ antialias: quality !== "low", powerPreference: "high-performance", toneMapping: THREE.NeutralToneMapping, toneMappingExposure: EXPOSURE }}
         onPointerMissed={() => {
           if (onSkip) onSkip();
           else onCancelMode?.();
@@ -260,10 +307,24 @@ export function Board3D(props: Board3DProps) {
       >
         <color attach="background" args={["#2a1c13"]} />
         <CameraRig bounds={bounds} resetToken={resetToken} focus={focus} hero={hero} />
-        <Lights shadows={preset.shadows} shadowMap={preset.shadowMap} bounds={bounds} />
+        <Lights shadows={preset.shadows} shadowMap={preset.shadowMap} bounds={bounds} landBounds={landBounds} />
+        <DioramaEnvironment intensity={preset.envIntensity} keyAzimuth={KEY_AZIMUTH} keyElevation={KEY_ELEVATION} />
         <Table bounds={bounds} shadows={preset.shadows} onTap={() => (onSkip ? onSkip() : onCancelMode?.())} onDoubleTap={() => setResetToken((t) => t + 1)} />
         <group name="board">
           <Tiles tiles={tiles} robberHex={view.robberHex} rolled={rolled} rollKey={rollKey} blockedHex={blockedHex} shadows={preset.shadows} idle={preset.idleMotion} />
+          {preset.contactShadows && (
+            /* Grounding for the pieces and props: the plane sits just clear of the
+               tops' relief, so the slabs themselves never darken it. */
+            <ContactShadows
+              position={[landBounds.cx, SLAB_HEIGHT + CONTACT_LIFT, landBounds.cz]}
+              scale={(landBounds.radius + SHADOW_MARGIN) * 2}
+              resolution={1024}
+              far={0.9}
+              blur={2.4}
+              opacity={0.5}
+              frames={Infinity}
+            />
+          )}
           <Props hexes={propHexes} density={preset.propDensity} idle={preset.idleMotion} shadows={preset.shadows} />
           {view.board.ports.map((port) => (
             <Harbor key={port.edge} port={port} centre={centre} owned={port.vertices.some((v) => myVertices.has(v))} shadows={preset.shadows} land={landSet} />
@@ -297,8 +358,8 @@ export function Board3D(props: Board3DProps) {
         {onDegrade && <Watchdog onDegrade={() => onDegrade(quality)} />}
         {preset.postfx && (
           <EffectComposer enabled multisampling={0}>
-            <Vignette offset={0.3} darkness={0.45} />
-            <TiltShift2 blur={0.1} taper={0.35} start={[0, 0.5]} end={[1, 0.5]} direction={[0, 1]} samples={6} />
+            <Vignette offset={0.55} darkness={0.22} />
+            <TiltShift2 blur={0.35} taper={0.8} start={[0, 0.5]} end={[1, 0.5]} direction={[0, 1]} samples={8} />
           </EffectComposer>
         )}
       </Canvas>

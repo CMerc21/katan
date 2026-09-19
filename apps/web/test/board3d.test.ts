@@ -3,7 +3,7 @@ import { GEOMETRY, createGame, legalActions, type Action } from "@katan/engine";
 import { createLayout } from "@/board/layout";
 import { boardBounds, edgeWorld, framingDistance, hexCornerWorld, hexWorld, tileJitter, vertexWorld } from "@/board3d/layout3d";
 import { computeTargets, targetName, wagonMoveFor } from "@/board3d/Interaction";
-import { FrameWatchdog, QUALITY_PRESETS, detectQuality, resolveDpr, stepDown } from "@/board3d/quality";
+import { FrameWatchdog, QUALITY_ORDER, QUALITY_PRESETS, detectQuality, resolveDpr, stepDown } from "@/board3d/quality";
 import { FOOTPRINT, HERO_PROP, propsForHex, type PropKind, type PropTerrain } from "@/board3d/props";
 import { RECESS_RADIUS, propBoundary } from "@/board3d/slab";
 
@@ -206,6 +206,13 @@ describe("docs/phase7-5.md §6 quality", () => {
     expect(QUALITY_PRESETS.low.shadows).toBe(false);
     expect(QUALITY_PRESETS.high.postfx).toBe(true);
     expect(QUALITY_PRESETS.medium.propDensity).toBe(0.7);
+    // Contact shadows are a second pass over the scene: High alone.
+    expect(QUALITY_PRESETS.high.contactShadows).toBe(true);
+    expect(QUALITY_PRESETS.medium.contactShadows).toBe(false);
+    expect(QUALITY_PRESETS.low.contactShadows).toBe(false);
+    // Every preset carries the image-based light; Low leans on it hardest.
+    for (const q of QUALITY_ORDER) expect(QUALITY_PRESETS[q].envIntensity).toBeGreaterThan(0);
+    expect(QUALITY_PRESETS.low.envIntensity).toBeGreaterThan(QUALITY_PRESETS.high.envIntensity);
   });
 
   it("high and medium render at the true device pixel ratio capped at 2; low at 1", () => {
@@ -217,7 +224,8 @@ describe("docs/phase7-5.md §6 quality", () => {
     expect(resolveDpr("high", 0.5)).toBe(1);
     expect(resolveDpr("high", Number.NaN)).toBe(1);
     expect(QUALITY_PRESETS.low.postfx).toBe(false);
-    expect(QUALITY_PRESETS.medium.postfx).toBe(false);
+    // Post-FX runs on Medium too (docs/phase7-5.md §6); only Low goes without.
+    expect(QUALITY_PRESETS.medium.postfx).toBe(true);
   });
 
   it("the watchdog ignores the warm-up, a single hitch and an occasional slow frame", () => {

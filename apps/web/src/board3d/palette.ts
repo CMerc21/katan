@@ -90,6 +90,16 @@ export const EVENT_SCIENCE = "#e8c33a";
 
 // §6 Lighting and table
 export const KEY_LIGHT = "#FFE7C2";
+/** The cool rim opposite the key: it only draws the lit edge, it never fills. */
+export const RIM_LIGHT = "#A8C8E4";
 export const FILL_SKY = "#CFE3F0";
 export const FILL_GROUND = "#6B4A33";
 export const TABLE_WALNUT = "#5B3A24";
+
+// §6 Image-based light (`environment.ts`): the equirect sky's ramp and blobs.
+export const ENV_ZENITH = "#6E96B8";
+export const ENV_HORIZON = "#EFDCBC";
+export const ENV_GROUND = "#6B4A33";
+export const ENV_NADIR = "#2B2A2E";
+export const ENV_KEY_GLOW = "#FFF1D6";
+export const ENV_RIM_GLOW = "#9FC4DE";

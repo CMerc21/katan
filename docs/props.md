@@ -74,10 +74,14 @@ Props avoid the center recess and a 0.06 R margin at the slab edge. Layout posit
 
 ## 6. Lighting and post
 
-- Key: directional, warm `#FFE7C2`, intensity 1.6, from azimuth −40°, elevation 42°, casting soft shadows (PCF, map 2048 on High).
-- Fill: hemisphere sky `#CFE3F0` ground `#6B4A33`, intensity 0.5.
+- Key: directional, warm `#FFE7C2`, intensity 1.35, from azimuth −40°, elevation 42°, casting soft shadows (PCF, map 2048 on High, 1024 on Medium). Its shadow camera is fitted to the **land** bounds plus 1.5 R, not the whole board, and it aims at the land centre.
+- Rim: directional, cool `#A8C8E4`, intensity 0.3, from the key's azimuth + 180° at elevation 26°, no shadows. It draws a lit edge on the figurines; it is not a fill.
+- Fill: hemisphere sky `#CFE3F0` ground `#6B4A33`, intensity 0.12 — small, because most of the ambient now comes from the environment.
+- Environment (`environment.ts`): a procedural equirectangular sky pre-filtered with `PMREMGenerator` and hung on `scene.environment` — zenith `#6E96B8`, horizon `#EFDCBC`, ground bounce `#6B4A33`, nadir `#2B2A2E`, with a warm blob at the key's direction and a dimmer cool one opposite. `scene.environmentIntensity` is 0.4 (0.55 on Low, which has no shadows). Drawn on a canvas at runtime; nothing is fetched.
+- Tone mapping: `NeutralToneMapping` (Khronos PBR Neutral) at exposure 1.18. Not ACES — it is built for filmed footage and desaturates exactly the saturated mid-tones §2 is made of.
 - Table: plane with a subtle procedural wood-grain shader or a single tiling texture, walnut `#5B3A24`, receives shadows.
-- Post (High only): vignette 0.3, tilt-shift blur on the top and bottom 20% of the frame.
+- Post (High and Medium): vignette offset 0.55 darkness 0.22, tilt-shift blur 0.35 with a 0.8 taper.
+- Contact shadows (High only): a grounding pass under the pieces and props, on a plane 0.03 R above the land tops so the slabs' own relief never darkens it.
 
 ## 7. Implementation notes and deviations
 
@@ -88,5 +92,5 @@ Props avoid the center recess and a 0.06 R margin at the slab edge. Layout posit
 - **Walls** have no levels in the engine (one wall per city), so the stacked-stone marker of §5 is not drawn.
 - **The island-bonus pennant** of §5 is not on the board yet: the client view exposes which islands earned a chip but not the hexes of each island, so the flag is used on cities only.
 - **The robber** stands in the recess only on the desert (no token there); elsewhere it stands beside the token as before.
-- **Post-processing** uses the tilt-shift's focus line across mid-frame with a taper of 0.35 of the diagonal, which blurs roughly the top and bottom fifth; vignette 0.3.
+- **Post-processing** uses the tilt-shift's focus line across mid-frame with a taper of 0.8 of the diagonal, so the sharp band covers most of the board and the blur falls on the table beyond it; vignette 0.22 at offset 0.55, which shades the corners without reaching the board.
 - Lighting azimuth is measured like the camera's (−35° is the default view), so the key comes from just left of the default camera and shadows fall away from the viewer.
