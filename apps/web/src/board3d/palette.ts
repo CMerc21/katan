@@ -10,54 +10,55 @@ import type { Terrain } from "@katan/engine";
 export const EARTH = "#8A5A3C";
 export const EARTH_BAND = "#C9976A";
 export const RECESS_FLOOR = "#B8865A";
-export const SEA_SIDE = "#3FA8C4";
-export const SEA_TOP = "#5FC8DC";
+export const SEA_SIDE = "#2A6E80";
+export const SEA_TOP = "#3A8CA0";
 export const FRAME_WOOD = "#4a3323";
 
 // §2 Terrain tops
 export const TERRAIN_TOP: Record<Terrain, string> = {
-  forest: "#6FA35C",
-  meadow: "#7DBF4E",
-  farmland: "#E8B84A",
-  claypit: "#D97A4D",
-  mountain: "#8E97A3",
-  wasteland: "#E6C889",
-  gold: "#8E97A3",
-  lake: "#E6C889",
+  forest: "#467A40",
+  claypit: "#C4713F",
+  mountain: "#8E98A6",
+  lake: "#93B170",
+  farmland: "#DDB053",
+  meadow: "#9AD35F",
+  gold: "#F3CE4B",
+  wasteland: "#EDDAAF",
 };
-export const HILLS_APRON = "#E8C48A";
+export const HILLS_APRON = "#E0A470";
 
 // §3 Props
-export const PINE_LIGHT = "#8DBF5A";
-export const PINE_DARK = "#4F7A48";
-export const TRUNK = "#7A5233";
-export const OAK = "#7DB45A";
-export const OAK_DARK = "#6FA35C";
-export const CABIN = "#8B4A2B";
-export const CABIN_GROOVE = "#6E3A22";
-export const CABIN_ROOF = "#6FA35C";
+export const PINE_LIGHT = "#7FB84E";
+export const PINE_DARK = "#2C5230";
+export const TRUNK = "#5E3F27";
+export const OAK = "#6BA84A";
+export const OAK_DARK = "#3F6F37";
+export const CABIN = "#CC8552";
+export const CABIN_GROOVE = "#9E6238";
+export const CABIN_ROOF = "#8E3A28";
 export const LOG_END = "#C9976A";
 export const WOOL = "#F4EFE6";
 export const SHEEP_FACE = "#2B2118";
 export const STONE_WALL = "#9A9A94";
 export const THATCH = "#D9B25C";
 export const TIMBER = "#A67C4F";
-export const WHEAT = "#E3B04B";
-export const TERRACE_LOW = "#D97A4D";
-export const TERRACE_HIGH = "#E8955E";
-export const KILN = "#B84E3A";
+export const WHEAT = "#B8822C";
+export const TERRACE_LOW = "#E09A5E";
+export const TERRACE_HIGH = "#E9B27E";
+export const KILN = "#9E3F2E";
 export const BRICK = "#C8553D";
 export const BRICK_DARK = "#A9432E";
-export const ROCK_GREY = "#8E97A3";
+export const ROCK_GREY = "#5E6874";
 export const SNOW = "#F4EFE6";
 export const MINE_FRAME = "#C9976A";
 export const GOLD = "#E8B84A";
 export const SILVER = "#C9CFD6";
-export const CACTUS = "#6FA35C";
-export const DESERT_ROCK = "#B8A58A";
+export const CACTUS = "#3F7A45";
+export const DESERT_ROCK = "#A8906E";
 export const BONE = "#F4EFE6";
-export const CREST = "#F4EFE6";
-export const REED = "#6FA35C";
+/** Foam, not snow: pale blue and well short of white, or the crests read as dust on the dark water. */
+export const CREST = "#9CC3CE";
+export const REED = "#4A8A55";
 export const DARK = "#2B2118";
 export const SOOT = "#3A3532";
 export const SMOKE = "#d8d3c8";
@@ -76,7 +77,7 @@ export const PIRATE_HULL = "#3A3532";
 export const PIRATE_SAIL = "#1f1a17";
 export const INACTIVE = "#9A9A94";
 export const TOKEN_CLAY = "#C9976A";
-export const TOKEN_HOT = "#C8553D";
+export const TOKEN_HOT = "#C0392B";
 export const DIE_BONE = "#F4EFE6";
 export const DIE_RED = "#C8553D";
 export const TRAY_LEATHER = "#6B3E2E";

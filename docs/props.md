@@ -13,35 +13,47 @@ Companion to `docs/phase7-5.md` §1; implemented in `apps/web/src/board3d` (`sla
 
 ## 2. Terrain colors
 
-| Terrain | Top | Notes |
-|---|---|---|
-| Forest | `#6FA35C` | |
-| Pasture | `#7DBF4E` | slightly brighter than forest |
-| Fields | `#E8B84A` | |
-| Hills | `#D97A4D` base with a lighter `#E8C48A` apron around the recess | |
-| Mountains | `#8E97A3` | mid band `#C9976A` |
-| Desert | `#E6C889` | |
-| Sea | `#3FA8C4` sides, `#5FC8DC` top | |
+The tops are a **luminance ladder**, not just a set of hues: every terrain sits
+at least 0.07 of relative luminance from its neighbours, over a 0.56 range. The
+point is that the board stays readable in greyscale — the palette used to hold
+forest, hills and mountains inside 0.02 of each other, and to give `gold` the
+same hex as `mountain` and `lake` the same hex as `wasteland`, so two terrains
+of the sea and variant modules were invisible. `test/palette.test.ts` pins the
+rules; the hexes themselves are free to be retuned.
+
+| Terrain | Top | Luminance | Notes |
+|---|---|---|---|
+| Forest | `#467A40` | 0.16 | the darkest land, so the pines and the cabin read against it |
+| Hills | `#C4713F` base with a lighter `#E0A470` apron around the recess | 0.24 | |
+| Mountains | `#8E98A6` | 0.31 | mid band `#C9976A` |
+| Lake bank | `#93B170` | 0.39 | the tile top; the water is the recess floor `#57B0BE` (lighter than the sea, so a lake never reads as ocean) |
+| Fields | `#DDB053` | 0.47 | |
+| Pasture | `#9AD35F` | 0.54 | |
+| Gold | `#F3CE4B` | 0.64 | the most saturated tile on the board |
+| Desert | `#EDDAAF` | 0.71 | the lightest land, and the least saturated |
+| Sea | `#2A6E80` sides, `#3A8CA0` top | 0.13 / 0.22 | below every terrain but forest, so the background never outshines the board. Crests are foam `#9CC3CE`, not the `#F4EFE6` shared with snow and wool |
 
 ## 3. Per-terrain prop layouts
 
 Props avoid the center recess and a 0.06 R margin at the slab edge. Layout positions are seeded; the counts below are the defaults at High quality (Medium ×0.7, Low ×0.4, minimum 1 hero prop).
 
-**Forest** — 6–8 pines (3 stacked 6-segment cones, radii 0.14/0.11/0.08 R, tier overlap 25%, alternating `#8DBF5A` / `#4F7A48`, trunk `#7A5233`), 2–3 oaks (icosphere canopy detail 1, radius 0.16 R, `#7DB45A`, plus 3 smaller spheres, tapered trunk), 1 log cabin (box `#8B4A2B` with 4 horizontal groove stripes, gabled prism roof `#6FA35C`, chimney box), 2 log piles (3 cylinders), 1–2 stumps (cylinder, lighter top disc), 1 fallen log. Hero prop: cabin.
+**Every prop is at least 0.10 of relative luminance from the tile it stands on** (interior detail, at least 0.08 from its parent prop). `#6FA35C` used to serve the forest tile, the oak, the cabin roof, the cactus and the reeds at once, so those props were painted the colour of the ground under them; `test/palette.test.ts` now pins the separation.
+
+**Forest** — 6–8 pines (3 stacked 6-segment cones, radii 0.14/0.11/0.08 R, tier overlap 25%, alternating `#7FB84E` / `#2C5230`, trunk `#5E3F27`), 2–3 oaks (icosphere canopy detail 1, radius 0.16 R, `#6BA84A`, plus 3 smaller spheres, tapered trunk), 1 log cabin (box `#CC8552` with 4 horizontal groove stripes, gabled prism roof `#8E3A28`, chimney box), 2 log piles (3 cylinders), 1–2 stumps (cylinder, lighter top disc), 1 fallen log. Hero prop: cabin.
 
 **Pasture** — 5–6 sheep (icosphere body detail 1 radius 0.09 R white `#F4EFE6`, head small dark sphere `#2B2118`, 4 stub legs), 1 stone shepherd's hut (box with stone-ish darker face color `#9A9A94`, thatch roof as squashed faceted dome `#D9B25C`, door quad), 2 fence runs (thin posts + 2 rails, 4–6 segments, `#A67C4F`), a coiled rope disc and a crook as optional details. Hero: hut. Sheep bob 0.01 R at random phase; one rotates 15° every few seconds.
 
-**Fields** — 4 wheat rows arranged around the recess, each row a thin box base with 6–8 heads (elongated spheres `#E3B04B` on short stems `#A67C4F`), 1 windmill (cylinder stone base `#9A9A94`, tapered wood body `#A67C4F`, hub with 4 lattice blades made from thin boxes, rotates 0.15 rad/s). Hero: windmill. Rows sway ±2°.
+**Fields** — 4 wheat rows arranged around the recess, each row a thin box base with 6–8 heads (elongated spheres `#B8822C` on short stems `#A67C4F`), 1 windmill (cylinder stone base `#9A9A94`, tapered wood body `#A67C4F`, hub with 4 lattice blades made from thin boxes, rotates 0.15 rad/s). Hero: windmill. Rows sway ±2°.
 
-**Hills** — 3 terraced mounds (stacked low-poly discs, 2–3 tiers, `#D97A4D` → `#E8955E`), 1 kiln (low-poly dome `#B84E3A` with a few lighter brick quads, arched door quad, tall chimney box), 1 brick stack (box with brick-pattern face `#C8553D`/`#A9432E`), 1 cart (box body, 2 disc wheels, 2 shaft cylinders). Hero: kiln. Chimney emits small sphere puffs every 4 s.
+**Hills** — 3 terraced mounds (stacked low-poly discs, 2–3 tiers, `#E09A5E` → `#E9B27E`), 1 kiln (low-poly dome `#9E3F2E` with a few lighter brick quads, arched door quad, tall chimney box), 1 brick stack (box with brick-pattern face `#C8553D`/`#A9432E`), 1 cart (box body, 2 disc wheels, 2 shaft cylinders). Hero: kiln. Chimney emits small sphere puffs every 4 s.
 
-**Mountains** — 3 peaks (irregular cones, 6 radial segments, vertices jittered ±10%, `#8E97A3`, white snow cone `#F4EFE6` covering the top 30%), 1 rounded rock mound with a mine entrance (box frame `#C9976A` and a dark quad), 4–5 ore nuggets (octahedra 0.05–0.08 R, two gold `#E8B84A` emissive 0.2, rest silver `#C9CFD6`). Hero: mine.
+**Mountains** — 3 peaks (irregular cones, 6 radial segments, vertices jittered ±10%, `#5E6874`, white snow cone `#F4EFE6` covering the top 30%), 1 rounded rock mound with a mine entrance (box frame `#C9976A` and a dark quad), 4–5 ore nuggets (octahedra 0.05–0.08 R, two gold `#E8B84A` emissive 0.2, rest silver `#C9CFD6`). Hero: mine.
 
-**Desert** — 1 saguaro cactus (cylinder trunk, 2 bent arm cylinders, `#6FA35C`), 4–6 rocks (small dodecahedra `#B8A58A`), 1 bone pile (3 short white cylinders with knobs), 2 coins optional. Sparse. Hero: cactus. No idle motion.
+**Desert** — 1 saguaro cactus (cylinder trunk, 2 bent arm cylinders, `#3F7A45`), 4–6 rocks (small dodecahedra `#A8906E`), 1 bone pile (3 short white cylinders with knobs), 2 coins optional. Sparse. Hero: cactus. No idle motion.
 
-**Sea** — top face displaced ±0.03 R, 2 white crests (elongated squashed icosphere `#F4EFE6`, 0.15 R long) placed off-center, gentle vertex ripple (0.01 R amplitude, 0.6 Hz). No recess. Optional gull sprite at Medium+.
+**Sea** — top face displaced ±0.03 R, 2 foam crests (elongated squashed icosphere `#9CC3CE`, 0.15 R long) placed off-center, gentle vertex ripple (0.01 R amplitude, 0.6 Hz). No recess. Optional gull sprite at Medium+.
 
-**Gold (Phase 9)** — mountains layout with 2 peaks, a sluice (angled box trough on legs) and 6 gold nuggets. **Lake (Phase 10)** — desert-height slab with a recessed water disc (radius 0.6 R) and reeds (thin cylinders `#6FA35C`).
+**Gold (Phase 9)** — mountains layout with 2 peaks, a sluice (angled box trough on legs) and 6 gold nuggets. **Lake (Phase 10)** — desert-height slab with a recessed water disc (radius 0.6 R) and reeds (thin cylinders `#4A8A55`).
 
 ## 4. Pieces (from the pieces reference)
 

@@ -27,8 +27,8 @@ export const RECESS_RADIUS = 0.32;
 export const LAKE_RADIUS = 0.6;
 export const RECESS_DEPTH = 0.03;
 export const EDGE_MARGIN = 0.06;
-/** Water colours for the lake's recess. */
-const LAKE_FLOOR = "#3FA8C4";
+/** Water in the lake's recess: fresh water, kept lighter than the sea so a lake never reads as ocean. */
+const LAKE_FLOOR = "#57B0BE";
 
 export type SlabKind = "land" | "sea" | "frame";
 
