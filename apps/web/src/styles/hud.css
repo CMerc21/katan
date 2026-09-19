@@ -990,7 +990,14 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  pointer-events: auto;
+  /*
+   * Never interactive. The one chip is the targeting mode hint, a passive
+   * readout centred over the board's lower edge with no handler, no title and
+   * nothing to focus -- and with `pointer-events: auto` it swallowed clicks
+   * aimed at any legal target underneath it, which is exactly where the hint
+   * appears. `fullgame.spec.ts` caught it placing a road.
+   */
+  pointer-events: none;
 }
 .hud-chip kbd {
   border: 1px solid var(--hud-border);
