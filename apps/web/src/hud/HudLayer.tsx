@@ -78,6 +78,8 @@ export interface HudLayerProps {
   onProgress: (card?: ProgressCard) => void;
   onExit: () => void;
   onCapability: (fn: (() => Promise<{ ok: boolean; error?: { code: string } }>) | undefined) => void;
+  /** A banner is hovered: the board outlines that player's pieces. */
+  onHighlight?: ((playerId: string | null) => void) | undefined;
   /** Rendered inside the layer's overlay slot (the fleet pills etc. live in the scene instead). */
   children?: ReactNode;
 }
@@ -131,7 +133,7 @@ function isTyping(e: KeyboardEvent): boolean {
 }
 
 export function HudLayer(props: HudLayerProps) {
-  const { driver, view, me, legal, seats, connected, botifiable, onBotify, step, draining, onSkip, interactive, revealed, mode, onMode, crownPick, wagon, onDispatch, error, waitingOn, glint, activeQuality, toasts, pushToast, shiftToast, tradePicking, onTrade, onPickResources, onFish, onImprove, onProgress, onExit, onCapability, children } = props;
+  const { driver, view, me, legal, seats, connected, botifiable, onBotify, step, draining, onSkip, interactive, revealed, mode, onMode, crownPick, wagon, onDispatch, error, waitingOn, glint, activeQuality, toasts, pushToast, shiftToast, tradePicking, onTrade, onPickResources, onFish, onImprove, onProgress, onExit, onCapability, onHighlight, children } = props;
   const [panel, setPanel] = useState<RailKey | null>(null);
   const [cardsOpen, setCardsOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
@@ -276,6 +278,7 @@ export function HudLayer(props: HudLayerProps) {
               onBotify={onBotify}
               glint={glint === p.id}
               emote={emote && p.id === me ? emote.text : null}
+              onHover={onHighlight}
             />
           ))}
         </div>

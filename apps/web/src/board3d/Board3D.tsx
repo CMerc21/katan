@@ -32,6 +32,8 @@ import { FrameWatchdog, QUALITY_PRESETS, detectQuality, readDeviceInfo, type Qua
 import { woodTexture } from "./textures";
 import { bankLayout } from "@/board/props/layout";
 import { Icon } from "@/hud/icons";
+import { cardLabel, portLabel } from "@/game/labels";
+import { PLAYER_FILL } from "@/game/theme";
 import { Tiles, type TileInfo } from "./Tiles";
 import { WayfarersBoard, wayfarersPieceList } from "./Wayfarers3d";
 import { CrownBoard, CrownCityFigure, crownCityUpgrades, crownPieceList } from "./Crown3d";
@@ -53,6 +55,8 @@ export interface Board3DProps {
   onPickKnight?: (vertex: VertexId) => void;
   onPick?: (id: string) => void;
   meColor: PlayerColor;
+  /** A player whose pieces are outlined (a hovered banner), or null. */
+  highlight?: string | null | undefined;
   onAction: (action: Action) => void;
   step?: Step | null;
   onSkip?: (() => void) | undefined;
@@ -137,6 +141,20 @@ export const CONTACT_LIFT = 0.03;
 export const FOG_NEAR = 4;
 export const FOG_FAR = 6;
 
+/**
+ * What the default camera frames. The whole board's bounds include the sea
+ * ring (and the frame), which put the land in the middle 60% of the frame
+ * with water and table around it. The camera now frames the land plus the
+ * first ring of sea and the props that stand just off it, and never more than
+ * the whole board.
+ */
+export const CAMERA_SEA_MARGIN = 2.4;
+
+export function cameraBounds(bounds: Bounds, landBounds: Bounds): Bounds {
+  const radius = Math.min(bounds.radius, landBounds.radius + CAMERA_SEA_MARGIN);
+  return { ...landBounds, radius };
+}
+
 function lightPosition(cx: number, cz: number, azimuth: number, elevation: number, distance: number): [number, number, number] {
   return [cx + distance * Math.cos(elevation) * Math.sin(azimuth), distance * Math.sin(elevation), cz + distance * Math.cos(elevation) * Math.cos(azimuth)];
 }
@@ -176,6 +194,47 @@ function Lights({ shadows, shadowMap, bounds, landBounds, environment }: { shado
   );
 }
 
+/**
+ * Outlines under one player's pieces while their banner is hovered: a ring at
+ * each settlement and city, a bar along each road and ship, in the player's
+ * colour, breathing with the target rings' idle motion.
+ */
+function PlayerHighlight({ player, idle }: { player: RedactedState["players"][number]; idle: boolean }) {
+  const colour = PLAYER_FILL[player.color];
+  const group = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => {
+    const g = group.current;
+    if (!g) return;
+    const s = idle ? 1 + Math.sin(clock.getElapsedTime() * 3) * 0.06 : 1;
+    for (const child of g.children) child.scale.setScalar(s);
+  });
+  const material = <meshBasicMaterial color={colour} transparent opacity={0.75} depthWrite={false} />;
+  return (
+    <group ref={group} name={`highlight:${player.id}`}>
+      {[...player.settlements, ...player.cities].map((v) => {
+        const p = vertexWorld(v);
+        return (
+          <mesh key={`v:${v}`} position={[p.x, SLAB_HEIGHT + 0.012, p.z]} rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[0.26, 0.36, 28]} />
+            {material}
+          </mesh>
+        );
+      })}
+      {[...player.roads, ...player.ships].map((e) => {
+        const { mid, angle } = edgeWorld(e);
+        return (
+          <group key={`e:${e}`} position={[mid.x, SLAB_HEIGHT + 0.012, mid.z]} rotation={[0, -angle, 0]}>
+            <mesh rotation={[-Math.PI / 2, 0, 0]}>
+              <planeGeometry args={[0.9, 0.3]} />
+              {material}
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
 function Table({ bounds, shadows, onTap, onDoubleTap }: { bounds: { cx: number; cz: number; radius: number }; shadows: boolean; onTap: () => void; onDoubleTap: () => void }) {
   const texture = useMemo(() => woodTexture(), []);
   const size = bounds.radius * 8;
@@ -206,7 +265,7 @@ function Detector({ onDetected }: { onDetected: (q: Quality) => void }) {
 }
 
 export function Board3D(props: Board3DProps) {
-  const { view, legal, mode, moveFrom = null, onPickShip, wagonPath = [], onPickStep, crownPick = NO_PICK, onPickKnight, onPick, meColor, onAction, step = null, onSkip, onCancelMode, quality, onDegrade, onDetected, followTurns = false, overlay = null, children } = props;
+  const { view, legal, mode, moveFrom = null, onPickShip, wagonPath = [], onPickStep, crownPick = NO_PICK, onPickKnight, onPick, meColor, highlight = null, onAction, step = null, onSkip, onCancelMode, quality, onDegrade, onDetected, followTurns = false, overlay = null, children } = props;
   const preset = QUALITY_PRESETS[quality];
   const anchors = useAnchors();
   const [resetToken, setResetToken] = useState(0);
@@ -240,6 +299,15 @@ export function Board3D(props: Board3DProps) {
   const bounds = useMemo(() => boardBounds([...hexIds, ...view.board.sea]), [hexIds, view.board.sea]);
   // The shadow frustum and the contact-shadow plane are fitted to the land alone.
   const landBounds = useMemo(() => boardBounds(hexIds), [hexIds]);
+  const framed = useMemo(() => cameraBounds(bounds, landBounds), [bounds, landBounds]);
+  // The hovered target, for the port chip.
+  const [hover, setHover] = useState<{ kind: string; id: string } | null>(null);
+  const hoveredPort = useMemo(() => {
+    if (!hover || hover.kind !== "vertex") return null;
+    const port = view.board.ports.find((pt) => pt.vertices.includes(hover.id));
+    return port ? { vertex: hover.id, kind: port.kind } : null;
+  }, [hover, view.board.ports]);
+  const highlighted = useMemo(() => (highlight ? (view.players.find((p) => p.id === highlight) ?? null) : null), [highlight, view.players]);
   const centre = useMemo<World>(() => ({ x: bounds.cx, z: bounds.cz }), [bounds]);
   const targets = useMemo(() => computeTargets(legal, view.phase.kind, mode, moveFrom, wagonPath, crownPick), [legal, view.phase.kind, mode, moveFrom, wagonPath, crownPick]);
 
@@ -349,7 +417,7 @@ export function Board3D(props: Board3DProps) {
       >
         <color attach="background" args={[BACKDROP]} />
         <fog attach="fog" args={[BACKDROP, bounds.radius * FOG_NEAR, bounds.radius * FOG_FAR]} />
-        <CameraRig bounds={bounds} resetToken={resetToken} focus={focus} hero={hero} />
+        <CameraRig bounds={framed} resetToken={resetToken} focus={focus} hero={hero} />
         <Lights shadows={preset.shadows} shadowMap={preset.shadowMap} bounds={bounds} landBounds={landBounds} environment={preset.envIntensity > 0} />
         <DioramaEnvironment intensity={preset.envIntensity} keyAzimuth={KEY_AZIMUTH} keyElevation={KEY_ELEVATION} />
         <Table bounds={bounds} shadows={preset.shadows} onTap={() => (onSkip ? onSkip() : onCancelMode?.())} onDoubleTap={() => setResetToken((t) => t + 1)} />
@@ -393,7 +461,8 @@ export function Board3D(props: Board3DProps) {
           <CrownBoard view={view} shadows={preset.shadows} freshKnight={freshKnight} liftOf={liftOf} />
           <AnimatedRobber hex={view.robberHex} shadows={preset.shadows} centred={robberCentred} liftOf={liftOf} />
           {view.pirateHex !== null && <AnimatedPirate hex={view.pirateHex} shadows={preset.shadows} />}
-          <InteractionLayer targets={targets} color={meColor} onAction={onAction} idle={preset.idleMotion} subtle={mode === null} liftOf={liftOf} {...(onPickShip ? { onPickShip } : {})} {...(onPickStep ? { onPickStep } : {})} {...(onPickKnight ? { onPickKnight } : {})} {...(onPick ? { onPick } : {})} />
+          {highlighted && <PlayerHighlight player={highlighted} idle={preset.idleMotion} />}
+          <InteractionLayer targets={targets} color={meColor} onAction={onAction} onHover={setHover} idle={preset.idleMotion} subtle={mode === null} liftOf={liftOf} {...(onPickShip ? { onPickShip } : {})} {...(onPickStep ? { onPickStep } : {})} {...(onPickKnight ? { onPickKnight } : {})} {...(onPick ? { onPick } : {})} />
           <DiceTray3D bounds={bounds} dice={view.lastRoll} rollKey={rollKey} shadows={preset.shadows} eventDie={eventDie} redDie={view.scenario?.crown === true} />
           {children}
         </group>
@@ -545,6 +614,20 @@ export function Board3D(props: Board3DProps) {
             );
           })}
       </div>
+
+      {/* A settlement target on a port: the port's ratio, where the sign is too small to read. */}
+      {hoveredPort &&
+        (() => {
+          const at = projected.find((p) => p.key === `target-vertex-${hoveredPort.vertex}`);
+          if (!at?.visible) return null;
+          return (
+            <div className="pointer-events-none absolute z-20 -translate-x-1/2" style={{ left: at.x, top: at.y - 34 }} data-testid="port-tip">
+              <span className="hud-scene-pill">
+                Port <b>{portLabel(hoveredPort.kind)}</b> {hoveredPort.kind === "any" ? "any" : cardLabel(hoveredPort.kind)}
+              </span>
+            </div>
+          );
+        })()}
 
       {overlay && overlayPos?.visible && (
         <div className="absolute z-20 -translate-x-1/2" style={{ left: overlayPos.x, top: overlayPos.y }}>

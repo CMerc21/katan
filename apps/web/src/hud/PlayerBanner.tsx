@@ -48,6 +48,8 @@ export interface PlayerBannerProps {
   onBotify?: ((playerId: string, level: BotLevel) => void) | undefined;
   glint: boolean;
   emote: string | null;
+  /** Hovering the banner outlines that player's pieces on the board. */
+  onHover?: ((playerId: string | null) => void) | undefined;
 }
 
 /** Three small bars, one per improvement track (docs/rules.md §16.3, §16.7). */
@@ -209,7 +211,7 @@ function WayfarersBadges({ p, view, glint }: { p: RedactedPlayer; view: Redacted
   );
 }
 
-export function PlayerBanner({ p, view, me, seat, acting, thinking, online, botifiable, onBotify, glint, emote }: PlayerBannerProps) {
+export function PlayerBanner({ p, view, me, seat, acting, thinking, online, botifiable, onBotify, glint, emote, onHover }: PlayerBannerProps) {
   const anchor = useAnchor(`player:${p.id}`);
   const stats = useMemo(() => bannerStats(view, p), [view, p]);
   const isBot = seat?.kind === "bot";
@@ -226,6 +228,14 @@ export function PlayerBanner({ p, view, me, seat, acting, thinking, online, boti
       aria-current={acting ? "true" : undefined}
       aria-label={`${p.name}${p.id === me ? " (you)" : ""}, ${stats.vp} victory points`}
       {...tip}
+      onMouseEnter={(e) => {
+        tip.onMouseEnter(e);
+        onHover?.(p.id);
+      }}
+      onMouseLeave={() => {
+        tip.onMouseLeave();
+        onHover?.(null);
+      }}
     >
       <div className="hud-portrait" ref={anchor}>
         {acting && <span className="hud-turn-marker" aria-hidden data-testid={`turn-marker-${p.id}`} />}

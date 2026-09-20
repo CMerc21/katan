@@ -55,8 +55,20 @@ export function BankDecks({ view, bounds }: { view: RedactedState; bounds: Bound
   const stock = (k: Resource | Commodity): number => (k === "cloth" || k === "coin" || k === "paper" ? (view.crown?.bank[k] ?? 0) : view.bank[k]);
   const deckCount = crown && view.crown ? view.crown.decks.trade + view.crown.decks.politics + view.crown.decks.science : view.devDeck.count;
   const deckTitle = crown && view.crown ? `Progress decks: ${view.crown.decks.trade} trade, ${view.crown.decks.politics} politics, ${view.crown.decks.science} science` : `Development deck: ${deckCount} cards`;
+  const matLength = (cards.length - 1) * layout.step + CARD_D + 1.0;
+  const matZ = layout.origin.z + ((cards.length - 1) * layout.step) / 2 + 0.25;
   return (
     <group name="bank">
+      {/* The mat: a dark leather slab a little wider than the cards, running from the first stack past the deck. */}
+      <mesh position={[layout.origin.x, 0.008, matZ]} receiveShadow name="bank-mat">
+        <boxGeometry args={[CARD_W + 0.9, 0.016, matLength + 0.4]} />
+        <meshStandardMaterial color="#4a2f1c" roughness={0.95} flatShading />
+      </mesh>
+      <Html position={[layout.origin.x, 0.3, layout.origin.z - CARD_D / 2 - 0.35]} center zIndexRange={[5, 0]} style={{ pointerEvents: "none" }}>
+        <span className="hud-scene-pill" data-testid="bank-label">
+          Bank
+        </span>
+      </Html>
       {cards.map((k, i) => (
         <Stack key={k} x={layout.origin.x} z={layout.origin.z + i * layout.step} count={stock(k)} color={k === "cloth" || k === "coin" || k === "paper" ? COMMODITY_COLOR[k] : RESOURCE_COLOR[k]} label={cardLabel(k)} testId={`bank-${k}`} />
       ))}

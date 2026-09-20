@@ -201,6 +201,8 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
   const undoStep = useCallback(() => setWagonPath((path) => path.slice(0, -1)), []);
   const wagon = useMemo(() => ({ path: wagonPath, onUndo: undoStep }), [wagonPath, undoStep]);
   const [dialog, setDialog] = useState<Dialog>(null);
+  // A hovered banner outlines that player's pieces on the board.
+  const [highlight, setHighlight] = useState<string | null>(null);
   const [tradeGive, setTradeGive] = useState<Hand>(EMPTY_HAND);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState<ReadonlySet<string> | undefined>(undefined);
@@ -338,6 +340,7 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
           onPickKnight={(v) => setKnightMenu((open) => (open === v ? null : v))}
           onPick={pickFirst}
           meColor={meView.color}
+          highlight={highlight}
           onAction={run}
           step={current}
           onSkip={draining ? skip : undefined}
@@ -409,6 +412,7 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
         onProgress={(card?: ProgressCard) => setDialog({ kind: "progress", card: card ?? null })}
         onExit={exit}
         onCapability={(fn) => void capability(fn)}
+        onHighlight={setHighlight}
       >
         {connection !== "live" && (
           <div className="hud-toast hud-panel" style={{ top: "12%" }} role="status" data-testid="connection">
