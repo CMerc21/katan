@@ -94,9 +94,11 @@ export function buildEnvironment(renderer: THREE.WebGLRenderer, keyAzimuth: numb
 export function DioramaEnvironment({ intensity, keyAzimuth, keyElevation }: { intensity: number; keyAzimuth: number; keyElevation: number }): null {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
-  const texture = useMemo(() => buildEnvironment(gl, keyAzimuth, keyElevation), [gl, keyAzimuth, keyElevation]);
+  const on = intensity > 0;
+  const texture = useMemo(() => (on ? buildEnvironment(gl, keyAzimuth, keyElevation) : null), [on, gl, keyAzimuth, keyElevation]);
 
   useEffect(() => {
+    if (!texture) return;
     const previous = scene.environment;
     scene.environment = texture;
     return () => {
@@ -104,14 +106,15 @@ export function DioramaEnvironment({ intensity, keyAzimuth, keyElevation }: { in
     };
   }, [scene, texture]);
 
-  useEffect(() => () => texture.dispose(), [texture]);
+  useEffect(() => () => texture?.dispose(), [texture]);
 
   useEffect(() => {
+    if (!texture) return;
     scene.environmentIntensity = intensity;
     return () => {
       scene.environmentIntensity = 1;
     };
-  }, [scene, intensity]);
+  }, [scene, texture, intensity]);
 
   return null;
 }

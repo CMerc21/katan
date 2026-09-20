@@ -88,6 +88,8 @@ export const RIM_ELEVATION = (26 * Math.PI) / 180;
 export const KEY_INTENSITY = 1.35;
 export const RIM_INTENSITY = 0.3;
 export const HEMI_INTENSITY = 0.12;
+/** Low has no environment map, so the hemisphere carries the ambient instead. */
+export const HEMI_INTENSITY_NO_ENV = 0.55;
 
 /** The shadow frustum reaches this far past the land's radius, so piers and coastal ships still cast. */
 export const SHADOW_MARGIN = 1.5;
@@ -106,7 +108,7 @@ function lightPosition(cx: number, cz: number, azimuth: number, elevation: numbe
   return [cx + distance * Math.cos(elevation) * Math.sin(azimuth), distance * Math.sin(elevation), cz + distance * Math.cos(elevation) * Math.cos(azimuth)];
 }
 
-function Lights({ shadows, shadowMap, bounds, landBounds }: { shadows: boolean; shadowMap: number; bounds: Bounds; landBounds: Bounds }) {
+function Lights({ shadows, shadowMap, bounds, landBounds, environment }: { shadows: boolean; shadowMap: number; bounds: Bounds; landBounds: Bounds; environment: boolean }) {
   const r = landBounds.radius + SHADOW_MARGIN;
   const d = Math.max(bounds.radius, r) * 2;
   // The key aims at the land's centre. Leaving the target at the world origin
@@ -119,7 +121,7 @@ function Lights({ shadows, shadowMap, bounds, landBounds }: { shadows: boolean; 
   return (
     <>
       <primitive object={target} />
-      <hemisphereLight args={[FILL_SKY, FILL_GROUND, HEMI_INTENSITY]} />
+      <hemisphereLight args={[FILL_SKY, FILL_GROUND, environment ? HEMI_INTENSITY : HEMI_INTENSITY_NO_ENV]} />
       <directionalLight
         position={lightPosition(landBounds.cx, landBounds.cz, KEY_AZIMUTH, KEY_ELEVATION, d)}
         target={target}
@@ -307,7 +309,7 @@ export function Board3D(props: Board3DProps) {
       >
         <color attach="background" args={["#2a1c13"]} />
         <CameraRig bounds={bounds} resetToken={resetToken} focus={focus} hero={hero} />
-        <Lights shadows={preset.shadows} shadowMap={preset.shadowMap} bounds={bounds} landBounds={landBounds} />
+        <Lights shadows={preset.shadows} shadowMap={preset.shadowMap} bounds={bounds} landBounds={landBounds} environment={preset.envIntensity > 0} />
         <DioramaEnvironment intensity={preset.envIntensity} keyAzimuth={KEY_AZIMUTH} keyElevation={KEY_ELEVATION} />
         <Table bounds={bounds} shadows={preset.shadows} onTap={() => (onSkip ? onSkip() : onCancelMode?.())} onDoubleTap={() => setResetToken((t) => t + 1)} />
         <group name="board">

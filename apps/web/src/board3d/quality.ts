@@ -18,7 +18,12 @@ export interface QualityPreset {
   readonly idleMotion: boolean;
   /** Shadow map size (docs/props.md §6: 2048 on High); 0 when shadows are off. */
   readonly shadowMap: number;
-  /** `scene.environmentIntensity` for the image-based light (`environment.ts`). */
+  /**
+   * `scene.environmentIntensity` for the image-based light (`environment.ts`).
+   * Zero skips the environment altogether: sampling it costs a lookup per
+   * fragment on every standard material, which a software rasterizer cannot
+   * afford (it measured 2.3x the frame time on SwiftShader).
+   */
   readonly envIntensity: number;
   /** Contact shadows under the pieces and props: a second pass over the scene, so High only. */
   readonly contactShadows: boolean;
@@ -32,8 +37,10 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
   // Post-FX moved to Medium: the vignette and tilt-shift are most of what makes
   // the board read as a miniature, and they are cheap next to the shadow pass.
   medium: { shadows: true, postfx: true, propDensity: 0.7, dpr: MAX_DPR, idleMotion: true, shadowMap: 1024, envIntensity: 0.4, contactShadows: false },
-  // No shadows on Low, so the image-based light carries a little more of the fill.
-  low: { shadows: false, postfx: false, propDensity: 0.4, dpr: 1, idleMotion: false, shadowMap: 0, envIntensity: 0.55, contactShadows: false },
+  // No environment on Low: it is the preset auto-detection picks for software
+  // renderers and weak mobile, which is exactly where the per-fragment cost
+  // hurts. `Lights` raises the hemisphere fill to make up the ambient.
+  low: { shadows: false, postfx: false, propDensity: 0.4, dpr: 1, idleMotion: false, shadowMap: 0, envIntensity: 0, contactShadows: false },
 };
 
 /** Where the active preset came from: the user's setting, auto-detection, or a watchdog step-down. */

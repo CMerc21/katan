@@ -3,7 +3,7 @@ import { GEOMETRY, createGame, legalActions, type Action } from "@katan/engine";
 import { createLayout } from "@/board/layout";
 import { boardBounds, edgeWorld, framingDistance, hexCornerWorld, hexWorld, tileJitter, vertexWorld } from "@/board3d/layout3d";
 import { computeTargets, targetName, wagonMoveFor } from "@/board3d/Interaction";
-import { FrameWatchdog, QUALITY_ORDER, QUALITY_PRESETS, detectQuality, resolveDpr, stepDown } from "@/board3d/quality";
+import { FrameWatchdog, QUALITY_PRESETS, detectQuality, resolveDpr, stepDown } from "@/board3d/quality";
 import { FOOTPRINT, HERO_PROP, propsForHex, type PropKind, type PropTerrain } from "@/board3d/props";
 import { RECESS_RADIUS, propBoundary } from "@/board3d/slab";
 
@@ -210,9 +210,12 @@ describe("docs/phase7-5.md §6 quality", () => {
     expect(QUALITY_PRESETS.high.contactShadows).toBe(true);
     expect(QUALITY_PRESETS.medium.contactShadows).toBe(false);
     expect(QUALITY_PRESETS.low.contactShadows).toBe(false);
-    // Every preset carries the image-based light; Low leans on it hardest.
-    for (const q of QUALITY_ORDER) expect(QUALITY_PRESETS[q].envIntensity).toBeGreaterThan(0);
-    expect(QUALITY_PRESETS.low.envIntensity).toBeGreaterThan(QUALITY_PRESETS.high.envIntensity);
+    // High and Medium carry the image-based light. Low does not: sampling it
+    // costs a lookup per fragment, and Low is the preset auto-detection picks
+    // for software renderers, where it measured 2.3x the frame time.
+    expect(QUALITY_PRESETS.high.envIntensity).toBeGreaterThan(0);
+    expect(QUALITY_PRESETS.medium.envIntensity).toBeGreaterThan(0);
+    expect(QUALITY_PRESETS.low.envIntensity).toBe(0);
   });
 
   it("high and medium render at the true device pixel ratio capped at 2; low at 1", () => {
