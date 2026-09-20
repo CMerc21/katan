@@ -8,7 +8,7 @@
  * assistive users (and the e2e specs) can act without raycasting.
  */
 
-import { EffectComposer, TiltShift2, Vignette } from "@react-three/postprocessing";
+import { Bloom, EffectComposer, TiltShift2, Vignette } from "@react-three/postprocessing";
 import { ContactShadows } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -399,6 +399,10 @@ export function Board3D(props: Board3DProps) {
         {onDegrade && <Watchdog onDegrade={() => onDegrade(quality)} />}
         {preset.postfx && (
           <EffectComposer enabled multisampling={0}>
+            {/* Only the lit openings clear this threshold; the board's own
+                highlights stay under it, so the bloom reads as lamplight
+                rather than a haze over everything. */}
+            {preset.bloom ? <Bloom intensity={0.8} luminanceThreshold={0.9} luminanceSmoothing={0.2} mipmapBlur radius={0.65} /> : <></>}
             <Vignette offset={0.55} darkness={0.22} />
             <TiltShift2 blur={0.35} taper={0.8} start={[0, 0.5]} end={[1, 0.5]} direction={[0, 1]} samples={8} />
           </EffectComposer>

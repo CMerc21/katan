@@ -27,20 +27,22 @@ export interface QualityPreset {
   readonly envIntensity: number;
   /** Contact shadows under the pieces and props: a second pass over the scene, so High only. */
   readonly contactShadows: boolean;
+  /** Bloom on the lit openings. A separate blur chain, so High only. */
+  readonly bloom: boolean;
 }
 
 /** The hard cap on the render pixel ratio, whatever the display reports. */
 export const MAX_DPR = 2;
 
 export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
-  high: { shadows: true, postfx: true, propDensity: 1, dpr: MAX_DPR, idleMotion: true, shadowMap: 2048, envIntensity: 0.22, contactShadows: true },
+  high: { shadows: true, postfx: true, propDensity: 1, dpr: MAX_DPR, idleMotion: true, shadowMap: 2048, envIntensity: 0.22, contactShadows: true, bloom: true },
   // Post-FX moved to Medium: the vignette and tilt-shift are most of what makes
   // the board read as a miniature, and they are cheap next to the shadow pass.
-  medium: { shadows: true, postfx: true, propDensity: 0.7, dpr: MAX_DPR, idleMotion: true, shadowMap: 1024, envIntensity: 0.22, contactShadows: false },
+  medium: { shadows: true, postfx: true, propDensity: 0.7, dpr: MAX_DPR, idleMotion: true, shadowMap: 1024, envIntensity: 0.22, contactShadows: false, bloom: false },
   // No environment on Low: it is the preset auto-detection picks for software
   // renderers and weak mobile, which is exactly where the per-fragment cost
   // hurts. `Lights` raises the hemisphere fill to make up the ambient.
-  low: { shadows: false, postfx: false, propDensity: 0.4, dpr: 1, idleMotion: false, shadowMap: 0, envIntensity: 0, contactShadows: false },
+  low: { shadows: false, postfx: false, propDensity: 0.4, dpr: 1, idleMotion: false, shadowMap: 0, envIntensity: 0, contactShadows: false, bloom: false },
 };
 
 /** Where the active preset came from: the user's setting, auto-detection, or a watchdog step-down. */

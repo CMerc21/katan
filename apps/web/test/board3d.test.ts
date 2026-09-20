@@ -210,6 +210,10 @@ describe("docs/phase7-5.md §6 quality", () => {
     expect(QUALITY_PRESETS.high.contactShadows).toBe(true);
     expect(QUALITY_PRESETS.medium.contactShadows).toBe(false);
     expect(QUALITY_PRESETS.low.contactShadows).toBe(false);
+    // Bloom is its own blur chain, so it rides with the contact shadows on High.
+    expect(QUALITY_PRESETS.high.bloom).toBe(true);
+    expect(QUALITY_PRESETS.medium.bloom).toBe(false);
+    expect(QUALITY_PRESETS.low.bloom).toBe(false);
     // High and Medium carry the image-based light. Low does not: sampling it
     // costs a lookup per fragment, and Low is the preset auto-detection picks
     // for software renderers, where it measured 2.3x the frame time.

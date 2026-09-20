@@ -9,7 +9,7 @@
  */
 
 import { useFrame } from "@react-three/fiber";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { HexId } from "@katan/engine";
 import { box, cone, cyl, dodeca, facetedCone, halfSphere, ico, merge, octa, part, prism, sphere, torus } from "./geo";
@@ -386,6 +386,64 @@ function Gull({ x, y, z, seed, idle }: { x: number; y: number; z: number; seed: 
   );
 }
 
+/**
+ * Lit openings (docs/props.md §3). Each of these props already carries a dark
+ * quad for its door or mouth; this hangs a small unlit-material panel just in
+ * front of it so the scene has a few points of light in it rather than being
+ * uniformly shaded. `toneMapped: false` keeps them at full value through the
+ * tone mapper, which is what lets the bloom pass pick them up.
+ *
+ * Offsets are in the prop's local space, a hair proud of the dark quad each
+ * one sits on, and are carried through the instance transform so they follow
+ * the prop's rotation and scale.
+ */
+const PROP_GLOW: Partial<Record<PropKind, { x: number; y: number; z: number; w: number; h: number; color: string }>> = {
+  cabin: { x: 0, y: 0.04, z: 0.11, w: 0.05, h: 0.08, color: P.HEARTH_WINDOW },
+  shepherdHut: { x: 0, y: 0.04, z: 0.099, w: 0.05, h: 0.08, color: P.HEARTH_WINDOW },
+  kiln: { x: 0, y: 0.035, z: 0.139, w: 0.06, h: 0.07, color: P.HEARTH_FIRE },
+  // The mine's mouth is large and should stay dark; this is a lantern hung on its frame.
+  mine: { x: 0.055, y: 0.13, z: 0.19, w: 0.022, h: 0.03, color: P.HEARTH_LANTERN },
+};
+
+const GLOW_KINDS = Object.keys(PROP_GLOW) as PropKind[];
+
+/**
+ * Pushes the glow colours past 1.0 in linear space. An ordinary colour cannot
+ * be separated from the board by a luminance threshold -- `#FFC96B` sits at
+ * about 0.63, *below* sunlit desert or snow -- so any threshold that caught
+ * the windows would bloom half the board. The composer renders to a half-float
+ * target, so values over 1 survive to the bloom pass.
+ */
+const GLOW_GAIN = 2.5;
+
+function PropGlow({ kind, items }: { kind: PropKind; items: Placed[] }) {
+  const glow = PROP_GLOW[kind]!;
+  const ref = useRef<THREE.InstancedMesh>(null);
+  const geometry = useMemo(() => new THREE.PlaneGeometry(glow.w, glow.h), [glow.w, glow.h]);
+  const material = useMemo(() => new THREE.MeshBasicMaterial({ color: new THREE.Color(glow.color).multiplyScalar(GLOW_GAIN), toneMapped: false }), [glow.color]);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const local = useMemo(() => new THREE.Matrix4().makeTranslation(glow.x, glow.y, glow.z), [glow.x, glow.y, glow.z]);
+
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  useEffect(() => () => material.dispose(), [material]);
+
+  useLayoutEffect(() => {
+    const mesh = ref.current;
+    if (!mesh) return;
+    items.forEach((p, i) => {
+      dummy.position.set(p.wx, p.wy, p.wz);
+      dummy.rotation.set(0, p.rot, 0);
+      dummy.scale.setScalar(p.scale);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix.clone().multiply(local));
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }, [items, dummy, local]);
+
+  return <instancedMesh ref={ref} args={[geometry, material, Math.max(1, items.length)]} frustumCulled={false} />;
+}
+
 export function Props({ hexes, density, idle, shadows }: { hexes: readonly PropHex[]; density: number; idle: boolean; shadows: boolean }) {
   const groups = useMemo(() => layoutProps(hexes, density), [hexes, density]);
   const windmills = groups.get("windmill") ?? [];
@@ -404,6 +462,10 @@ export function Props({ hexes, density, idle, shadows }: { hexes: readonly PropH
       {gulls.map((g) => (
         <Gull key={g.hex} x={g.wx} y={g.wy} z={g.wz} seed={g.seed} idle={idle} />
       ))}
+      {GLOW_KINDS.map((kind) => {
+        const items = groups.get(kind);
+        return items && items.length > 0 ? <PropGlow key={`glow:${kind}`} kind={kind} items={items} /> : null;
+      })}
     </group>
   );
 }

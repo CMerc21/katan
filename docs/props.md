@@ -21,6 +21,20 @@ shading renders as almost no value change, so the polygons were there but
 invisible. Without both, every tile reads as one flat colour whatever the
 lighting does. `test/slab.test.ts` pins the separation.
 
+**Lit openings.** The cabin, the shepherd's hut, the kiln and the mine each
+already carry a dark quad for a door or a mouth; a small unlit-material panel
+now hangs just in front of it — warm `#FFC96B` for a window, `#FF7A33` for the
+kiln's fire, `#FFD79A` for a lantern on the mine frame. They are a separate
+instanced mesh per kind driven off the same placement list, so the props' own
+merged geometry is untouched, and the offsets ride the instance transform so
+they follow each prop's rotation and scale.
+
+The colours are multiplied past 1.0 in linear space (`GLOW_GAIN`). An ordinary
+colour cannot be told from the board by a luminance threshold — `#FFC96B` sits
+near 0.63, *below* sunlit desert or snow — so any bloom threshold that caught
+the windows would have bloomed half the board. The composer renders to a
+half-float target, so values over 1 survive to the bloom pass.
+
 **Terrain lift.** A tile's interior rises or dips by its terrain's
 `TERRAIN_LIFT` — mountains +0.10 R, gold +0.07, hills +0.055, forest +0.025,
 pasture and fields flat, desert −0.02, lake −0.03 — as a dome anchored at the
@@ -122,6 +136,7 @@ Props avoid the center recess and a 0.06 R margin at the slab edge. Layout posit
 - Table: plane with a subtle procedural wood-grain shader or a single tiling texture, walnut `#5B3A24`, receives shadows.
 - Post (High and Medium): vignette offset 0.55 darkness 0.22, tilt-shift blur 0.35 with a 0.8 taper.
 - Fog: linear, the backdrop colour `#2a1c13`, from 4.0x to 6.0x the board's radius. The distances bracket a narrow range on purpose: the camera frames the board by its radius, which puts the whole visible scene inside roughly 3.3x to 5.5x, so a far plane at 7x or 9x spreads the gradient over depth the camera never shows and fogs nothing but the top corners. Tuned by rendering the fog in magenta and reading off what it actually covered. The board centre stays clear, its far edge takes about a third, and the table dissolves into the backdrop rather than running to a hard edge.
+- Bloom (High only): intensity 0.8 over a 0.9 luminance threshold with mipmap blur. Only the lit openings clear the threshold, so it reads as lamplight rather than a haze; the board's own highlights, including snow and desert, stay under it.
 - Contact shadows (High only): a grounding pass under the pieces and props, on a plane 0.03 R above the land tops so the slabs' own relief never darkens it.
 
 ## 7. Implementation notes and deviations

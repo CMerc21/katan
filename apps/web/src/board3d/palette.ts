@@ -62,6 +62,10 @@ export const REED = "#4A8A55";
 export const DARK = "#2B2118";
 export const SOOT = "#3A3532";
 export const SMOKE = "#d8d3c8";
+/** Lit openings (docs/props.md §3): a window at dusk, and a kiln's fire mouth. */
+export const HEARTH_WINDOW = "#FFC96B";
+export const HEARTH_FIRE = "#FF7A33";
+export const HEARTH_LANTERN = "#FFD79A";
 
 // §4–§5 Pieces
 export const WALL_PLASTER = "#F4EFE6";
