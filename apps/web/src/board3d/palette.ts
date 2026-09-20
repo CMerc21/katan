@@ -58,6 +58,8 @@ export const DESERT_ROCK = "#A8906E";
 export const BONE = "#F4EFE6";
 /** Foam, not snow: pale blue and well short of white, or the crests read as dust on the dark water. */
 export const CREST = "#9CC3CE";
+/** The band where the sea meets a shore: brighter than a crest, short of white. */
+export const FOAM = "#CFE4E9";
 export const REED = "#4A8A55";
 export const DARK = "#2B2118";
 export const SOOT = "#3A3532";

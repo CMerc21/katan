@@ -4,7 +4,7 @@
  * one point that agrees with the 2D layout (`src/board/layout.ts`).
  */
 
-import { edgeVerticesOf, hexCenter, parseEdgeId, parseHexId, vertexPosition, type EdgeId, type HexId, type VertexId } from "@katan/engine";
+import { edgeVerticesOf, hexCenter, hexEdge, neighbor, parseEdgeId, parseHexId, vertexPosition, type EdgeId, type HexId, type VertexId } from "@katan/engine";
 
 import { LAND_HEIGHT, SEA_SLAB_HEIGHT, slabJitter } from "./slab";
 
@@ -54,6 +54,24 @@ export function outwardWorld(e: EdgeId, centre: World = { x: 0, z: 0 }, land: Re
   const dz = mid.z - from.z;
   const len = Math.hypot(dx, dz) || 1;
   return { x: dx / len, z: dz / len };
+}
+
+/**
+ * The edges where land meets open sea, sorted and de-duplicated. Both hexes of
+ * a shoreline edge see it, so this returns one entry per edge and the foam is
+ * drawn once. An edge between two land hexes, or between two sea hexes, is not
+ * a shoreline.
+ */
+export function shorelineEdges(land: ReadonlySet<HexId>, sea: ReadonlySet<HexId>): EdgeId[] {
+  const out = new Set<EdgeId>();
+  for (const h of land) {
+    const c = parseHexId(h);
+    for (let k = 0; k < 6; k++) {
+      const n = neighbor(c, k);
+      if (sea.has(`${n.q},${n.r}` as HexId)) out.add(hexEdge(c, k));
+    }
+  }
+  return [...out].sort();
 }
 
 export interface Bounds {

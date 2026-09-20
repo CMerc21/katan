@@ -19,6 +19,7 @@ import type { Step } from "@/game/eventQueue";
 import { useAnchors } from "@/components/anim/anchors";
 import { CameraRig } from "./Camera";
 import { AnimatedPirate, AnimatedRobber, DiceTray3D, Projector, projectWorld, type CameraSnapshot } from "./Effects3d";
+import { Foam } from "./Foam";
 import { Harbor } from "./Harbor";
 import { INTERACTION_LAYER, InteractionLayer, NO_PICK, computeTargets, targetLabel, targetName, type CrownPick, type TargetMode } from "./Interaction";
 import { boardBounds, hexWorld, edgeWorld, vertexWorld, SLAB_HEIGHT, type Bounds, type World } from "./layout3d";
@@ -229,6 +230,7 @@ export function Board3D(props: Board3DProps) {
   const robberCentred = view.board.hexes[view.robberHex]?.token === null;
   const cityUpgrades = useMemo(() => crownCityUpgrades(view), [view]);
   const landSet = useMemo(() => new Set(hexIds), [hexIds]);
+  const seaSet = useMemo(() => new Set(view.board.sea), [view.board.sea]);
   /**
    * A tile's interior rides its terrain's centre lift (`TERRAIN_LIFT`), so
    * everything standing at the middle of a hex has to rise with it. Sea and
@@ -367,6 +369,7 @@ export function Board3D(props: Board3DProps) {
             />
           )}
           <Props hexes={propHexes} density={preset.propDensity} idle={preset.idleMotion} shadows={preset.shadows} />
+          <Foam land={landSet} sea={seaSet} centre={centre} />
           {view.board.ports.map((port) => (
             <Harbor key={port.edge} port={port} centre={centre} owned={port.vertices.some((v) => myVertices.has(v))} shadows={preset.shadows} land={landSet} />
           ))}

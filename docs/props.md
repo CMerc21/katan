@@ -21,6 +21,18 @@ shading renders as almost no value change, so the polygons were there but
 invisible. Without both, every tile reads as one flat colour whatever the
 lighting does. `test/slab.test.ts` pins the separation.
 
+**Foam.** Where land meets open sea the two slabs simply butt together, which
+reads as a hard colour change. `Foam.tsx` lays an instanced strip along every
+shoreline edge — `shorelineEdges(land, sea)` in `layout3d.ts`, which returns
+each land/sea edge once even though both hexes see it — in three seeded
+variants so a long coast does not repeat. The strip is symmetric across the
+edge line and nudged seaward by `FOAM_OFFSET`: the half that falls behind the
+edge sits inside the land slab, which is taller than the sea, so it is hidden.
+That symmetry is deliberate — it makes the strip look the same whichever way
+the edge is wound, so no per-edge orientation test is needed. The band sits at
+`SEA_HEIGHT + 0.006`, which clears the water because the sea's relief tapers to
+zero at the tile rim, exactly where the shoreline is.
+
 **Lit openings.** The cabin, the shepherd's hut, the kiln and the mine each
 already carry a dark quad for a door or a mouth; a small unlit-material panel
 now hangs just in front of it — warm `#FFC96B` for a window, `#FF7A33` for the

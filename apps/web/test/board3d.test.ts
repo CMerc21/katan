@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { GEOMETRY, createGame, legalActions, type Action } from "@katan/engine";
+import { GEOMETRY, createGame, legalActions, parseEdgeId, type Action, type HexId } from "@katan/engine";
 import { createLayout } from "@/board/layout";
-import { boardBounds, edgeWorld, framingDistance, hexCornerWorld, hexWorld, tileJitter, vertexWorld } from "@/board3d/layout3d";
+import { boardBounds, edgeWorld, framingDistance, hexCornerWorld, hexWorld, shorelineEdges, tileJitter, vertexWorld } from "@/board3d/layout3d";
 import { computeTargets, targetName, wagonMoveFor } from "@/board3d/Interaction";
 import { FrameWatchdog, QUALITY_PRESETS, detectQuality, resolveDpr, stepDown } from "@/board3d/quality";
 import { FOOTPRINT, HERO_PROP, propsForHex, type PropKind, type PropTerrain } from "@/board3d/props";
@@ -190,6 +190,36 @@ describe("docs/props.md §3 props", () => {
     const sorted = [...angles].sort((a, b) => a - b);
     for (let i = 1; i < 4; i++) expect(sorted[i]! - sorted[i - 1]!).toBeCloseTo(Math.PI / 2, 6);
     expect(propsForHex("0,0", "farmland", 0.4).filter((p) => p.kind === "windmill")).toHaveLength(1);
+  });
+});
+
+describe("docs/props.md §3 shoreline", () => {
+  it("returns each land/sea edge once, and nothing for land/land or sea/sea", () => {
+    // One land hex at the origin with sea on two of its six sides.
+    const land = new Set<HexId>(["0,0", "1,0"]);
+    const sea = new Set<HexId>(["0,-1", "-1,0"]);
+    const edges = shorelineEdges(land, sea);
+    expect(edges).toHaveLength(2);
+    // Sorted and unique.
+    expect([...edges].sort()).toEqual(edges);
+    expect(new Set(edges).size).toBe(edges.length);
+    // The edge between the two land hexes is not a shoreline.
+    for (const e of edges) {
+      const [a, b] = parseEdgeId(e);
+      const ids = [`${a.q},${a.r}`, `${b.q},${b.r}`] as HexId[];
+      expect(ids.filter((h) => land.has(h))).toHaveLength(1);
+      expect(ids.filter((h) => sea.has(h))).toHaveLength(1);
+    }
+  });
+
+  it("counts a shoreline edge once even though both its hexes see it", () => {
+    const land = new Set<HexId>(["0,0"]);
+    const sea = new Set<HexId>(["0,-1", "1,-1", "1,0", "0,1", "-1,1", "-1,0"]);
+    // All six sides are sea, and no edge is reported twice.
+    expect(shorelineEdges(land, sea)).toHaveLength(6);
+    // An all-sea or all-land board has no shoreline at all.
+    expect(shorelineEdges(new Set(), sea)).toHaveLength(0);
+    expect(shorelineEdges(land, new Set())).toHaveLength(0);
   });
 });
 
