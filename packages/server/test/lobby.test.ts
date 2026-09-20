@@ -13,6 +13,7 @@ import {
   leaveGame,
   reclaimSeat,
   removePlayer,
+  sendChat,
   setReady,
   setSeat,
   startGame,
@@ -206,6 +207,19 @@ describe("§4 escape hatches", () => {
     await startGame(sql, { gameId, userId: host });
     return gameId;
   }
+
+  it("docs/phase12.md §3 chat: a member posts a line that every member can read and an outsider cannot; blanks and novels are refused", async () => {
+    const gameId = await activeGame();
+    const line = await sendChat(sql, { gameId, userId: bob, text: "  good   luck  " });
+    expect(line).toMatchObject({ game_id: gameId, player_id: "seat-1", text: "good luck" });
+    expect(await asUser(sql, carol, (tx) => tx`select player_id, text from game_chat where game_id = ${gameId}`)).toEqual([{ player_id: "seat-1", text: "good luck" }]);
+    expect(await asUser(sql, dave, (tx) => tx`select id from game_chat where game_id = ${gameId}`)).toHaveLength(0);
+    await expect(sendChat(sql, { gameId, userId: dave, text: "hi" })).rejects.toMatchObject({ code: "NOT_A_MEMBER" });
+    await expect(sendChat(sql, { gameId, userId: bob, text: "   " })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(sendChat(sql, { gameId, userId: bob, text: "x".repeat(401) })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // No client writes: an authenticated member cannot insert directly.
+    expect(await pgErrorCode(() => asUser(sql, bob, (tx) => tx`insert into game_chat (game_id, player_id, text) values (${gameId}, 'seat-1', 'sneaky')`))).toBe("42501");
+  });
 
   it("a player can hand their seat to a bot, which plays immediately, and reclaim it later", async () => {
     const gameId = await activeGame();

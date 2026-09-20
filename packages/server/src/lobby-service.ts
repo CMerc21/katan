@@ -403,3 +403,28 @@ export async function abandonGame(sql: Db, input: { gameId: string; userId: stri
 export async function heartbeat(sql: Db, input: { gameId: string; userId: string }): Promise<void> {
   await sql`update game_players set last_seen_at = now() where game_id = ${input.gameId} and user_id = ${input.userId}`;
 }
+
+export const CHAT_MAX_LENGTH = 400;
+
+export interface ChatRow {
+  id: number;
+  game_id: string;
+  player_id: string;
+  text: string;
+  created_at: string;
+}
+
+/**
+ * Chat (docs/phase12.md §3): a member posts one line to the game's chat. The
+ * text is trimmed and capped; the row reaches every member over the game's
+ * Realtime channel (`game_chat` is published) and the members-only policy
+ * keeps it inside the table.
+ */
+export async function sendChat(sql: Db, input: { gameId: string; userId: string; text: string }): Promise<ChatRow> {
+  const text = input.text.trim().replace(/\s+/g, " ");
+  if (text.length === 0) throw new ServiceError("BAD_REQUEST", "say something");
+  if (text.length > CHAT_MAX_LENGTH) throw new ServiceError("BAD_REQUEST", `keep it under ${CHAT_MAX_LENGTH} characters`);
+  const seat = seatOfUser(await seatsOf(sql as unknown as Tx, input.gameId), input.userId);
+  const rows = await sql<ChatRow[]>`insert into game_chat (game_id, player_id, text) values (${input.gameId}, ${seat.player_id}, ${text}) returning id, game_id, player_id, text, created_at`;
+  return rows[0]!;
+}

@@ -16,6 +16,14 @@ export type RedactedState = RedactedGameState;
 
 export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 
+/** One chat line as the transport carries it; the HUD adds the name and colour from the view. */
+export interface ChatLine {
+  readonly id: number;
+  readonly playerId: string;
+  readonly text: string;
+  readonly at: string;
+}
+
 /** Engine RuleError codes, server transport codes, or the client's own NETWORK code. */
 export interface DriverError {
   readonly code: string;
@@ -65,6 +73,11 @@ export interface GameDriver {
   handToBot?(level: BotLevel): Promise<Result<void, DriverError>>;
   reclaimSeat?(): Promise<Result<void, DriverError>>;
   botifyAbsent?(playerId: string, level: BotLevel): Promise<Result<void, DriverError>>;
+
+  /** Online: post a chat line; the line comes back through `subscribeChat` for everyone. */
+  sendChat?(text: string): Promise<Result<void, DriverError>>;
+  /** Online: the chat so far, then every new line. Absent on hotseat (chat stays on the screen). */
+  subscribeChat?(cb: (messages: readonly ChatLine[]) => void): () => void;
   abandonGame?(): Promise<Result<void, DriverError>>;
 
   /** Release sockets and timers. */

@@ -24,7 +24,7 @@ Edge Functions: `create-lobby`, `join-game`, `set-ready`, `set-seat`, `add-bot`,
 
 ## 2. Presence and reconnect
 
-Realtime Presence on the per-game channel tracks `{ playerId, userId, connectedAt }`; the players panel shows a connected/disconnected dot per human. The driver also calls `heartbeat` every minute to keep `game_players.last_seen_at` fresh for the absent-player rule. On reconnect, tab wake or `online`, the driver refetches `game_views` before trusting any event (see `docs/phase4.md` §4). `/` lists "Your games" from `lobby_games` (RLS: games you are in), so a game can be reopened from any device.
+Realtime Presence on the per-game channel tracks `{ playerId, userId, connectedAt }`; the players panel shows a connected/disconnected dot per human. The same channel carries `game_chat` inserts (Phase 12, `send-chat`). The driver also calls `heartbeat` every minute to keep `game_players.last_seen_at` fresh for the absent-player rule. On reconnect, tab wake or `online`, the driver refetches `game_views` before trusting any event (see `docs/phase4.md` §4). `/` lists "Your games" from `lobby_games` (RLS: games you are in), so a game can be reopened from any device.
 
 ## 3. Waiting states
 

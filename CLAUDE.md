@@ -126,7 +126,7 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 ## Web layout (apps/web)
 
 * `app/` — `/` (online home + hotseat form), `/hotseat`, `/play` (hotseat game), `/login`, `/join/[code]`, `/lobby/[code]`, `/play/[gameId]` (online game), `/boards` (board list), `/boards/editor/[[...id]]` (board editor). All client components.
-* `src/driver/` — `GameDriver` interface (`types.ts`), `HotseatDriver` (in-memory, device handoff, optional bot seats) and `SupabaseDriver` (server views over Realtime, actions via Edge Functions). Components never import `applyAction`; they only talk to a driver and its optional capabilities.
+* `src/driver/` — `GameDriver` interface (`types.ts`), `HotseatDriver` (in-memory, device handoff, optional bot seats) and `SupabaseDriver` (server views over Realtime, actions via Edge Functions, chat over `game_chat` + `send-chat`). Components never import `applyAction`; they only talk to a driver and its optional capabilities.
 * `src/lib/supabase.ts` — browser client, magic-link helpers, Edge Function envelope.
 * `src/game/store.ts` — in-memory holder for the live driver; a reload loses it and `/play` redirects to `/`.
 * `src/hooks/useGame.ts` — the one hook: `{ view, legal, dispatch, me }`. `src/hooks/useEventQueue.ts` — the animation queue between the driver and the components (`src/game/eventQueue.ts` is its pure core).

@@ -146,6 +146,20 @@ export function HudLayer(props: HudLayerProps) {
   }, []);
   const [rolls, setRolls] = useState<Roll[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Online, the driver carries the chat (docs/phase12.md §3); hotseat keeps it on this screen.
+  const remoteChat = driver.subscribeChat !== undefined && driver.sendChat !== undefined;
+  useEffect(() => {
+    if (!driver.subscribeChat) return;
+    return driver.subscribeChat((lines) => {
+      setMessages(
+        lines.map((l) => {
+          const p = view.players.find((x) => x.id === l.playerId);
+          return { id: l.id, from: p?.name ?? l.playerId, color: p?.color ?? "white", text: l.text };
+        }),
+      );
+    });
+    // The players' names and colours are fixed for the game; resubscribing on every view is pointless.
+  }, [driver]);
   const [emote, setEmote] = useState<{ text: string; key: number } | null>(null);
 
   const meView = view.players.find((p) => p.id === me)!;
@@ -253,7 +267,18 @@ export function HudLayer(props: HudLayerProps) {
 
   const status = draining ? "…" : (waitingText(view, me, waitingOn, seats) ?? bannerText(view, me));
   const togglePanel = useCallback((key: RailKey) => setPanel((p) => (p === key ? null : key)), []);
-  const send = useCallback((text: string) => setMessages((m) => [...m, { id: Date.now() + m.length, from: meView.name, color: meView.color, text }]), [meView.name, meView.color]);
+  const send = useCallback(
+    (text: string) => {
+      if (remoteChat && driver.sendChat) {
+        void driver.sendChat(text).then((r) => {
+          if (!r.ok) pushToast(`Message not sent: ${r.error.message}`, "chat-error");
+        });
+        return;
+      }
+      setMessages((m) => [...m, { id: Date.now() + m.length, from: meView.name, color: meView.color, text }]);
+    },
+    [remoteChat, driver, meView.name, meView.color, pushToast],
+  );
   const raiders = view.scenario?.variants.raiders ? view.wayfarers?.raiders : null;
   const eventDeck = view.scenario?.variants.eventDeck ? view.wayfarers?.eventDeck : null;
 
