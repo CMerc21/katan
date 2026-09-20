@@ -21,7 +21,7 @@ describe("§9 trading", () => {
     expectRule(() => applyAction(s, { type: "OFFER_TRADE", playerId: "a", give: { wood: 1 } as never, receive: hand({ ore: 1 }) }), "INVALID_TRADE");
     expectRule(() => applyAction(s, { type: "OFFER_TRADE", playerId: "b", give: hand({ ore: 1 }), receive: hand({ wood: 1 }) }), "NOT_YOUR_TURN");
     const offered = applyAction(s, { type: "OFFER_TRADE", playerId: "a", give: hand({ wood: 1 }), receive: hand({ ore: 1 }) });
-    expect(offered.pendingTrade).toEqual({ from: "a", give: hand({ wood: 1 }), receive: hand({ ore: 1 }), rejectedBy: [] });
+    expect(offered.pendingTrade).toEqual({ from: "a", give: hand({ wood: 1 }), receive: hand({ ore: 1 }), rejectedBy: [], counters: [] });
     expectRule(() => applyAction(offered, { type: "OFFER_TRADE", playerId: "a", give: hand({ wood: 1 }), receive: hand({ ore: 1 }) }), "TRADE_ALREADY_PENDING");
     expect(legalActions(offered, "a").some((a) => a.type === "OFFER_TRADE")).toBe(false);
     expect(legalActions(offered, "a").some((a) => a.type === "CANCEL_TRADE")).toBe(true);
@@ -30,8 +30,8 @@ describe("§9 trading", () => {
   it("§9.1 the first acceptor wins, must hold the cards, and the trade executes atomically", () => {
     const s = ready();
     const offered = applyAction(s, { type: "OFFER_TRADE", playerId: "a", give: hand({ wood: 1 }), receive: hand({ ore: 2 }) });
-    expect(legalActions(offered, "b").map((a) => a.type)).toEqual(["ACCEPT_TRADE", "REJECT_TRADE"]);
-    expect(legalActions(offered, "c").map((a) => a.type)).toEqual(["REJECT_TRADE"]); // c has only 1 ore
+    expect(legalActions(offered, "b").filter((a) => a.type !== "COUNTER_TRADE").map((a) => a.type)).toEqual(["ACCEPT_TRADE", "REJECT_TRADE"]);
+    expect(legalActions(offered, "c").filter((a) => a.type !== "COUNTER_TRADE").map((a) => a.type)).toEqual(["REJECT_TRADE"]); // c has only 1 ore
     expectRule(() => applyAction(offered, { type: "ACCEPT_TRADE", playerId: "c" }), "INSUFFICIENT_RESOURCES");
     expectRule(() => applyAction(offered, { type: "ACCEPT_TRADE", playerId: "a" }), "INVALID_TRADE");
     expectRule(() => applyAction(s, { type: "ACCEPT_TRADE", playerId: "b" }), "NO_PENDING_TRADE");
@@ -78,6 +78,48 @@ describe("§9 trading", () => {
     const offered = applyAction(withSettlement, { type: "OFFER_TRADE", playerId: "a", give: hand({ ore: 3 }), receive: hand({ wool: 1 }) });
     const spent = applyAction(offered, { type: "BUILD_CITY", playerId: "a", vertex: "0,0|0,1|1,0" });
     expect(spent.pendingTrade).toBeNull();
+  });
+
+  it("§9.1 a responder may counter; the offerer picks a counter or keeps waiting; a counter is not a decline", () => {
+    const s = give(give(ready(), "b", { wool: 1 }), "d", { grain: 1 });
+    const offered = applyAction(s, { type: "OFFER_TRADE", playerId: "a", give: hand({ wood: 1 }), receive: hand({ ore: 2 }) });
+    // b would rather give one ore and one wool for the wood and the clay.
+    expectRule(() => applyAction(offered, { type: "COUNTER_TRADE", playerId: "a", give: hand({ clay: 1 }), receive: hand({ ore: 1 }) }), "INVALID_TRADE");
+    expectRule(() => applyAction(offered, { type: "COUNTER_TRADE", playerId: "b", give: hand({}), receive: hand({ wood: 1 }) }), "EMPTY_TRADE");
+    expectRule(() => applyAction(offered, { type: "COUNTER_TRADE", playerId: "b", give: hand({ ore: 1 }), receive: hand({ ore: 1 }) }), "INVALID_TRADE");
+    expectRule(() => applyAction(offered, { type: "COUNTER_TRADE", playerId: "b", give: hand({ grain: 1 }), receive: hand({ wood: 1 }) }), "INSUFFICIENT_RESOURCES");
+    // A counter for cards the offerer does not hold is a proposal like any other; it just cannot be accepted.
+    const hopeful = applyAction(offered, { type: "COUNTER_TRADE", playerId: "b", give: hand({ ore: 1 }), receive: hand({ grain: 1 }) });
+    expect(legalActions(hopeful, "a").some((a) => a.type === "ACCEPT_COUNTER")).toBe(false);
+    expectRule(() => applyAction(hopeful, { type: "ACCEPT_COUNTER", playerId: "a", from: "b" }), "INSUFFICIENT_RESOURCES");
+    expectRule(() => applyAction(s, { type: "COUNTER_TRADE", playerId: "b", give: hand({ ore: 1 }), receive: hand({ wood: 1 }) }), "NO_PENDING_TRADE");
+    const countered = applyAction(offered, { type: "COUNTER_TRADE", playerId: "b", give: hand({ ore: 1, wool: 1 }), receive: hand({ wood: 1, clay: 1 }) });
+    expect(countered.pendingTrade!.counters).toEqual([{ from: "b", give: hand({ ore: 1, wool: 1 }), receive: hand({ wood: 1, clay: 1 }) }]);
+    expect(countered.pendingTrade!.rejectedBy).toEqual([]);
+    // b may still take the original offer; a second counter from b replaces the first.
+    expect(legalActions(countered, "b").map((a) => a.type)).toContain("ACCEPT_TRADE");
+    const again = applyAction(countered, { type: "COUNTER_TRADE", playerId: "b", give: hand({ ore: 1 }), receive: hand({ wood: 1 }) });
+    expect(again.pendingTrade!.counters).toEqual([{ from: "b", give: hand({ ore: 1 }), receive: hand({ wood: 1 }) }]);
+    // The offerer sees one ACCEPT_COUNTER per counter they can pay, and a decline removes a counter but keeps the offer open.
+    const legal = legalActions(countered, "a");
+    expect(legal.filter((a) => a.type === "ACCEPT_COUNTER")).toEqual([{ type: "ACCEPT_COUNTER", playerId: "a", from: "b" }]);
+    expect(legal.some((a) => a.type === "CANCEL_TRADE")).toBe(true);
+    expectRule(() => applyAction(countered, { type: "ACCEPT_COUNTER", playerId: "b", from: "b" }), "NOT_YOUR_TURN");
+    expectRule(() => applyAction(countered, { type: "ACCEPT_COUNTER", playerId: "a", from: "c" }), "NO_PENDING_TRADE");
+    const done = applyAction(countered, { type: "ACCEPT_COUNTER", playerId: "a", from: "b" });
+    expect(getPlayer(done, "a").hand).toEqual(hand({ wood: 1, ore: 1, wool: 1 }));
+    expect(getPlayer(done, "b").hand).toEqual(hand({ ore: 1, wood: 1, clay: 1 }));
+    expect(done.pendingTrade).toBeNull();
+    // A counter the responder can no longer pay is refused at acceptance time (their hand is hidden from the offerer, so the legal list still lists it).
+    const broke = mut(countered, (x) => void (getPlayer(x, "b").hand.wool = 0));
+    expectRule(() => applyAction(broke, { type: "ACCEPT_COUNTER", playerId: "a", from: "b" }), "INSUFFICIENT_RESOURCES");
+    const poor = mut(countered, (x) => void (getPlayer(x, "a").hand.clay = 0));
+    expect(legalActions(poor, "a").some((a) => a.type === "ACCEPT_COUNTER")).toBe(false);
+    // Declining after countering removes the counter; the offerer's cancel clears everything.
+    const declined = applyAction(countered, { type: "REJECT_TRADE", playerId: "b" });
+    expect(declined.pendingTrade!.counters).toEqual([]);
+    expect(declined.pendingTrade!.rejectedBy).toEqual(["b"]);
+    expect(applyAction(countered, { type: "CANCEL_TRADE", playerId: "a" }).pendingTrade).toBeNull();
   });
 
   it("§9.1 trading is only possible in the action phase", () => {

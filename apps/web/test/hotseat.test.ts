@@ -125,7 +125,7 @@ describe("HotseatDriver", () => {
     expect(d.legalActions().map((a) => a.type)).toEqual(["REJECT_TRADE"]);
     await step(d, "REJECT_TRADE");
     expect(d.me()).toBe("c");
-    expect(d.legalActions().map((a) => a.type)).toEqual(["ACCEPT_TRADE", "REJECT_TRADE"]);
+    expect(d.legalActions().filter((a) => a.type !== "COUNTER_TRADE").map((a) => a.type)).toEqual(["ACCEPT_TRADE", "REJECT_TRADE"]);
     await step(d, "REJECT_TRADE");
     expect(d.me()).toBe("d");
     await step(d, "REJECT_TRADE");

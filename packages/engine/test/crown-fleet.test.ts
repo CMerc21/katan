@@ -107,6 +107,19 @@ describe("docs/phase11.md §6 barbarian fleet", () => {
     expect(over.phase.prompt).toEqual({ kind: "discardProgress", playerId: B, count: 1 });
   });
 
+  it("docs/rules.md §16.6 a sacked city whose owner has no settlement piece left is removed from the board", () => {
+    let s = place(place(nearAttack(), A, { cities: [V1, V3] }), B, { cities: [V4] });
+    s = place(s, C, { settlements: [V6] });
+    s = addKnight(s, A, K1, 1, true);
+    s = mut(s, (x) => void (getPlayer(x, B).pieces.settlements = 0));
+    const { state: after, events } = rollFleet(s);
+    expect(events.find((e) => e.kind === "cityDowngraded")).toMatchObject({ playerId: B, vertex: V4, removed: true });
+    const b = getPlayer(after, B);
+    expect(b.cities).toEqual([]);
+    expect(b.settlements).toEqual([]);
+    expect(b.pieces).toMatchObject({ cities: 4, settlements: 0 });
+  });
+
   it("docs/phase11.md §6 raided: the city holders with the lowest defense each lose a city (auto with one, chosen with more); walls go with it", () => {
     let s = place(place(nearAttack(), A, { cities: [V1, V3] }), B, { cities: [V4] });
     s = place(s, C, { settlements: [V6] });

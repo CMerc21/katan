@@ -32,6 +32,8 @@ export type EventBody =
   /** `resource` is null for third parties; a commodity name under Crown & Castle. */
   | { kind: "stole"; from: PlayerId; to: PlayerId; resource: Resource | Commodity | null }
   | { kind: "built"; playerId: PlayerId; piece: "road" | "settlement" | "city"; at: EdgeId | VertexId }
+  /** §5.6: the last paid build of the turn was taken back and its cost refunded. */
+  | { kind: "buildUndone"; playerId: PlayerId; piece: "road" | "settlement" | "city"; at: EdgeId | VertexId; cost: Hand }
   /** `card` is null for everyone but the buyer. */
   | { kind: "devCardBought"; playerId: PlayerId; card: DevCardType | null }
   | { kind: "devCardPlayed"; playerId: PlayerId; card: DevCardType }
@@ -40,6 +42,8 @@ export type EventBody =
   | { kind: "tradeOffered"; playerId: PlayerId; give: Hand; receive: Hand }
   | { kind: "tradeAccepted"; from: PlayerId; to: PlayerId; give: Hand; receive: Hand }
   | { kind: "tradeDeclined"; playerId: PlayerId; from: PlayerId }
+  /** §9.1: `playerId` countered `from`'s offer, giving `give` for `receive`. */
+  | { kind: "tradeCountered"; playerId: PlayerId; from: PlayerId; give: Hand; receive: Hand }
   | { kind: "tradeCancelled"; playerId: PlayerId; reason: "withdrawn" | "unpayable" | "turnEnded" | "everyoneDeclined" }
   | { kind: "maritimeTrade"; playerId: PlayerId; give: Resource | Commodity; count: number; receive: Resource | Commodity }
   | { kind: "specialCardMoved"; card: SpecialCard; from: PlayerId | null; to: PlayerId | null }
@@ -101,7 +105,8 @@ export type EventBody =
   | { kind: "wallBuilt"; playerId: PlayerId; vertex: VertexId; free: boolean }
   | { kind: "fleetAdvanced"; position: number }
   | { kind: "fleetAttacked"; strength: number; defense: number; result: "defended" | "raided"; defenders: PlayerId[]; losers: PlayerId[] }
-  | { kind: "cityDowngraded"; playerId: PlayerId; vertex: VertexId }
+  /** `removed`: the owner had no settlement piece left, so the city left the board (§16.6). */
+  | { kind: "cityDowngraded"; playerId: PlayerId; vertex: VertexId; removed: boolean }
   | { kind: "defenderAwarded"; playerId: PlayerId; chip: boolean }
   | { kind: "merchantPlaced"; playerId: PlayerId; hex: HexId; from: PlayerId | null }
   /** A hidden transfer of `count` cards (Master Merchant, Wedding, Spy; contents are private). */
@@ -124,12 +129,14 @@ export function eventPlayer(event: GameEvent): PlayerId | null {
     case "diceRolled":
     case "discarded":
     case "built":
+    case "buildUndone":
     case "devCardBought":
     case "devCardPlayed":
     case "inventionTaken":
     case "monopolised":
     case "tradeOffered":
     case "tradeDeclined":
+    case "tradeCountered":
     case "tradeCancelled":
     case "maritimeTrade":
     case "turnEnded":
@@ -304,6 +311,8 @@ export function describeEvent(event: GameEvent, nameOf: (id: PlayerId) => string
       return event.piece === "city"
         ? `${nameOf(event.playerId)} upgraded a settlement to a city`
         : `${nameOf(event.playerId)} built a ${event.piece}`;
+    case "buildUndone":
+      return event.piece === "city" ? `${nameOf(event.playerId)} took back the city upgrade` : `${nameOf(event.playerId)} took back the ${event.piece}`;
     case "devCardBought":
       return `${nameOf(event.playerId)} bought a development card`;
     case "devCardPlayed":
@@ -324,6 +333,8 @@ export function describeEvent(event: GameEvent, nameOf: (id: PlayerId) => string
       return `${nameOf(event.to)} accepted ${nameOf(event.from)}'s trade`;
     case "tradeDeclined":
       return `${nameOf(event.playerId)} declined the trade`;
+    case "tradeCountered":
+      return `${nameOf(event.playerId)} countered ${nameOf(event.from)}'s offer`;
     case "tradeCancelled":
       switch (event.reason) {
         case "withdrawn":
@@ -458,7 +469,7 @@ export function describeEvent(event: GameEvent, nameOf: (id: PlayerId) => string
         ? `the barbarians attacked (${event.strength} vs ${event.defense}) and were repelled`
         : `the barbarians attacked (${event.strength} vs ${event.defense}) and sacked the realm`;
     case "cityDowngraded":
-      return `${nameOf(event.playerId)}'s city was reduced to a settlement`;
+      return event.removed ? `${nameOf(event.playerId)}'s city was razed (no settlement piece left)` : `${nameOf(event.playerId)}'s city was reduced to a settlement`;
     case "defenderAwarded":
       return event.chip ? `${nameOf(event.playerId)} is Defender of the Realm (+1)` : `${nameOf(event.playerId)} was honoured with a progress card`;
     case "merchantPlaced":

@@ -119,6 +119,7 @@ export const ERROR_TEXT: Record<RuleErrorCode, string> = {
   INVALID_TRADE: "That trade is not valid",
   TRADE_ALREADY_PENDING: "An offer is already open",
   NO_PENDING_TRADE: "There is no open offer",
+  NOTHING_TO_UNDO: "Nothing to take back",
   BAD_TRADE_RATIO: "You do not have a port for that ratio",
   INVALID_BOARD: "That board is not valid",
   TIDES_OFF: "Ships and the pirate need the Tides module",

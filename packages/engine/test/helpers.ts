@@ -171,6 +171,9 @@ const WEIGHTS: Record<Action["type"], number> = {
   ACCEPT_TRADE: 1,
   REJECT_TRADE: 2,
   CANCEL_TRADE: 1,
+  COUNTER_TRADE: 1,
+  ACCEPT_COUNTER: 2,
+  UNDO_BUILD: 0.5,
   MARITIME_TRADE: 1,
   END_TURN: 2,
   SPECIAL_BUILD_DONE: 2,
@@ -269,7 +272,10 @@ export function playRandomGame(
   seed: string,
   options: { maxTurns?: number; onStep?: (state: GameState, action: Action) => void; players?: typeof FOUR; scenario?: Scenario } = {},
 ): RandomGame {
-  const maxTurns = options.maxTurns ?? 400;
+  // 600, not 400: over forty seeds the greedy-random policy's games run 80–390 turns
+  // (mean ~180) whatever the rule set, so a 400 cap was one reshuffle of the seeded
+  // stream away from a false failure.
+  const maxTurns = options.maxTurns ?? 600;
   const initial = options.scenario ? createGame({ seed, players: options.players ?? FOUR, scenario: options.scenario }) : createGame({ seed, players: options.players ?? FOUR, board: "random" });
   const rng = createRng(seed, "random-play");
   let state = initial;

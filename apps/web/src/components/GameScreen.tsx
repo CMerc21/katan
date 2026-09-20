@@ -96,6 +96,7 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
           playSound("card");
           break;
         case "built":
+        case "buildUndone":
         case "shipBuilt":
         case "shipMoved":
         case "castleBuilt":

@@ -35,6 +35,7 @@ export type RuleErrorCode =
   | "INVALID_TRADE"
   | "TRADE_ALREADY_PENDING"
   | "NO_PENDING_TRADE"
+  | "NOTHING_TO_UNDO"
   | "BAD_TRADE_RATIO"
   | "INVALID_BOARD"
   | "TIDES_OFF"

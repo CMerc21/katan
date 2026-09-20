@@ -146,6 +146,10 @@ A city replaces one of the player's own settlements on the same vertex. The sett
 
 A build is illegal if the player has no piece of that kind left (§2.4).
 
+### §5.6 Taking a build back
+
+The last road, settlement or city a player paid for this turn may be taken back as long as nothing else has happened since: the piece returns to supply, the cost returns from the bank, and Longest Road stands as it did before the build. Any other action by anyone (a trade offer, a purchase, another build, the end of the turn) closes the window. Setup placements and Road Building's free roads are never taken back, nor is a settlement that earned an island bonus (§14.4), and no build is taken back in a game where a Wayfarers variant reacts to builds (rivers, wagons, the harbormaster).
+
 ## §6 Turn and production
 
 ### §6.1 Roll
@@ -208,6 +212,7 @@ Only on the current player's turn, after the roll. The current player posts an *
 * The first player to accept executes the trade atomically; the acceptor must hold the requested cards.
 * A player who declines is removed from that offer; once every other player has declined, the offer clears.
 * The offerer may withdraw the offer at any time; ending the turn withdraws it; and if the offerer spends the offered cards, the offer is withdrawn automatically.
+* A player who has not declined may instead **counter**: propose what they would give and what they want from the offerer (same shape rules as an offer; they must hold what they give). Each player has at most one counter open; a new one replaces it, and declining withdraws it. Countering does not decline the original offer. The offerer may accept any counter, which executes atomically if both sides can still pay, or leave it; a counter falls with the offer.
 * Other players may not trade among themselves.
 
 ### §9.2 Maritime trade
@@ -351,7 +356,7 @@ Knights are pieces at vertices connected to the player's roads; each player has 
 
 ### §16.6 The barbarian fleet
 
-The fleet track has seven steps. Each fleet face on the event die advances it; on the seventh step the fleet attacks. Its strength is the number of cities on the board (metropolises included); the realm's defence is the sum of the levels of every active knight. If the defence is at least the strength, the player with the single highest defence (above zero) becomes **Defender of the Realm** (1 VP; six chips exist); if several tie for highest, each instead draws a progress card of the track where they are most advanced. If the defence is below the strength, every player with the lowest defence among those who have a city without a metropolis loses one city of their choice, which becomes a settlement again (its wall is lost). After any attack every knight becomes inactive and the track resets.
+The fleet track has seven steps. Each fleet face on the event die advances it; on the seventh step the fleet attacks. Its strength is the number of cities on the board (metropolises included); the realm's defence is the sum of the levels of every active knight. If the defence is at least the strength, the player with the single highest defence (above zero) becomes **Defender of the Realm** (1 VP; six chips exist); if several tie for highest, each instead draws a progress card of the track where they are most advanced. If the defence is below the strength, every player with the lowest defence among those who have a city without a metropolis loses one city of their choice, which becomes a settlement again (its wall is lost); a player with no settlement piece left in supply loses the city outright and the vertex is emptied. After any attack every knight becomes inactive and the track resets.
 
 ### §16.7 City walls and metropolises
 

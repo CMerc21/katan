@@ -129,6 +129,7 @@ export function createGame(options: CreateGameOptions): GameState {
     longestRoad: { playerId: null, length: 0 },
     largestArmy: { playerId: null, count: 0 },
     pendingTrade: null,
+    lastBuild: null,
     pendingDiscards: {},
     winner: null,
     log: [],

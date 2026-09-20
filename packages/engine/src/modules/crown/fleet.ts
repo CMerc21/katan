@@ -4,6 +4,7 @@
  * of cities with the levels of the active knights.
  */
 
+import { updateLongestRoad } from "../../specialCards";
 import { RuleError } from "../../errors";
 import type { VertexId } from "../../geometry";
 import { requirePrompted } from "../../guards";
@@ -33,22 +34,27 @@ export function downgradeCandidates(state: GameState, player: Player): VertexId[
 }
 
 /**
- * §6: a city becomes a settlement again; its wall is lost. The city piece
- * returns to supply and a settlement piece comes out. A player with no
- * settlement piece left still loses the city; their settlement supply then
- * reads -1 until one is upgraded again (conservation holds).
+ * §6 (docs/rules.md §16.6): a city becomes a settlement again; its wall is
+ * lost. The city piece returns to supply and a settlement piece comes out. A
+ * player with no settlement piece left loses the city outright: it is
+ * removed from the board and the vertex is free again (an opponent's road
+ * it was cutting may reconnect, so Longest Road is re-evaluated).
  */
 export function downgradeCity(state: GameState, player: Player, vertex: VertexId): void {
   const idx = player.cities.indexOf(vertex);
   if (idx < 0) throw new RuleError("NOT_A_CITY", `no city of yours at ${vertex}`);
   player.cities.splice(idx, 1);
-  player.settlements.push(vertex);
   player.pieces.cities += 1;
-  player.pieces.settlements -= 1;
+  const removed = player.pieces.settlements <= 0;
+  if (!removed) {
+    player.settlements.push(vertex);
+    player.pieces.settlements -= 1;
+  }
   const walls = crownPlayer(state, player.id).walls;
   const w = walls.indexOf(vertex);
   if (w >= 0) walls.splice(w, 1);
-  emit(state, { kind: "cityDowngraded", playerId: player.id, vertex });
+  emit(state, { kind: "cityDowngraded", playerId: player.id, vertex, removed });
+  if (removed) updateLongestRoad(state);
 }
 
 /** The track a player is furthest along (ties: trade, then politics, then science). */

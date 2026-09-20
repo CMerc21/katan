@@ -97,12 +97,15 @@ All actions carry `{ type, playerId }`. `playerId` must equal `players[currentPl
 | `ACCEPT_TRADE` **(any player)** | action | – | pending trade exists and acceptor has not declined it; acceptor ≠ offerer; acceptor has `receive`; offerer still has `give` | `NO_PENDING_TRADE`, `INVALID_TRADE`, `INSUFFICIENT_RESOURCES` |
 | `REJECT_TRADE` **(any player)** | action | – | pending trade exists; rejecter ≠ offerer | `NO_PENDING_TRADE`, `INVALID_TRADE` |
 | `CANCEL_TRADE` | action | – | pending trade exists and is mine | `NO_PENDING_TRADE` |
+| `COUNTER_TRADE` **(any player)** | action | `give: Hand; receive: Hand` | pending trade exists and I have not declined it; I am not the offerer; both non-empty; no overlap; I hold `give` (§9.1) | `NO_PENDING_TRADE`, `INVALID_TRADE`, `EMPTY_TRADE`, `INSUFFICIENT_RESOURCES` |
+| `ACCEPT_COUNTER` | action | `from: PlayerId` | pending trade is mine and `from` has a counter; both sides can pay | `NO_PENDING_TRADE`, `INSUFFICIENT_RESOURCES` |
+| `UNDO_BUILD` | action, specialBuild | – | `state.lastBuild` is my paid build of this turn and nothing has happened since (§5.6) | `NOTHING_TO_UNDO` |
 | `MARITIME_TRADE` | action | `give: Resource; giveCount: 4|3|2; receive: Resource` | ratio matches port ownership (§9.2); has cards; bank has receive | `INVALID_TRADE`, `BAD_TRADE_RATIO`, `INSUFFICIENT_RESOURCES`, `BANK_EMPTY` |
 | `END_TURN` | action | – | any pending trade is withdrawn | – |
 
 Any action on an ended game → `GAME_OVER`. Unknown `playerId` → `UNKNOWN_PLAYER`.
 
-`legalActions(state, playerId)` returns concrete instances — e.g. one `BUILD_ROAD` per legal edge — so the UI can highlight targets without re-implementing rules. For `OFFER_TRADE` (unbounded payloads) it returns representative 1-for-1 offers, and for `DISCARD` one representative discard from the largest stacks; other well-formed payloads of those two types are also accepted by `applyAction`.
+`legalActions(state, playerId)` returns concrete instances — e.g. one `BUILD_ROAD` per legal edge — so the UI can highlight targets without re-implementing rules. For `OFFER_TRADE` and `COUNTER_TRADE` (unbounded payloads) it returns representative 1-for-1 offers, and for `DISCARD` one representative discard from the largest stacks; other well-formed payloads of those types are also accepted by `applyAction`. A counter's list and an `ACCEPT_COUNTER`'s list consult only the acting player's own hand, so a client computes the same list from its redacted view; the other side's ability to pay is checked when the counter is accepted.
 
 ## 3. Resolution details
 
@@ -158,7 +161,7 @@ Tests are named by rule section, e.g. `"§5.3 settlement needs a road connection
 - Redacted views leak nothing and agree with public VP.
 
 ### 6.3 Property-based (`property.test.ts`, fast-check)
-200 games with a greedy-random legal action each step. Invariants after every action: bank + hands = 95; roads/settlements/cities placed + remaining = 15/5/4; distance rule; `longestRoad.length` equals an independent brute-force recomputation; every game ends within 400 turns.
+200 games with a greedy-random legal action each step. Invariants after every action: bank + hands = 95; roads/settlements/cities placed + remaining = 15/5/4; distance rule; `longestRoad.length` equals an independent brute-force recomputation; every game ends within 600 turns (over forty seeds the policy's games run 80–390 turns whatever the rule set, so the earlier 400 cap was one reshuffle of the seeded stream away from a false failure).
 
 ## 7. Done criteria
 

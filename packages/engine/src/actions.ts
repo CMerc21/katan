@@ -58,7 +58,7 @@ import {
   transfer,
   victoryPoints,
 } from "./state";
-import { MODULE_ACTION_TYPES, type Action, type ChooseGoldAction, type DevCardType, type DiscardAction, type GameState, type Hand, type MaritimeTradeAction, type MoveRobberAction, type MoveShipAction, type OfferTradeAction, type Phase, type PlayInventionAction, type Player, type PlayerId } from "./types";
+import { MODULE_ACTION_TYPES, type Action, type ChooseGoldAction, type CounterTradeAction, type DevCardType, type DiscardAction, type GameState, type Hand, type LastBuild, type MaritimeTradeAction, type MoveRobberAction, type MoveShipAction, type OfferTradeAction, type Phase, type PlayInventionAction, type Player, type PlayerId } from "./types";
 
 // ---------------------------------------------------------------------------
 // Roll and production (§6)
@@ -292,13 +292,17 @@ function applyBuildRoad(state: GameState, playerId: PlayerId, edge: EdgeId): voi
     throw new RuleError("ROAD_NOT_CONNECTED", `edge ${edge} is not connected to your network`);
   }
   if (player.pieces.roads <= 0) throw new RuleError("NO_PIECES_LEFT", "no roads left");
-  if (phase.kind === "action" || phase.kind === "specialBuild") pay(state, player, roadCostOf(state, edge));
+  const paid = phase.kind === "action" || phase.kind === "specialBuild";
+  const cost = roadCostOf(state, edge);
+  const before = { ...state.longestRoad };
+  if (paid) pay(state, player, cost);
 
   player.roads.push(edge);
   player.pieces.roads -= 1;
   emit(state, { kind: "built", playerId, piece: "road", at: edge });
   notifyBuilt(state, playerId, "road", edge);
   updateLongestRoad(state);
+  if (paid) recordBuild(state, { playerId, piece: "road", at: edge, cost, longestRoad: before });
 
   if (phase.kind === "setup") {
     advanceSetup(state);
@@ -414,6 +418,7 @@ function applyBuildSettlement(state: GameState, playerId: PlayerId, vertex: Vert
     if (!touchesOwn) throw new RuleError("NOT_CONNECTED_TO_ROAD", "settlement must touch one of your roads or ships");
   }
   if (player.pieces.settlements <= 0) throw new RuleError("NO_PIECES_LEFT", "no settlements left");
+  const before = { ...state.longestRoad };
   if (phase.kind !== "setup") pay(state, player, COSTS.settlement);
 
   player.settlements.push(vertex);
@@ -421,6 +426,7 @@ function applyBuildSettlement(state: GameState, playerId: PlayerId, vertex: Vert
   emit(state, { kind: "built", playerId, piece: "settlement", at: vertex });
   notifyBuilt(state, playerId, "settlement", vertex);
   updateLongestRoad(state); // an opponent's road may have been cut
+  if (phase.kind !== "setup") recordBuild(state, { playerId, piece: "settlement", at: vertex, cost: COSTS.settlement, longestRoad: before });
 
   const island = islandOfVertex(state, vertex);
   if (phase.kind === "setup") {
@@ -437,6 +443,7 @@ function applyBuildSettlement(state: GameState, playerId: PlayerId, vertex: Vert
   if (bonus > 0 && island !== null && !player.startIslands.includes(island) && !player.islandChips.includes(island)) {
     player.islandChips.push(island);
     emit(state, { kind: "islandSettled", playerId, island, bonus });
+    state.lastBuild = null; // the chip is not taken back (§5.6)
   }
 }
 
@@ -446,8 +453,60 @@ function applyBuildCity(state: GameState, playerId: PlayerId, vertex: VertexId):
   const idx = player.settlements.indexOf(vertex);
   if (idx < 0) throw new RuleError("NOT_YOUR_SETTLEMENT", `no settlement of yours at ${vertex}`);
   if (player.pieces.cities <= 0) throw new RuleError("NO_PIECES_LEFT", "no cities left");
+  const before = { ...state.longestRoad };
   pay(state, player, COSTS.city);
   upgradeToCity(state, player, vertex);
+  recordBuild(state, { playerId, piece: "city", at: vertex, cost: COSTS.city, longestRoad: before });
+}
+
+/**
+ * §5.6: remember a paid build so the player may take it back, unless a module
+ * with a build hook is on (rivers, wagons and the harbormaster react to
+ * builds in ways the undo does not reverse).
+ */
+function recordBuild(state: GameState, build: LastBuild): void {
+  state.lastBuild = activeModules(state).some((h) => h.onBuilt !== undefined) ? null : build;
+}
+
+/** §5.6: take back the last paid build of the turn; the cost returns from the bank and the special cards are as they were. */
+function applyUndoBuild(state: GameState, playerId: PlayerId): void {
+  requirePhase(state, "action", "specialBuild");
+  const player = requireBuilder(state, playerId);
+  const last = state.lastBuild;
+  if (!last || last.playerId !== playerId) throw new RuleError("NOTHING_TO_UNDO", "there is no build of yours to take back");
+  switch (last.piece) {
+    case "road": {
+      const idx = player.roads.indexOf(last.at);
+      if (idx < 0) throw new RuleError("NOTHING_TO_UNDO", "the road is gone");
+      player.roads.splice(idx, 1);
+      player.pieces.roads += 1;
+      break;
+    }
+    case "settlement": {
+      const idx = player.settlements.indexOf(last.at);
+      if (idx < 0) throw new RuleError("NOTHING_TO_UNDO", "the settlement is gone");
+      player.settlements.splice(idx, 1);
+      player.pieces.settlements += 1;
+      break;
+    }
+    case "city": {
+      const idx = player.cities.indexOf(last.at);
+      if (idx < 0) throw new RuleError("NOTHING_TO_UNDO", "the city is gone");
+      player.cities.splice(idx, 1);
+      player.settlements.push(last.at);
+      player.pieces.cities += 1;
+      player.pieces.settlements -= 1;
+      break;
+    }
+    default: {
+      const exhaustive: never = last.piece;
+      throw new Error(`unknown piece ${String(exhaustive)}`);
+    }
+  }
+  transfer(state.bank, player.hand, last.cost);
+  state.longestRoad = { ...last.longestRoad };
+  state.lastBuild = null;
+  emit(state, { kind: "buildUndone", playerId, piece: last.piece, at: last.at, cost: last.cost });
 }
 
 // ---------------------------------------------------------------------------
@@ -543,7 +602,7 @@ function applyOfferTrade(state: GameState, action: OfferTradeAction): void {
     // docs/phase10.md §2: only the boot's holder may attach it; the module checks that when the trade completes.
     if (state.wayfarers?.fishing?.boot !== action.playerId) throw new RuleError("NO_BOOT", "you do not hold the old boot");
   }
-  state.pendingTrade = { from: action.playerId, give, receive, rejectedBy: [], ...(action.boot === true ? { boot: true } : {}) };
+  state.pendingTrade = { from: action.playerId, give, receive, rejectedBy: [], counters: [], ...(action.boot === true ? { boot: true } : {}) };
   emit(state, { kind: "tradeOffered", playerId: action.playerId, give, receive });
 }
 
@@ -577,12 +636,46 @@ function applyRejectTrade(state: GameState, playerId: PlayerId): void {
   if (!trade || trade.rejectedBy.includes(playerId)) throw new RuleError("NO_PENDING_TRADE", "no trade to reject");
   if (trade.from === playerId) throw new RuleError("INVALID_TRADE", "cancel your own offer instead");
   trade.rejectedBy.push(playerId);
+  trade.counters = trade.counters.filter((c) => c.from !== playerId);
   void player;
   emit(state, { kind: "tradeDeclined", playerId, from: trade.from });
   if (trade.rejectedBy.length >= state.players.length - 1) {
     state.pendingTrade = null;
     emit(state, { kind: "tradeCancelled", playerId: trade.from, reason: "everyoneDeclined" });
   }
+}
+
+/** §9.1: a responder proposes different terms; the offer stays open and the counter waits for the offerer. */
+function applyCounterTrade(state: GameState, action: CounterTradeAction): void {
+  requirePhase(state, "action");
+  const responder = getPlayer(state, action.playerId);
+  const trade = state.pendingTrade;
+  if (!trade || trade.rejectedBy.includes(action.playerId)) throw new RuleError("NO_PENDING_TRADE", "no offer to counter");
+  if (trade.from === action.playerId) throw new RuleError("INVALID_TRADE", "you cannot counter your own offer");
+  const give = requireHand(action.give, "give");
+  const receive = requireHand(action.receive, "receive");
+  if (handSize(give) === 0 || handSize(receive) === 0) throw new RuleError("EMPTY_TRADE", "both sides must be non-empty");
+  if (RESOURCES.some((r) => give[r] > 0 && receive[r] > 0)) throw new RuleError("INVALID_TRADE", "a resource cannot be on both sides");
+  if (!hasResources(responder.hand, give)) throw new RuleError("INSUFFICIENT_RESOURCES", "you do not hold those cards");
+  // Whether the offerer can pay is their business: it is checked when they accept, since their hand is hidden from the responder.
+  trade.counters = [...trade.counters.filter((c) => c.from !== action.playerId), { from: action.playerId, give, receive }];
+  emit(state, { kind: "tradeCountered", playerId: action.playerId, from: trade.from, give, receive });
+}
+
+/** §9.1: the offerer takes one responder's counter; both must still be able to pay. */
+function applyAcceptCounter(state: GameState, playerId: PlayerId, from: PlayerId): void {
+  requirePhase(state, "action");
+  const offerer = requireCurrent(state, playerId);
+  const trade = state.pendingTrade;
+  const counter = trade && trade.from === playerId ? trade.counters.find((c) => c.from === from) : undefined;
+  if (!trade || !counter) throw new RuleError("NO_PENDING_TRADE", "no such counter to accept");
+  const responder = getPlayer(state, from);
+  if (!hasResources(responder.hand, counter.give)) throw new RuleError("INSUFFICIENT_RESOURCES", "they can no longer pay");
+  if (!hasResources(offerer.hand, counter.receive)) throw new RuleError("INSUFFICIENT_RESOURCES", "you cannot pay");
+  transfer(responder.hand, offerer.hand, counter.give);
+  transfer(offerer.hand, responder.hand, counter.receive);
+  state.pendingTrade = null;
+  emit(state, { kind: "tradeAccepted", from: playerId, to: from, give: counter.receive, receive: counter.give });
 }
 
 function applyCancelTrade(state: GameState, playerId: PlayerId): void {
@@ -768,6 +861,15 @@ function applyCore(state: GameState, action: Action): GameState {
     case "CANCEL_TRADE":
       applyCancelTrade(next, action.playerId);
       break;
+    case "COUNTER_TRADE":
+      applyCounterTrade(next, action);
+      break;
+    case "ACCEPT_COUNTER":
+      applyAcceptCounter(next, action.playerId, action.from);
+      break;
+    case "UNDO_BUILD":
+      applyUndoBuild(next, action.playerId);
+      break;
     case "MARITIME_TRADE":
       applyMaritimeTrade(next, action);
       break;
@@ -824,6 +926,8 @@ function applyCore(state: GameState, action: Action): GameState {
   }
 
   next.actionIndex += 1;
+  // §5.6: the undo window is one action wide; anything but the build itself closes it.
+  if (action.type !== "BUILD_ROAD" && action.type !== "BUILD_SETTLEMENT" && action.type !== "BUILD_CITY") next.lastBuild = null;
   expireUnpayableTrade(next);
   checkWin(next);
   return next;

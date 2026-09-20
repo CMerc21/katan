@@ -98,12 +98,21 @@ export type Phase =
 
 export type PhaseKind = Phase["kind"];
 
+/** A responder's counter to an open offer (§9.1): what they would give and what they want from the offerer. */
+export interface TradeCounter {
+  readonly from: PlayerId;
+  readonly give: Hand;
+  readonly receive: Hand;
+}
+
 export interface TradeOffer {
   readonly from: PlayerId;
   readonly give: Hand;
   readonly receive: Hand;
   /** Players who declined; the offer clears once every other player has. */
   rejectedBy: PlayerId[];
+  /** Counters from responders, at most one per player; the offerer may accept any of them. */
+  counters: TradeCounter[];
   /** Fishing (docs/phase10.md §2): the old boot rides along with the offer. */
   boot?: boolean;
 }
@@ -146,10 +155,21 @@ export interface GameState {
   longestRoad: { playerId: PlayerId | null; length: number };
   largestArmy: { playerId: PlayerId | null; count: number };
   pendingTrade: TradeOffer | null;
+  /** The paid build of this turn that may still be undone (§5.6), or null. */
+  lastBuild: LastBuild | null;
   /** playerId -> number of cards still owed (§7.1). */
   pendingDiscards: Record<PlayerId, number>;
   winner: PlayerId | null;
   log: LogEntry[];
+}
+
+/** What §5.6's undo needs to put back: the piece, its spot, what it cost and the special cards as they stood. */
+export interface LastBuild {
+  readonly playerId: PlayerId;
+  readonly piece: "road" | "settlement" | "city";
+  readonly at: EdgeId | VertexId;
+  readonly cost: Hand;
+  readonly longestRoad: { playerId: PlayerId | null; length: number };
 }
 
 export interface PlayerSetup {
@@ -222,6 +242,17 @@ export interface AcceptTradeAction extends Base<"ACCEPT_TRADE"> {
 }
 export type RejectTradeAction = Base<"REJECT_TRADE">;
 export type CancelTradeAction = Base<"CANCEL_TRADE">;
+/** §9.1: a responder proposes different terms; `give` is theirs, `receive` is what they want from the offerer. */
+export interface CounterTradeAction extends Base<"COUNTER_TRADE"> {
+  readonly give: Hand;
+  readonly receive: Hand;
+}
+/** §9.1: the offerer takes the counter from `from`. */
+export interface AcceptCounterAction extends Base<"ACCEPT_COUNTER"> {
+  readonly from: PlayerId;
+}
+/** §5.6: take back the last paid build of the turn. */
+export type UndoBuildAction = Base<"UNDO_BUILD">;
 export interface MaritimeTradeAction extends Base<"MARITIME_TRADE"> {
   /** A commodity only under Crown & Castle (docs/phase11.md §1). */
   readonly give: Resource | Commodity;
@@ -386,6 +417,9 @@ export type Action =
   | AcceptTradeAction
   | RejectTradeAction
   | CancelTradeAction
+  | CounterTradeAction
+  | AcceptCounterAction
+  | UndoBuildAction
   | MaritimeTradeAction
   | EndTurnAction
   | SpecialBuildDoneAction
@@ -438,6 +472,9 @@ export const ACTION_TYPES: readonly ActionType[] = [
   "ACCEPT_TRADE",
   "REJECT_TRADE",
   "CANCEL_TRADE",
+  "COUNTER_TRADE",
+  "ACCEPT_COUNTER",
+  "UNDO_BUILD",
   "MARITIME_TRADE",
   "END_TURN",
   "SPECIAL_BUILD_DONE",

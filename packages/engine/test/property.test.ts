@@ -44,7 +44,7 @@ function assertEq(actual: unknown, expected: unknown, what: string): void {
 
 /** Cheap invariant checks (no vitest `expect`: this runs hundreds of thousands of times). */
 export function checkInvariants(state: GameState, action?: Action): void {
-  const roadsChanged = action === undefined || action.type === "BUILD_ROAD" || action.type === "BUILD_SETTLEMENT";
+  const roadsChanged = action === undefined || action.type === "BUILD_ROAD" || action.type === "BUILD_SETTLEMENT" || action.type === "UNDO_BUILD";
 
   // Conservation: bank + hands = 95, nothing negative.
   let total = 0;
@@ -106,13 +106,13 @@ export function checkInvariants(state: GameState, action?: Action): void {
 }
 
 describe("§12 property-based random play", () => {
-  it("200 random legal-action games end within 400 turns with all invariants intact", () => {
+  it("200 random legal-action games end within 600 turns with all invariants intact", () => {
     fc.assert(
       fc.property(fc.integer({ min: 0, max: 1_000_000 }), (n) => {
         const game = playRandomGame(`prop-${n}`, { onStep: checkInvariants });
         expect(game.final.phase.kind).toBe("ended");
         expect(game.final.winner).not.toBeNull();
-        expect(game.turnsPlayed).toBeLessThan(400);
+        expect(game.turnsPlayed).toBeLessThan(600);
       }),
       { numRuns: 200, seed: 42 },
     );

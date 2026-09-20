@@ -51,6 +51,7 @@ export const BASE_DURATION: Record<GameEventKind, number> = {
   robberMoved: 450,
   stole: 500,
   built: 300,
+  buildUndone: 300,
   devCardBought: 400,
   devCardPlayed: 900,
   inventionTaken: 400,
@@ -58,6 +59,7 @@ export const BASE_DURATION: Record<GameEventKind, number> = {
   tradeOffered: 300,
   tradeAccepted: 500,
   tradeDeclined: 200,
+  tradeCountered: 300,
   tradeCancelled: 150,
   maritimeTrade: 500,
   specialCardMoved: 600,
@@ -750,7 +752,10 @@ function applyCrownEvent(view: RedactedState, event: GameEvent, pending: CrownPe
     case "cityDowngraded":
       next = withPlayer(next, event.playerId, (p) => {
         if (!p.cities.includes(event.vertex)) throw new Error("no city to downgrade");
-        return { ...p, cities: p.cities.filter((v) => v !== event.vertex), settlements: [...p.settlements, event.vertex], pieces: { ...p.pieces, cities: p.pieces.cities + 1, settlements: p.pieces.settlements - 1 }, publicVP: p.publicVP - 1 };
+        const cities = p.cities.filter((v) => v !== event.vertex);
+        // docs/rules.md §16.6: with no settlement piece left the city is razed instead.
+        if (event.removed) return { ...p, cities, pieces: { ...p.pieces, cities: p.pieces.cities + 1 }, publicVP: p.publicVP - 2 };
+        return { ...p, cities, settlements: [...p.settlements, event.vertex], pieces: { ...p.pieces, cities: p.pieces.cities + 1, settlements: p.pieces.settlements - 1 }, publicVP: p.publicVP - 1 };
       });
       return withCrownPlayer(next, event.playerId, (p) => ({ ...p, walls: p.walls.filter((v) => v !== event.vertex) }));
     case "defenderAwarded":
@@ -884,6 +889,25 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
       next = withPlayer(next, event.to, (p) => ({ ...p, hand: adjustHand(p.hand, r, 1) }));
       break;
     }
+    case "buildUndone":
+      // §5.6: the piece goes back to the pile and the cost back to the hand.
+      next = withPlayer(next, event.playerId, (p) => {
+        const hand = adjustHandBy(p.hand, event.cost, 1);
+        switch (event.piece) {
+          case "road":
+            return { ...p, hand, roads: p.roads.filter((e) => e !== event.at), pieces: { ...p.pieces, roads: p.pieces.roads + 1 } };
+          case "settlement":
+            return { ...p, hand, settlements: p.settlements.filter((v) => v !== event.at), pieces: { ...p.pieces, settlements: p.pieces.settlements + 1 }, publicVP: p.publicVP - 1 };
+          case "city":
+            return { ...p, hand, cities: p.cities.filter((v) => v !== event.at), settlements: [...p.settlements, event.at], pieces: { ...p.pieces, cities: p.pieces.cities + 1, settlements: p.pieces.settlements - 1 }, publicVP: p.publicVP - 1 };
+          default: {
+            const exhaustive: never = event.piece;
+            throw new Error(String(exhaustive));
+          }
+        }
+      });
+      next = { ...next, bank: adjustBank(next.bank, event.cost, -1) };
+      break;
     case "built": {
       // Crown & Castle: Medicine upgrades a settlement for two ore and one grain (docs/rules.md §16.4).
       const medicine = pending?.medicine === true && event.piece === "city";
@@ -964,7 +988,10 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
       break;
     }
     case "tradeOffered":
-      next = { ...next, pendingTrade: { from: event.playerId, give: event.give, receive: event.receive, rejectedBy: [] } };
+      next = { ...next, pendingTrade: { from: event.playerId, give: event.give, receive: event.receive, rejectedBy: [], counters: [] } };
+      break;
+    case "tradeCountered":
+      if (next.pendingTrade) next = { ...next, pendingTrade: { ...next.pendingTrade, counters: [...next.pendingTrade.counters.filter((c) => c.from !== event.playerId), { from: event.playerId, give: event.give, receive: event.receive }] } };
       break;
     case "tradeAccepted":
       next = withPlayer(next, event.from, (p) => ({ ...p, hand: adjustHandBy(adjustHandBy(p.hand, event.give, -1), event.receive, 1) }));
@@ -972,7 +999,7 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
       next = { ...next, pendingTrade: null };
       break;
     case "tradeDeclined":
-      if (next.pendingTrade) next = { ...next, pendingTrade: { ...next.pendingTrade, rejectedBy: [...next.pendingTrade.rejectedBy, event.playerId] } };
+      if (next.pendingTrade) next = { ...next, pendingTrade: { ...next.pendingTrade, rejectedBy: [...next.pendingTrade.rejectedBy, event.playerId], counters: next.pendingTrade.counters.filter((c) => c.from !== event.playerId) } };
       break;
     case "tradeCancelled":
       next = { ...next, pendingTrade: null };

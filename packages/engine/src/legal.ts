@@ -412,9 +412,10 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
     }
 
     case "specialBuild": {
-      // docs/phase8.md §5: the special builder may build and buy, nothing else.
+      // docs/phase8.md §5: the special builder may build and buy, nothing else (and take the last build back, §5.6).
       if (phase.order[phase.index] !== playerId) return [];
       const h = player.hand;
+      if (state.lastBuild?.playerId === playerId) out.push({ type: "UNDO_BUILD", playerId });
       if (player.pieces.roads > 0 && hasResources(h, COSTS.road)) {
         for (const edge of legalRoadEdges(state, playerId)) if (hasResources(h, roadCostOf(state, edge))) out.push({ type: "BUILD_ROAD", playerId, edge });
       }
@@ -455,9 +456,21 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
         if (trade && trade.from !== playerId && !trade.rejectedBy.includes(playerId)) {
           if (hasResources(player.hand, trade.receive)) out.push({ type: "ACCEPT_TRADE", playerId });
           out.push({ type: "REJECT_TRADE", playerId });
+          // Representative 1:1 counters (§9.1); any well-formed counter is accepted by applyAction. Only the
+          // responder's own hand is consulted, so a client computing this from its redacted view agrees.
+          for (const give of RESOURCES) {
+            if (player.hand[give] < 1) continue;
+            for (const receive of RESOURCES) {
+              if (receive === give) continue;
+              out.push({ type: "COUNTER_TRADE", playerId, give: hand({ [give]: 1 }), receive: hand({ [receive]: 1 }) });
+            }
+          }
         }
         break; // modules may add answers for a non-current player (the boot on an acceptance, docs/phase10.md §2)
       }
+
+      // §5.6: the last paid build of the turn may be taken back until anything else happens.
+      if (state.lastBuild?.playerId === playerId) out.push({ type: "UNDO_BUILD", playerId });
 
       const h = player.hand;
       if (player.pieces.roads > 0 && hasResources(h, COSTS.road)) {
@@ -500,7 +513,11 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
       }
 
       if (trade) {
-        if (trade.from === playerId) out.push({ type: "CANCEL_TRADE", playerId });
+        if (trade.from === playerId) {
+          out.push({ type: "CANCEL_TRADE", playerId });
+          // The responder's side is checked when the counter is accepted (their hand is hidden from the offerer's view).
+          for (const c of trade.counters) if (hasResources(player.hand, c.receive)) out.push({ type: "ACCEPT_COUNTER", playerId, from: c.from });
+        }
       } else {
         // Representative 1:1 offers.
         for (const give of RESOURCES) {

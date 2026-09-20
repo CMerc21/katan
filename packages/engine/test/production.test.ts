@@ -98,7 +98,7 @@ describe("§6 turn and production", () => {
     let s = inPhase(newGame(), { kind: "action" }, "d");
     s = mut(s, (x) => {
       x.players[3]!.devCardPlayedThisTurn = true;
-      x.pendingTrade = { from: "d", give: hand({ wood: 1 }), receive: hand({ ore: 1 }), rejectedBy: [] };
+      x.pendingTrade = { from: "d", give: hand({ wood: 1 }), receive: hand({ ore: 1 }), rejectedBy: [], counters: [] };
     });
     const after = applyAction(s, { type: "END_TURN", playerId: "d" });
     expect(after.currentPlayer).toBe(0);

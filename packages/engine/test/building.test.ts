@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { GEOMETRY } from "../src/geometry";
-import { applyAction } from "../src/actions";
+import { GEOMETRY, hexCorner } from "../src/geometry";
+import { applyAction, applyActionWithEvents } from "../src/actions";
 import { legalActions, legalRoadEdges, legalSettlementVertices } from "../src/legal";
 import { COSTS, getPlayer, hand } from "../src/state";
 import { ACTION_PHASE, centerCorner, edgeBetween, expectRule, give, inPhase, newGame, place } from "./helpers";
@@ -107,6 +107,71 @@ describe("§5 building", () => {
     expectRule(() => applyAction(s, { type: "BUILD_CITY", playerId: "a", vertex: v2 }), "NOT_YOUR_SETTLEMENT");
     const upgraded = applyAction(s, { type: "BUILD_CITY", playerId: "a", vertex: v0 });
     expectRule(() => applyAction(give(upgraded, "a", { grain: 2, ore: 3 }), { type: "BUILD_CITY", playerId: "a", vertex: v0 }), "NOT_YOUR_SETTLEMENT");
+  });
+
+  it("§5.6 the last build of the turn can be undone once, refunding the cost, until anything else happens", () => {
+    const { state, v0, v1, v2 } = base();
+    expect(legalActions(state, "a").some((a) => a.type === "UNDO_BUILD")).toBe(false);
+    expectRule(() => applyAction(state, { type: "UNDO_BUILD", playerId: "a" }), "NOTHING_TO_UNDO");
+    const rich = give(state, "a", { wood: 2, clay: 2, wool: 1, grain: 3, ore: 3 });
+    const edge = edgeBetween(v1, v2);
+    const road = applyAction(rich, { type: "BUILD_ROAD", playerId: "a", edge });
+    expect(road.lastBuild).toMatchObject({ playerId: "a", piece: "road", at: edge });
+    expect(legalActions(road, "a")).toContainEqual({ type: "UNDO_BUILD", playerId: "a" });
+    expectRule(() => applyAction(road, { type: "UNDO_BUILD", playerId: "b" }), "NOT_YOUR_TURN");
+    const { state: undone, events } = applyActionWithEvents(road, { type: "UNDO_BUILD", playerId: "a" });
+    expect(getPlayer(undone, "a").roads).toEqual(getPlayer(rich, "a").roads);
+    expect(getPlayer(undone, "a").pieces.roads).toBe(getPlayer(rich, "a").pieces.roads);
+    expect(getPlayer(undone, "a").hand).toEqual(getPlayer(rich, "a").hand);
+    expect(undone.bank).toEqual(rich.bank);
+    expect(undone.lastBuild).toBeNull();
+    expect(events.some((e) => e.kind === "buildUndone" && e.piece === "road" && e.at === edge)).toBe(true);
+    expectRule(() => applyAction(undone, { type: "UNDO_BUILD", playerId: "a" }), "NOTHING_TO_UNDO");
+
+    // A settlement and a city undo the same way, and only the latest build is undoable.
+    const settled = applyAction(road, { type: "BUILD_SETTLEMENT", playerId: "a", vertex: v2 });
+    expect(settled.lastBuild).toMatchObject({ piece: "settlement", at: v2 });
+    const back = applyAction(settled, { type: "UNDO_BUILD", playerId: "a" });
+    expect(getPlayer(back, "a").settlements).toEqual([v0]);
+    expect(getPlayer(back, "a").roads).toContain(edge); // the road before it stays
+    expect(getPlayer(back, "a").hand).toEqual(getPlayer(road, "a").hand);
+    expect(back.lastBuild).toBeNull();
+    const city = applyAction(settled, { type: "BUILD_CITY", playerId: "a", vertex: v0 });
+    const downgraded = applyAction(city, { type: "UNDO_BUILD", playerId: "a" });
+    expect(getPlayer(downgraded, "a").cities).toEqual([]);
+    expect(getPlayer(downgraded, "a").settlements.sort()).toEqual([v0, v2].sort());
+    expect(getPlayer(downgraded, "a").pieces).toEqual(getPlayer(settled, "a").pieces);
+    expect(getPlayer(downgraded, "a").hand).toEqual(getPlayer(settled, "a").hand);
+
+    // Anything else (a trade, a purchase, the end of the turn) closes the window.
+    const offered = applyAction(road, { type: "OFFER_TRADE", playerId: "a", give: hand({ grain: 1 }), receive: hand({ wool: 1 }) });
+    expect(offered.lastBuild).toBeNull();
+    expectRule(() => applyAction(offered, { type: "UNDO_BUILD", playerId: "a" }), "NOTHING_TO_UNDO");
+    expect(applyAction(road, { type: "END_TURN", playerId: "a" }).lastBuild).toBeNull();
+  });
+
+  it("§5.6 undoing a road restores Longest Road to its previous holder", () => {
+    const { state } = base();
+    const c = [0, 1, 2, 3, 4, 5].map(centerCorner);
+    const far = [0, 1, 2, 3, 4, 5].map((k) => hexCorner({ q: 0, r: -2 }, k));
+    // b holds Longest Road with five roads around a far hex; a has five around the centre (a tie leaves the card, §10.1).
+    let s = place(state, "b", { roads: [0, 1, 2, 3, 4].map((k) => edgeBetween(far[k]!, far[k + 1]!)) });
+    s = place(s, "a", { roads: [1, 2, 3, 4].map((k) => edgeBetween(c[k]!, c[k + 1]!)) });
+    expect(s.longestRoad).toEqual({ playerId: "b", length: 5 });
+    s = give(s, "a", { wood: 1, clay: 1 });
+    const sixth = applyAction(s, { type: "BUILD_ROAD", playerId: "a", edge: edgeBetween(c[5]!, c[0]!) });
+    expect(sixth.longestRoad).toEqual({ playerId: "a", length: 6 });
+    // Re-evaluating after the undo alone would leave the card with a (five ties five); the undo restores the record instead.
+    const undone = applyAction(sixth, { type: "UNDO_BUILD", playerId: "a" });
+    expect(undone.longestRoad).toEqual({ playerId: "b", length: 5 });
+  });
+
+  it("§5.6 setup placements and Road Building's free roads cannot be undone", () => {
+    const fresh = newGame();
+    const first = legalActions(fresh, "a").find((a) => a.type === "BUILD_SETTLEMENT")!;
+    const placed = applyAction(fresh, first);
+    expect(placed.lastBuild).toBeNull();
+    expect(legalActions(placed, "a").some((a) => a.type === "UNDO_BUILD")).toBe(false);
   });
 
   it("§5.5 building is refused when the supply of that piece is exhausted", () => {

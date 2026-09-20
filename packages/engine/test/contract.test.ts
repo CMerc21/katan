@@ -28,8 +28,13 @@ function randomAction(state: GameState, rng: Rng): Action {
     case "ACCEPT_TRADE":
     case "REJECT_TRADE":
     case "CANCEL_TRADE":
+    case "UNDO_BUILD":
     case "END_TURN":
       return { type, playerId };
+    case "COUNTER_TRADE":
+      return { type, playerId, give: randomHand(), receive: randomHand() };
+    case "ACCEPT_COUNTER":
+      return { type, playerId, from: pick(state.players).id };
     case "DISCARD":
       return { type, playerId, cards: randomHand() };
     case "MOVE_ROBBER":
