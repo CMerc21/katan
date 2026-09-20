@@ -8,7 +8,7 @@
  * assistive users (and the e2e specs) can act without raycasting.
  */
 
-import { Bloom, EffectComposer, TiltShift2, Vignette } from "@react-three/postprocessing";
+import { Bloom, EffectComposer, Vignette } from "@react-three/postprocessing";
 import { ContactShadows } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -393,7 +393,7 @@ export function Board3D(props: Board3DProps) {
           <CrownBoard view={view} shadows={preset.shadows} freshKnight={freshKnight} liftOf={liftOf} />
           <AnimatedRobber hex={view.robberHex} shadows={preset.shadows} centred={robberCentred} liftOf={liftOf} />
           {view.pirateHex !== null && <AnimatedPirate hex={view.pirateHex} shadows={preset.shadows} />}
-          <InteractionLayer targets={targets} color={meColor} onAction={onAction} idle={preset.idleMotion} liftOf={liftOf} {...(onPickShip ? { onPickShip } : {})} {...(onPickStep ? { onPickStep } : {})} {...(onPickKnight ? { onPickKnight } : {})} {...(onPick ? { onPick } : {})} />
+          <InteractionLayer targets={targets} color={meColor} onAction={onAction} idle={preset.idleMotion} subtle={mode === null} liftOf={liftOf} {...(onPickShip ? { onPickShip } : {})} {...(onPickStep ? { onPickStep } : {})} {...(onPickKnight ? { onPickKnight } : {})} {...(onPick ? { onPick } : {})} />
           <DiceTray3D bounds={bounds} dice={view.lastRoll} rollKey={rollKey} shadows={preset.shadows} eventDie={eventDie} redDie={view.scenario?.crown === true} />
           {children}
         </group>
@@ -406,8 +406,11 @@ export function Board3D(props: Board3DProps) {
                 highlights stay under it, so the bloom reads as lamplight
                 rather than a haze over everything. */}
             {preset.bloom ? <Bloom intensity={0.8} luminanceThreshold={0.9} luminanceSmoothing={0.2} mipmapBlur radius={0.65} /> : <></>}
-            <Vignette offset={0.55} darkness={0.22} />
-            <TiltShift2 blur={0.35} taper={0.8} start={[0, 0.5]} end={[1, 0.5]} direction={[0, 1]} samples={8} />
+            {/* No tilt-shift: the blur it laid over the top and bottom of the
+                frame softened the banners' side of the board and the near
+                piles, and the miniature read came out as an out-of-focus one.
+                The vignette alone shades the corners without touching the board. */}
+            <Vignette offset={0.55} darkness={0.18} />
           </EffectComposer>
         )}
       </Canvas>

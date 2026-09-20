@@ -49,6 +49,8 @@ test("Crown & Castle — Standard hotseat: setup, a roll with the event die, the
   });
   await page.addInitScript(() => {
     window.localStorage.setItem("katan.settings", JSON.stringify({ animation: "off", sound: false, quality: "low", followTurns: false }));
+    // The build-cost card is closed by default (the board marks every affordable spot); this spec drives the rows.
+    window.localStorage.setItem("katan.hud.costCard", "1");
   });
 
   await page.goto("/");

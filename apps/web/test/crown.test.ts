@@ -26,7 +26,9 @@ describe("docs/phase11.md §11 Crown & Castle targeting modes", () => {
   it("hire, move, displace and wall are separate modes; your knights are clickable when nothing is targeted", () => {
     const legal = knightAt("v1");
     const idle = computeTargets(legal, "action", null);
-    expect(idle.vertices.size + idle.edges.size + idle.hexes.size).toBe(0);
+    // Board-first building: the legal road is a target at rest; nothing Crown-specific is.
+    expect(idle.vertices.size + idle.hexes.size).toBe(0);
+    expect([...idle.edges.keys()]).toEqual(["e1"]);
     expect([...idle.knights].sort()).toEqual(["k1", "k2"]);
     expect([...computeTargets(legal, "action", "knight").vertices.keys()]).toEqual(["v1"]);
     expect(computeTargets(legal, "action", "knight").knights.size).toBe(0);

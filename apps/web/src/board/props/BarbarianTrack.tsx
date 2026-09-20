@@ -1,11 +1,13 @@
 "use client";
 
 /**
- * The barbarian fleet's track on the table (docs/phase12.md §7, docs/rules.md
- * §16.6): seven dot markers on a circle beside the top-left sea edge, a
- * barbarian longship (docs/props.md §5) that eases (600 ms) one dot per fleet step, and two pills
- * anchored in screen space: active knights and barbarian strength. The DOM
- * pills carry the `fleet-track` attributes the specs read.
+ * The barbarian fleet's lane on the table (docs/phase12.md §7, docs/rules.md
+ * §16.6): its own strip of dark water along the board's bottom-left edge,
+ * seven markers from the open sea to a stone landing at the coast end, a
+ * barbarian longship (docs/props.md §5) that eases (600 ms) one marker per
+ * fleet step, and a pill group anchored in screen space above the lane: the
+ * fleet's step, active knights and barbarian strength. The DOM pills carry
+ * the `fleet-track` attributes the specs read.
  */
 
 import { Html } from "@react-three/drei";
@@ -19,27 +21,28 @@ import type { Bounds } from "@/board3d/layout3d";
 import { EVENT_DIE_LABEL } from "@/game/labels";
 import { HUD_COPY } from "@/hud/hudCopy";
 import { Icon } from "@/hud/icons";
+import * as P from "@/board3d/palette";
 import { barbarianTrackLayout } from "./layout";
 
 const MOVE_MS = 600;
 
 /*
- * Keeping the pills on screen. They are anchored to a world point beside the
- * track, which sits off the board's top-left corner (`barbarianTrackLayout`).
- * On a wide viewport, or a large Phase 8 board, that point projects outside
- * the canvas and the pills were clipped by the window edge — "Active knights"
- * rendered as "ctive knights". `pillPosition` below keeps drei's projection
- * but holds the result inside the viewport, clear of the HUD's top band and
- * left rail.
+ * Keeping the pills on screen. They are anchored to a world point above the
+ * lane's open-sea end. On a large Phase 8 board, or after the camera is
+ * dragged, that point can project outside the canvas and the pills were
+ * clipped by the window edge — "Active knights" rendered as "ctive knights".
+ * `pillPosition` below keeps drei's projection but holds the result inside
+ * the viewport, clear of the HUD's bands, the left rail and the dice widget.
  */
 /** Room the pill block needs; the longest is "Barbarian strength NN". */
 const PILL_WIDTH = 190;
-const PILL_HEIGHT = 56;
+const PILL_HEIGHT = 84;
 /** Clear of the left rail (80) and the top band (`--hud-top` + `--hud-margin`). */
 const GUTTER_LEFT = 96;
 const GUTTER_TOP = 112;
 const GUTTER_RIGHT = 16;
-const GUTTER_BOTTOM = 120;
+/** The bottom band plus the dice widget that hangs above the tray. */
+const GUTTER_BOTTOM = 190;
 
 const projected = new THREE.Vector3();
 
@@ -55,7 +58,7 @@ function pillPosition(el: THREE.Object3D, camera: THREE.Camera, size: { width: n
   // at the near edge either way, which is what we want for a status readout.
   const x = projected.x * halfW + halfW;
   const y = -(projected.y * halfH) + halfH;
-  return [clamp(x, GUTTER_LEFT, size.width - PILL_WIDTH - GUTTER_RIGHT), clamp(y, GUTTER_TOP + PILL_HEIGHT / 2, size.height - GUTTER_BOTTOM)];
+  return [clamp(x, GUTTER_LEFT, size.width - PILL_WIDTH - GUTTER_RIGHT), clamp(y, GUTTER_TOP + PILL_HEIGHT, size.height - GUTTER_BOTTOM)];
 }
 
 function easeInOut(t: number): number {
@@ -78,46 +81,73 @@ function FleetShip({ from, to, key_ }: { from: { x: number; z: number }; to: { x
     const k = easeInOut(t);
     g.position.x = from.x + (to.x - from.x) * k;
     g.position.z = from.z + (to.z - from.z) * k;
-    g.position.y = 0.06 + Math.sin(k * Math.PI) * 0.18 + Math.sin(now / 600) * 0.01;
+    g.position.y = 0.055 + Math.sin(k * Math.PI) * 0.18 + Math.sin(now / 600) * 0.01;
     // The longship's hull runs along its local x axis.
     g.rotation.y = Math.atan2(-(to.z - from.z), to.x - from.x);
   });
   return (
-    <group ref={group} position={[to.x, 0.06, to.z]} name="fleet-ship">
+    <group ref={group} position={[to.x, 0.055, to.z]} name="fleet-ship">
       <LongshipFigure />
     </group>
   );
 }
 
-export function BarbarianTrack({ view, bounds }: { view: RedactedState; bounds: Bounds }) {
+/** The stone landing at the coast end of the lane: a squat tower on a red disc. */
+function Landing({ x, z, shadows }: { x: number; z: number; shadows: boolean }) {
+  return (
+    <group position={[x, 0, z]} name="fleet-landing">
+      <mesh position={[0, 0.045, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.2, 20]} />
+        <meshStandardMaterial color="#9b2226" roughness={0.9} />
+      </mesh>
+      <mesh position={[0, 0.16, 0]} castShadow={shadows}>
+        <cylinderGeometry args={[0.07, 0.085, 0.22, 8]} />
+        <meshStandardMaterial color={P.KEEP_WALL} flatShading />
+      </mesh>
+      <mesh position={[0, 0.3, 0]} castShadow={shadows}>
+        <coneGeometry args={[0.09, 0.09, 8]} />
+        <meshStandardMaterial color={P.KEEP_CAP} flatShading />
+      </mesh>
+    </group>
+  );
+}
+
+export function BarbarianTrack({ view, bounds, shadows = true }: { view: RedactedState; bounds: Bounds; shadows?: boolean }) {
   const c = view.crown;
   const layout = useMemo(() => barbarianTrackLayout(bounds, FLEET_STEPS), [bounds]);
   const previous = useRef(0);
   if (!view.scenario?.crown || !c) return null;
   const strength = view.players.reduce((n, p) => n + p.cities.length, 0);
   const defence = c.knights.filter((k) => k.active).reduce((n, k) => n + k.level, 0);
-  const at = (step: number) => (step <= 0 ? layout.centre : layout.dots[Math.min(step, FLEET_STEPS) - 1]!);
+  const at = (step: number) => (step <= 0 ? layout.start : layout.dots[Math.min(step, FLEET_STEPS) - 1]!);
   const from = at(previous.current);
   const to = at(c.fleet);
   if (previous.current !== c.fleet) previous.current = c.fleet;
+  const length = layout.end.x - layout.start.x + layout.step * 1.4;
+  const mid = (layout.start.x + layout.end.x) / 2 + layout.step * 0.2;
   return (
     <group name="barbarian-track">
-      <mesh position={[layout.centre.x, 0.005, layout.centre.z]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <ringGeometry args={[layout.radius - 0.03, layout.radius + 0.03, 48]} />
-        <meshStandardMaterial color="#2e2318" roughness={1} />
+      {/* The lane: a strip of dark water on a walnut-edged slab, so the fleet has its own section of the table. */}
+      <mesh position={[mid, 0.02, layout.start.z]} receiveShadow={shadows}>
+        <boxGeometry args={[length + 0.24, 0.04, layout.width + 0.24]} />
+        <meshStandardMaterial color={P.FRAME_WOOD} roughness={0.9} flatShading />
+      </mesh>
+      <mesh position={[mid, 0.045, layout.start.z]} receiveShadow={shadows}>
+        <boxGeometry args={[length, 0.02, layout.width]} />
+        <meshStandardMaterial color={P.SEA_SIDE} roughness={0.4} flatShading />
       </mesh>
       {layout.dots.map((d, i) => {
         const step = i + 1;
-        const last = step === FLEET_STEPS;
+        if (step === FLEET_STEPS) return <Landing key={i} x={d.x} z={d.z} shadows={shadows} />;
         return (
-          <mesh key={i} position={[d.x, 0.015, d.z]} rotation={[-Math.PI / 2, 0, 0]}>
-            <circleGeometry args={[last ? 0.16 : 0.1, 16]} />
-            <meshStandardMaterial color={last ? "#9b2226" : step <= c.fleet ? "#d9a437" : "#efe8d8"} />
+          <mesh key={i} position={[d.x, 0.058, d.z]} rotation={[-Math.PI / 2, 0, 0]}>
+            <circleGeometry args={[0.09, 16]} />
+            <meshStandardMaterial color={step <= c.fleet ? "#d9a437" : "#efe8d8"} />
           </mesh>
         );
       })}
       <FleetShip from={from} to={to} key_={c.fleet} />
-      <Html position={[layout.centre.x + layout.radius + 0.25, 0.25, layout.centre.z]} zIndexRange={[5, 0]} calculatePosition={pillPosition} style={{ pointerEvents: "none", transform: "translateY(-50%)" }}>
+      <Html position={[layout.start.x, 0.4, layout.start.z]} zIndexRange={[5, 0]} calculatePosition={pillPosition} style={{ pointerEvents: "none", transform: "translateY(-100%)" }}>
         <div
           className="flex w-max flex-col items-start gap-1"
           role="group"
@@ -127,6 +157,9 @@ export function BarbarianTrack({ view, bounds }: { view: RedactedState; bounds: 
           data-position={c.fleet}
           data-attacks={c.attacks}
         >
+          <span className="hud-scene-pill">
+            <Icon name="sail" size={12} /> Barbarian fleet <b>{c.fleet}</b>/{FLEET_STEPS}
+          </span>
           <span className="hud-scene-pill">
             <Icon name="knight" size={12} /> Active knights <b>{defence}</b>
           </span>

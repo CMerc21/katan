@@ -171,6 +171,14 @@ function knightVertexOf(a: Action): VertexId | null {
  * Which legal actions become targets, given the targeting mode (and, in
  * move-ship mode, the ship picked so far; in wagon mode, the stops picked so
  * far after the wagon's own vertex).
+ *
+ * Board-first building: with no mode chosen during the action or special
+ * build phase, every legal road, ship, settlement and city spot is a target,
+ * so a player builds by clicking the board without visiting the cost card.
+ * The engine only lists a build the player can pay for, so the idle targets
+ * are exactly the affordable ones. A coastal edge that could take either a
+ * road or a ship shows the road; the ship row on the cost card (ship mode)
+ * narrows the edges to ships.
  */
 export function computeTargets(legal: readonly Action[], phase: string, mode: TargetMode, moveFrom: EdgeId | null = null, wagonPath: readonly VertexId[] = [], crown: CrownPick = NO_PICK): Targets {
   const vertices = new Map<VertexId, Action>();
@@ -180,10 +188,11 @@ export function computeTargets(legal: readonly Action[], phase: string, mode: Ta
   const steps = new Set<VertexId>();
   const knights = new Set<VertexId>();
   const picks = { vertices: new Set<VertexId>(), edges: new Set<EdgeId>(), hexes: new Set<HexId>() };
-  const wantSettlement = phase === "setup" || mode === "settlement";
-  const wantCity = mode === "city";
-  const wantRoad = phase === "setup" || phase === "roadBuilding" || mode === "road";
-  const wantShip = phase === "setup" || phase === "roadBuilding" || mode === "ship";
+  const idleBuild = mode === null && (phase === "action" || phase === "specialBuild");
+  const wantSettlement = phase === "setup" || mode === "settlement" || idleBuild;
+  const wantCity = mode === "city" || idleBuild;
+  const wantRoad = phase === "setup" || phase === "roadBuilding" || mode === "road" || idleBuild;
+  const wantShip = phase === "setup" || phase === "roadBuilding" || mode === "ship" || idleBuild;
   // Crown & Castle (docs/phase11.md §11): your knights are clickable whenever nothing else is being targeted.
   const wantKnights = phase === "action" && (mode === null || mode === "knightAct");
   const card = mode !== null && mode.startsWith("progress:") ? (mode.slice("progress:".length) as ProgressCard) : null;
@@ -192,7 +201,10 @@ export function computeTargets(legal: readonly Action[], phase: string, mode: Ta
     if (a.type === "BUILD_SETTLEMENT" && wantSettlement) vertices.set(a.vertex, a);
     else if (a.type === "BUILD_CITY" && wantCity) vertices.set(a.vertex, a);
     else if (a.type === "BUILD_ROAD" && wantRoad) edges.set(a.edge, a);
-    else if (a.type === "BUILD_SHIP" && wantShip) edges.set(a.edge, a);
+    else if (a.type === "BUILD_SHIP" && wantShip) {
+      // Idle: a road already claimed this edge wins; ship mode lists only ships.
+      if (!(idleBuild && edges.get(a.edge)?.type === "BUILD_ROAD")) edges.set(a.edge, a);
+    }
     else if (a.type === "MOVE_SHIP" && mode === "moveShip") {
       if (moveFrom === null) ships.add(a.from);
       else if (a.from === moveFrom) edges.set(a.to, a);
@@ -334,8 +346,10 @@ function VertexGhost({ action, vertex, color }: { action: Action; vertex: Vertex
   }
 }
 
-export function InteractionLayer({ targets, color, onAction, onHover, onPickShip, onPickStep, onPickKnight, onPick, idle = true, liftOf = () => 0 }: { targets: Targets; color: PlayerColor; onAction: (a: Action) => void; onHover?: (h: Hover) => void; onPickShip?: (edge: EdgeId) => void; onPickStep?: (vertex: VertexId) => void; onPickKnight?: (vertex: VertexId) => void; onPick?: (id: string) => void; idle?: boolean; liftOf?: (hex: HexId) => number }) {
+export function InteractionLayer({ targets, color, onAction, onHover, onPickShip, onPickStep, onPickKnight, onPick, idle = true, subtle = false, liftOf = () => 0 }: { targets: Targets; color: PlayerColor; onAction: (a: Action) => void; onHover?: (h: Hover) => void; onPickShip?: (edge: EdgeId) => void; onPickStep?: (vertex: VertexId) => void; onPickKnight?: (vertex: VertexId) => void; onPick?: (id: string) => void; idle?: boolean; /** No mode is chosen: the board-first build targets are drawn quieter than a chosen mode's. */ subtle?: boolean; liftOf?: (hex: HexId) => number }) {
   const accent = PLAYER_FILL[color];
+  // Rest opacity of a target ring or bar; a hovered one is always full.
+  const rest = (full: number) => (subtle ? full * 0.6 : full);
   const [hover, setHover] = useState<Hover>(null);
   const rings = useRef<THREE.Object3D[]>([]);
   rings.current = [];
@@ -410,7 +424,7 @@ export function InteractionLayer({ targets, color, onAction, onHover, onPickShip
               rotation={[-Math.PI / 2, 0, 0]}
             >
               <ringGeometry args={[0.2, 0.3, 28]} />
-              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : 0.42} depthWrite={false} />
+              <meshBasicMaterial color={accent} transparent opacity={hovered ? 0.95 : rest(0.42)} depthWrite={false} />
             </mesh>
             {hovered && <VertexGhost action={action} vertex={v} color={color} />}
           </group>
@@ -509,7 +523,7 @@ export function InteractionLayer({ targets, color, onAction, onHover, onPickShip
             </mesh>
             <mesh position={[0, 0.04, 0]}>
               <boxGeometry args={[0.78, 0.07, 0.16]} />
-              <meshStandardMaterial color={accent} transparent opacity={hovered ? 0.85 : 0.45} emissive={accent} emissiveIntensity={hovered ? 0.6 : 0.25} depthWrite={false} />
+              <meshStandardMaterial color={accent} transparent opacity={hovered ? 0.85 : rest(0.45)} emissive={accent} emissiveIntensity={hovered ? 0.6 : 0.25} depthWrite={false} />
             </mesh>
             {hovered && (action.type === "BUILD_SHIP" || action.type === "MOVE_SHIP") && <ShipFigure edge={e} color={color} ghost centred />}
           </group>

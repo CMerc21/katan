@@ -73,11 +73,31 @@ describe("docs/phase7-5.md §5 interaction layer", () => {
     expect(t.edges.size).toBe(0);
     expect(t.hexes.size).toBe(0);
     for (const [v, a] of t.vertices) expect(a).toMatchObject({ type: "BUILD_SETTLEMENT", vertex: v });
-    // In the action phase nothing is a target until a build mode is chosen.
-    const none = computeTargets(legal, "action", null);
-    expect(none.vertices.size + none.edges.size + none.hexes.size).toBe(0);
-    const roads = computeTargets([{ type: "BUILD_ROAD", playerId: "a", edge: "0,0|1,0" }], "action", "road");
+    // Board-first building: with no mode chosen in the action phase, every affordable build is a target.
+    const builds: Action[] = [
+      { type: "BUILD_ROAD", playerId: "a", edge: "0,0|1,0" },
+      { type: "BUILD_SHIP", playerId: "a", edge: "0,0|1,0" },
+      { type: "BUILD_SHIP", playerId: "a", edge: "0,0|0,1" },
+      { type: "BUILD_SETTLEMENT", playerId: "a", vertex: "s1" },
+      { type: "BUILD_CITY", playerId: "a", vertex: "c1" },
+      { type: "BUY_DEV_CARD", playerId: "a" },
+    ];
+    const idle = computeTargets(builds, "action", null);
+    expect([...idle.vertices.keys()].sort()).toEqual(["c1", "s1"]);
+    // An edge that could take a road or a ship shows the road; a ship-only edge shows the ship.
+    expect(idle.edges.get("0,0|1,0")?.type).toBe("BUILD_ROAD");
+    expect(idle.edges.get("0,0|0,1")?.type).toBe("BUILD_SHIP");
+    expect(idle.hexes.size).toBe(0);
+    // A chosen mode narrows the targets to that kind.
+    const roads = computeTargets(builds, "action", "road");
     expect([...roads.edges.keys()]).toEqual(["0,0|1,0"]);
+    expect(roads.vertices.size).toBe(0);
+    const ships = computeTargets(builds, "action", "ship");
+    expect([...ships.edges.keys()].sort()).toEqual(["0,0|0,1", "0,0|1,0"]);
+    expect([...computeTargets(builds, "action", "city").vertices.keys()]).toEqual(["c1"]);
+    // Outside the action and special build phases nothing is offered without a mode.
+    expect(computeTargets(builds, "roll", null).edges.size + computeTargets(builds, "discard", null).vertices.size).toBe(0);
+    expect(computeTargets(builds, "specialBuild", null).edges.size).toBe(2);
     const robber = computeTargets([{ type: "MOVE_ROBBER", playerId: "a", hex: "1,0" }], "moveRobber", null);
     expect([...robber.hexes.keys()]).toEqual(["1,0"]);
   });

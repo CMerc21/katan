@@ -34,6 +34,10 @@ async function loginAs(browser: Browser, email: string, name: string): Promise<P
   if (error) throw error;
   const context = await browser.newContext();
   const page = await context.newPage();
+  // The build-cost card is closed by default (the board marks every affordable spot); the greedy policy below drives its rows.
+  await page.addInitScript(() => {
+    window.localStorage.setItem("katan.hud.costCard", "1");
+  });
   // Verify the OTP in-page with the anon client so the session lands in localStorage.
   await page.goto("/login");
   await page.evaluate(

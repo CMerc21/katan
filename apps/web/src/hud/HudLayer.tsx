@@ -9,8 +9,8 @@
  * the turn ribbon, event toasts, help tips. Pointer events pass through to
  * the canvas everywhere except on interactive children.
  *
- * Keys: E end turn, T trade, L log, Space skip, Esc closes any panel or
- * targeting mode.
+ * Keys: E end turn, T trade, L log, B build costs, Space skip, Esc closes
+ * any panel or targeting mode.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -26,7 +26,9 @@ import { BuildCostCard } from "./BuildCostCard";
 import { CardsPanel } from "./CardsPanel";
 import { DiceWidget } from "./DiceWidget";
 import { EventToast, type Toast } from "./EventToast";
-import { HelpTipProvider } from "./HelpTip";
+import { HelpTipProvider, useTipHandlers } from "./HelpTip";
+import { HUD_COPY } from "./hudCopy";
+import { Icon } from "./icons";
 import { LeftRail, type RailKey } from "./LeftRail";
 import { ModuleStrip } from "./ModuleStrip";
 import { costRows, devCount, onlyEndTurnLeft, pushRoll, waitingText, type Roll } from "./model";
@@ -82,6 +84,47 @@ export interface HudLayerProps {
 
 const PANEL_TITLE: Record<RailKey, string> = { chat: "Chat", emote: "Emote", log: "Log", stats: "Stats", info: "Rules", settings: "Settings", leave: "Leave game" };
 
+/** The build-cost card is closed by default and its state is remembered per device. */
+const COST_CARD_KEY = "katan.hud.costCard";
+
+function loadCostOpen(): boolean {
+  try {
+    return typeof window !== "undefined" && window.localStorage.getItem(COST_CARD_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveCostOpen(open: boolean): void {
+  try {
+    window.localStorage.setItem(COST_CARD_KEY, open ? "1" : "0");
+  } catch {
+    // Private mode: the card simply starts closed next time.
+  }
+}
+
+/** The Build toggle under the cost card: a count badge says how many rows are affordable while the card is closed. */
+function CostToggle({ open, affordable, onToggle }: { open: boolean; affordable: number; onToggle: () => void }) {
+  const tip = useTipHandlers(
+    <>
+      <b>{HUD_COPY.actions.costs.label}</b>
+      <div>{HUD_COPY.actions.costs.help}</div>
+    </>,
+  );
+  return (
+    <button type="button" className="hud-cost-toggle hud-panel hud-interactive" onClick={onToggle} aria-expanded={open} aria-controls="build-cost-card" data-testid="build-costs" data-count={affordable} title={HUD_COPY.actions.costs.help} {...tip}>
+      <Icon name="settlement" size={18} />
+      <span>{HUD_COPY.actions.costs.label}</span>
+      {!open && affordable > 0 && (
+        <span className="hud-cost-badge" aria-label={`${affordable} affordable`}>
+          {affordable}
+        </span>
+      )}
+      <kbd aria-hidden>B</kbd>
+    </button>
+  );
+}
+
 function isTyping(e: KeyboardEvent): boolean {
   const t = e.target;
   return t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || (t instanceof HTMLElement && t.isContentEditable);
@@ -91,6 +134,14 @@ export function HudLayer(props: HudLayerProps) {
   const { driver, view, me, legal, seats, connected, botifiable, onBotify, step, draining, onSkip, interactive, revealed, mode, onMode, crownPick, wagon, onDispatch, error, waitingOn, glint, activeQuality, toasts, pushToast, shiftToast, tradePicking, onTrade, onPickResources, onFish, onImprove, onProgress, onExit, onCapability, children } = props;
   const [panel, setPanel] = useState<RailKey | null>(null);
   const [cardsOpen, setCardsOpen] = useState(false);
+  const [costOpen, setCostOpen] = useState(false);
+  useEffect(() => setCostOpen(loadCostOpen()), []);
+  const toggleCost = useCallback(() => {
+    setCostOpen((o) => {
+      saveCostOpen(!o);
+      return !o;
+    });
+  }, []);
   const [rolls, setRolls] = useState<Roll[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [emote, setEmote] = useState<{ text: string; key: number } | null>(null);
@@ -180,10 +231,11 @@ export function HudLayer(props: HudLayerProps) {
       if (k === "e" && endTurnEnabled) onDispatch({ type: "END_TURN", playerId: me });
       else if (k === "t" && tradeEnabled) onTrade();
       else if (k === "l") setPanel((p) => (p === "log" ? null : "log"));
+      else if (k === "b") toggleCost();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [panel, cardsOpen, endTurnEnabled, tradeEnabled, onDispatch, onTrade, me]);
+  }, [panel, cardsOpen, endTurnEnabled, tradeEnabled, onDispatch, onTrade, me, toggleCost]);
 
   useEffect(() => {
     if (!interactive) setCardsOpen(false);
@@ -272,8 +324,9 @@ export function HudLayer(props: HudLayerProps) {
 
         <div className="hud-bottom">
           <div className="relative h-full">
-            <div className="absolute bottom-0" style={{ left: 48 }}>
-              <BuildCostCard rows={rows} mode={mode} onMode={onMode} onDispatch={onDispatch} onImprove={onImprove} />
+            <div className="absolute bottom-0 flex flex-col items-start gap-2" style={{ left: 48 }}>
+              {costOpen && <BuildCostCard rows={rows} mode={mode} onMode={onMode} onDispatch={onDispatch} onImprove={onImprove} onClose={toggleCost} />}
+              <CostToggle open={costOpen} affordable={rows.filter((r) => r.affordable).length} onToggle={toggleCost} />
             </div>
           </div>
           <div className="relative">

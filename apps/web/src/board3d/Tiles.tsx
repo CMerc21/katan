@@ -23,8 +23,14 @@ export interface TileInfo {
   readonly token: number | null;
 }
 
-export const TOKEN_RADIUS = 0.2;
-export const TOKEN_HEIGHT = 0.04;
+/**
+ * 0.26 R, up from the brief's 0.20: at the default camera a 0.20 R token is
+ * about 22 px across on a 1080p frame and its numeral half that, and the
+ * numbers were the first thing playtesters said they could not read. The
+ * recess is 0.32 R, so the larger token still sits inside it.
+ */
+export const TOKEN_RADIUS = 0.26;
+export const TOKEN_HEIGHT = 0.05;
 
 function useSlabMaterials(): { land: THREE.MeshStandardMaterial; sea: THREE.MeshStandardMaterial } {
   return useMemo(

@@ -98,6 +98,8 @@ test("a 4-player hotseat game plays from setup to a win with no console errors",
   // Software WebGL in CI: the low preset keeps the main thread free for the game loop.
   await page.addInitScript(() => {
     window.localStorage.setItem("katan.settings", JSON.stringify({ animation: "off", sound: false, quality: "low", followTurns: false }));
+    // The build-cost card is closed by default (the board marks every affordable spot); this spec drives the rows.
+    window.localStorage.setItem("katan.hud.costCard", "1");
   });
   await page.goto("/hotseat");
   await page.waitForLoadState("networkidle");

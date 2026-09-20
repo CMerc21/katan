@@ -25,7 +25,7 @@ import { easeOutBack, easeOutCubic, progress } from "./geo";
 import { SLAB_HEIGHT, hexWorld, vertexWorld } from "./layout3d";
 import { PIECE_COLORS, dimColor, usePiece, type PieceName } from "./loadPiece";
 import * as P from "./palette";
-import { BaseRing, Mat, PIECE_SCALE, ProceduralCity, useEntrance } from "./Pieces";
+import { BaseRing, Mat, PIECE_SCALE, ProceduralCity, cityPieceOptions, useEntrance } from "./Pieces";
 
 // ---------------------------------------------------------------------------
 // Knights
@@ -212,7 +212,7 @@ export function CrownCityFigure({ vertex, color, walled, metropolis, fresh = fal
   });
   const cast = shadows && !ghost;
   const name: PieceName = metropolis ? (walled ? "metropolis_walled" : "metropolis") : "city_walled";
-  const model = usePiece(name, { color: PLAYER_FILL[color], neutral: PIECE_COLORS.grey, ghost, castShadow: cast, receiveShadow: shadows });
+  const model = usePiece(name, cityPieceOptions(color, ghost, cast, shadows));
   return (
     <group ref={group} position={[p.x, SLAB_HEIGHT, p.z]} name={`city:${vertex}`}>
       {model ? (
@@ -318,10 +318,10 @@ export function merchantOffset(): { dx: number; dz: number } {
   return { dx: -0.46, dz: 0.28 };
 }
 
-/** The merchant GLB (one warm neutral) at a hex like the robber, or the procedural figure until it loads; the caller positions the group. */
+/** The merchant GLB (green base and hat over a warm tan coat) at a hex like the robber, or the procedural figure until it loads; the caller positions the group. */
 export function MerchantFigure({ ghost = false, shadows = true }: { ghost?: boolean; shadows?: boolean }) {
   const cast = shadows && !ghost;
-  const model = usePiece("merchant", { color: PIECE_COLORS.merchant, ghost, castShadow: cast, receiveShadow: shadows });
+  const model = usePiece("merchant", { color: P.MERCHANT_GREEN, neutral: PIECE_COLORS.merchant, ghost, castShadow: cast, receiveShadow: shadows });
   if (model) {
     return (
       <group name="merchant">

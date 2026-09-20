@@ -19,6 +19,7 @@ import { useEventQueue } from "@/hooks/useEventQueue";
 import { useGame } from "@/hooks/useGame";
 import { BankDecks } from "@/board/props/BankDecks";
 import { BarbarianTrack } from "@/board/props/BarbarianTrack";
+import { ImprovementBooks } from "@/board/props/ImprovementBooks";
 import { PiecePiles } from "@/board/props/PiecePiles";
 import { HudLayer } from "@/hud/HudLayer";
 import type { Toast } from "@/hud/EventToast";
@@ -358,10 +359,11 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
                 : null
           }
         >
-          {/* On-table props (docs/phase12.md §7): the bank, the piece piles and, under Crown & Castle, the barbarian track. */}
+          {/* On-table props (docs/phase12.md §7): the bank, the piece piles and, under Crown & Castle, the fleet's lane and the improvement books. */}
           <BankDecks view={view} bounds={bounds} />
           <PiecePiles view={view} bounds={bounds} shadows={shadows} />
-          {crownOn && <BarbarianTrack view={view} bounds={bounds} />}
+          {crownOn && <BarbarianTrack view={view} bounds={bounds} shadows={shadows} />}
+          {crownOn && <ImprovementBooks view={view} bounds={bounds} shadows={shadows} onOpen={interactive ? () => setDialog({ kind: "improve" }) : undefined} />}
         </Board3D>
         <DevCardReveal step={current} view={view} />
         {/* Crown & Castle (docs/phase11.md §11): the prompts answered on the board. */}

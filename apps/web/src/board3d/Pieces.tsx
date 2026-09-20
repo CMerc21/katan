@@ -17,7 +17,7 @@ import type { EdgeId, PlayerColor, VertexId } from "@katan/engine";
 import { PLAYER_FILL } from "@/game/theme";
 import { easeOutBack, easeOutCubic, progress } from "./geo";
 import { SEA_HEIGHT, SLAB_HEIGHT, edgeWorld, vertexWorld } from "./layout3d";
-import { PIECE_COLORS, usePiece } from "./loadPiece";
+import { PIECE_COLORS, dimColor, usePiece, type PieceOptions } from "./loadPiece";
 import * as P from "./palette";
 import { RECESS_DEPTH } from "./slab";
 
@@ -25,6 +25,12 @@ export const PIECE_SCALE = 1.5;
 
 function colorOf(color: PlayerColor): string {
   return PLAYER_FILL[color];
+}
+
+/** The material options shared by every city model (plain, walled, metropolis): player base and top, sandstone walls, roofs in the player's colour, light caps. */
+export function cityPieceOptions(color: PlayerColor, ghost: boolean, cast: boolean, shadows: boolean): PieceOptions {
+  const fill = colorOf(color);
+  return { color: fill, neutral: P.KEEP_WALL, roof: dimColor(fill, P.ROOF_TINT), cap: P.KEEP_CAP, ghost, castShadow: cast, receiveShadow: shadows };
 }
 
 export function Mat({ color, ghost = false, side }: { color: string; ghost?: boolean; side?: THREE.Side }) {
@@ -178,7 +184,7 @@ export function CityFigure({ vertex, color, fresh = false, seq = null, ghost = f
     if (flag.current) flag.current.scale.x = Math.max(0.001, fresh ? Math.min(1, Math.max(0, (t.current - 0.5) * 2)) : 1);
   });
   const cast = shadows && !ghost;
-  const model = usePiece("city", { color: colorOf(color), neutral: P.KEEP_STONE, ghost, castShadow: cast, receiveShadow: shadows });
+  const model = usePiece("city", cityPieceOptions(color, ghost, cast, shadows));
   return (
     <group ref={group} position={[p.x, SLAB_HEIGHT, p.z]} name={`city:${vertex}`}>
       {model ? (

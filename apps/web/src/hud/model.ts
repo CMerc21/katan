@@ -117,6 +117,9 @@ function afford(hand: Hand, cost: Hand): boolean {
 /** Why a build is disabled, or null when it is legal (docs/phase3.md §5). */
 export function buildReason(view: RedactedState, player: RedactedPlayer, hand: Hand, legal: readonly Action[], kind: "road" | "settlement" | "city" | "ship"): string | null {
   const type = kind === "road" ? "BUILD_ROAD" : kind === "settlement" ? "BUILD_SETTLEMENT" : kind === "ship" ? "BUILD_SHIP" : "BUILD_CITY";
+  // Setup placements and Road Building's free roads are legal builds, but they are placed on the board, not bought from the card.
+  if (view.phase.kind === "setup") return "Place your starting pieces on the board";
+  if (view.phase.kind === "roadBuilding") return "Place the free roads on the board";
   if (legal.some((a) => a.type === type)) return null;
   if (view.phase.kind !== "action" && view.phase.kind !== "specialBuild") return "Only after rolling";
   const pieces = kind === "road" ? player.pieces.roads : kind === "settlement" ? player.pieces.settlements : kind === "ship" ? player.pieces.ships : player.pieces.cities;

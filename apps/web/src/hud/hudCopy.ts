@@ -25,6 +25,7 @@ export const HUD_COPY = {
     skip: { label: "Skip", help: "Fast-forward the animations. Space skips too." },
     camera: { label: "Reset view", help: "Bring the camera back to the table's default framing." },
     diceHistory: { label: "Dice history", help: "The last six rolls, with the event die under Crown & Castle." },
+    costs: { label: "Build", help: "The build-cost card. Everything you can afford is already marked on the board: click a spot to build. B opens and closes the card." },
   },
   costs: {
     road: { name: "Road", note: "longest road", help: "A road joins one of your buildings or roads. Five or more in a row may win Longest Road (+2)." },

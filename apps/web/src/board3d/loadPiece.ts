@@ -20,6 +20,13 @@
  * threshold may be omitted (a ship colours only its sail). A piece without
  * zones is one material in `color`.
  *
+ * A zone set with `detail` splits the middle band again by which way each
+ * triangle faces: level faces (|ny| > 0.85) are the cap (wall tops,
+ * battlements, terraces), sloped faces (0.3 < |ny| ≤ 0.85) are the roof, and
+ * the rest stay the wall. The city models are one grey mass otherwise; with
+ * the roofs in the player's colour and the caps a lighter stone they read as
+ * buildings, and whose they are, from the default camera.
+ *
  * A failed fetch or parse rejects; `usePiece` turns that into `null` so the
  * caller can keep the procedural figure as a fallback.
  */
@@ -37,6 +44,8 @@ export interface PieceZones {
   baseMaxY?: number;
   /** Triangles at or above this are the top; omit for no top zone. */
   topMinY?: number;
+  /** Split the middle band by facing into wall, roof and cap (see the header). */
+  detail?: boolean;
 }
 
 export interface PieceConfig {
@@ -71,26 +80,27 @@ export const PIECES: Record<PieceName, PieceConfig> = {
   robber: { zones: null, fit: { height: 0.32 * FIGURE_SCALE } },
   // Base ring to the crown of the thatched roof: (0.12 + 0.8·0.08) × 1.5.
   settlement: { zones: { baseMaxY: -0.34, topMinY: -0.11 }, fit: { height: 0.18 * FIGURE_SCALE } },
-  // Base ring to the top of the keep's flag pole: (0.2 + 0.14) × 1.5.
-  city: { zones: { baseMaxY: -0.41, topMinY: 0.27 }, fit: { height: CITY_HEIGHT } },
+  // Base ring to the top of the keep's flag pole: (0.2 + 0.14) × 1.5. Roofs and caps split out (`detail`).
+  city: { zones: { baseMaxY: -0.41, topMinY: 0.27, detail: true }, fit: { height: CITY_HEIGHT } },
   // 1.0 long on local Z, 0.46 wide, 0.10 thick. Stops short of the vertices where settlements sit.
   road: { zones: null, fullPlayerColor: true, fit: { width: 0.18 * EDGE_LENGTH, height: 0.08 * EDGE_LENGTH, length: 0.8 * EDGE_LENGTH } },
   // Replaces the city at a metropolis vertex: taller than the plain city (CITY_HEIGHT), the crown is the top zone.
-  metropolis: { zones: { baseMaxY: -0.42, topMinY: 0.38 }, fit: { width: 0.5, height: 0.65, length: 0.5 } },
+  metropolis: { zones: { baseMaxY: -0.42, topMinY: 0.38, detail: true }, fit: { width: 0.5, height: 0.65, length: 0.5 } },
   // Replaces the city when the vertex has a wall: the wall ring makes it wider (WALL_FOOTPRINT) and it stands taller than the plain city.
-  city_walled: { zones: { baseMaxY: -0.32, topMinY: 0.2 }, fit: { width: WALL_FOOTPRINT, height: 0.56, length: WALL_FOOTPRINT } },
+  city_walled: { zones: { baseMaxY: -0.32, topMinY: 0.2, detail: true }, fit: { width: WALL_FOOTPRINT, height: 0.56, length: WALL_FOOTPRINT } },
   // A metropolis that also has a wall: one model, the same wall footprint as `city_walled`, the tallest piece on the board.
   // Thresholds read off the model's own profile: the base disc sits below -0.42 (radius 0.45 against the wall's 0.39) and
   // the crown above 0.42, with no geometry at all between 0.34 and 0.42.
-  metropolis_walled: { zones: { baseMaxY: -0.42, topMinY: 0.4 }, fit: { width: WALL_FOOTPRINT, height: 0.7, length: WALL_FOOTPRINT } },
+  metropolis_walled: { zones: { baseMaxY: -0.42, topMinY: 0.4, detail: true }, fit: { width: WALL_FOOTPRINT, height: 0.7, length: WALL_FOOTPRINT } },
   // Sea-edge piece, length on local X; only the sail takes the player colour, the hull bottom (raw Y -0.455) sits on the water.
   ship: { zones: { topMinY: 0.2 }, axis: "x", fit: { width: 0.22, height: 0.26, length: 0.7 } },
   // The fleet's longboat on the table track, length on local X: dark red sail over a near-black hull.
   barbarian_ship: { zones: { topMinY: 0.24 }, axis: "x", fit: { width: 0.3, height: 0.28, length: 0.65 } },
   // Sea hex centre, length on local X, laid along the hex's flat sides.
   pirate: { zones: { topMinY: 0.18 }, axis: "x", fit: { width: 0.36, height: 0.32, length: 0.32 } },
-  // Hex centre like the robber; one warm neutral, lifted by its own min Y (-0.436).
-  merchant: { zones: null, fit: { width: 0.3, height: 0.3, length: 0.3 } },
+  // Hex centre like the robber, lifted by its own min Y (-0.436). Green base disc and hat over a warm tan coat,
+  // so the figure reads as the merchant (docs/props.md §5) rather than a lump of the tile's colour.
+  merchant: { zones: { baseMaxY: -0.39, topMinY: 0.3 }, fit: { width: 0.3, height: 0.3, length: 0.3 } },
   // Vertex pieces; the level is which model loads. Base and top in the player colour, body grey.
   knight_1: { zones: { baseMaxY: -0.42, topMinY: 0.1 }, fit: { width: 0.18, height: 0.26, length: 0.18 } },
   knight_2: { zones: { baseMaxY: -0.33, topMinY: 0.22 }, fit: { width: 0.2, height: 0.28, length: 0.2 } },
@@ -99,10 +109,19 @@ export const PIECES: Record<PieceName, PieceConfig> = {
   port_sign: { zones: null, fit: { width: 0.26, height: 0.3, length: 0.24 } },
 };
 
-/** Material slot order for a zoned piece. */
+/** Material slot order for a zoned piece; a `detail` piece adds the roof and cap slots. */
 export const ZONE_BASE = 0;
 export const ZONE_MIDDLE = 1;
 export const ZONE_TOP = 2;
+export const ZONE_ROOF = 3;
+export const ZONE_CAP = 4;
+/** Facing thresholds for the `detail` split: |ny| above the first is a cap, above the second a roof. */
+export const CAP_NY = 0.85;
+export const ROOF_NY = 0.3;
+
+export function zoneCount(zones: PieceZones): number {
+  return zones.detail ? 5 : 3;
+}
 
 export const MODEL_PATH = "/models";
 
@@ -111,6 +130,10 @@ export interface PieceMaterialOptions {
   color: string;
   /** The middle zone's colour on a zoned piece (walls, stone, wood, hull); defaults to `color`. */
   neutral?: string;
+  /** `detail` pieces: the sloped faces; defaults to `neutral`. */
+  roof?: string;
+  /** `detail` pieces: the level faces of the middle band; defaults to `neutral`. */
+  cap?: string;
   roughness?: number;
   metalness?: number;
   /** Translucent placement preview, as `Mat`'s `ghost`. */
@@ -140,30 +163,53 @@ function firstMesh(gltf: GLTF): THREE.Mesh {
   return found;
 }
 
-/** Which zone a triangle belongs to, by the Y of its centroid in raw model space. */
-export function zoneOf(y: number, zones: PieceZones): number {
+/** Which zone a triangle belongs to, by the Y of its centroid in raw model space and, on a `detail` piece, its normal's Y. */
+export function zoneOf(y: number, zones: PieceZones, ny = 0): number {
   if (zones.baseMaxY !== undefined && y <= zones.baseMaxY) return ZONE_BASE;
   if (zones.topMinY !== undefined && y >= zones.topMinY) return ZONE_TOP;
+  if (zones.detail) {
+    const k = Math.abs(ny);
+    if (k > CAP_NY) return ZONE_CAP;
+    if (k > ROOF_NY) return ZONE_ROOF;
+  }
   return ZONE_MIDDLE;
 }
 
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
+const _c = new THREE.Vector3();
+
+/** The Y component of triangle `t`'s unit normal (0 for a degenerate triangle). */
+function triangleNormalY(pos: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, t: number): number {
+  _a.fromBufferAttribute(pos, t * 3);
+  _b.fromBufferAttribute(pos, t * 3 + 1);
+  _c.fromBufferAttribute(pos, t * 3 + 2);
+  _b.sub(_a);
+  _c.sub(_a);
+  _b.cross(_c);
+  const len = _b.length();
+  return len === 0 ? 0 : _b.y / len;
+}
+
 /**
- * Reorder a non-indexed geometry's triangles into base / middle / top runs and
- * register one draw group per zone, so a material array colours them apart.
+ * Reorder a non-indexed geometry's triangles into base / middle / top (and,
+ * with `detail`, roof / cap) runs and register one draw group per zone, so a
+ * material array colours them apart.
  */
 export function splitZones(geometry: THREE.BufferGeometry, zones: PieceZones): THREE.BufferGeometry {
   const pos = geometry.getAttribute("position");
   const tris = pos.count / 3;
-  const buckets: number[][] = [[], [], []];
+  const zonesTotal = zoneCount(zones);
+  const buckets: number[][] = Array.from({ length: zonesTotal }, () => []);
   for (let t = 0; t < tris; t++) {
     const y = (pos.getY(t * 3) + pos.getY(t * 3 + 1) + pos.getY(t * 3 + 2)) / 3;
-    buckets[zoneOf(y, zones)]!.push(t);
+    buckets[zoneOf(y, zones, zones.detail ? triangleNormalY(pos, t) : 0)]!.push(t);
   }
   const out = new Float32Array(pos.count * 3);
   const src = pos.array as ArrayLike<number>;
   let cursor = 0;
   const result = new THREE.BufferGeometry();
-  for (let zone = 0; zone < 3; zone++) {
+  for (let zone = 0; zone < zonesTotal; zone++) {
     const start = cursor;
     for (const t of buckets[zone]!) {
       for (let k = 0; k < 9; k++) out[cursor * 3 + k] = src[t * 9 + k]!;
@@ -241,12 +287,14 @@ export function pieceMaterial({ color, roughness = 0.8, metalness = 0, ghost = f
   return new THREE.MeshStandardMaterial({ color, roughness, metalness, flatShading: true, transparent: ghost, opacity: ghost ? 0.5 : 1, depthWrite: !ghost });
 }
 
-/** One material for an unzoned piece; base / middle / top for a zoned one. */
+/** One material for an unzoned piece; base / middle / top for a zoned one, plus roof / cap for a `detail` one. */
 export function pieceMaterials(config: PieceConfig, options: PieceMaterialOptions): THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[] {
   if (!config.zones || config.fullPlayerColor) return pieceMaterial(options);
   const player = pieceMaterial(options);
-  const middle = pieceMaterial({ ...options, color: options.neutral ?? options.color });
-  return [player, middle, player.clone()];
+  const neutral = options.neutral ?? options.color;
+  const middle = pieceMaterial({ ...options, color: neutral });
+  if (!config.zones.detail) return [player, middle, player.clone()];
+  return [player, middle, player.clone(), pieceMaterial({ ...options, color: options.roof ?? neutral }), pieceMaterial({ ...options, color: options.cap ?? neutral })];
 }
 
 /** The mesh's quarter turn for an `axis: "x"` model: local X → Z. */
@@ -322,11 +370,11 @@ export function disposePiece(group: THREE.Group): void {
  */
 export function usePiece(name: PieceName, options: PieceOptions): THREE.Group | null {
   const [group, setGroup] = useState<THREE.Group | null>(null);
-  const { color, neutral = color, roughness = 0.8, metalness = 0, ghost = false, castShadow = false, receiveShadow = false } = options;
+  const { color, neutral = color, roof = neutral, cap = neutral, roughness = 0.8, metalness = 0, ghost = false, castShadow = false, receiveShadow = false } = options;
   useEffect(() => {
     let live = true;
     let built: THREE.Group | null = null;
-    loadPiece(name, { color, neutral, roughness, metalness, ghost, castShadow, receiveShadow })
+    loadPiece(name, { color, neutral, roof, cap, roughness, metalness, ghost, castShadow, receiveShadow })
       .then((g) => {
         if (!live) return disposePiece(g);
         built = g;
@@ -340,6 +388,6 @@ export function usePiece(name: PieceName, options: PieceOptions): THREE.Group | 
       setGroup((cur) => (cur === built ? null : cur));
       if (built) disposePiece(built);
     };
-  }, [name, color, neutral, roughness, metalness, ghost, castShadow, receiveShadow]);
+  }, [name, color, neutral, roof, cap, roughness, metalness, ghost, castShadow, receiveShadow]);
   return group;
 }

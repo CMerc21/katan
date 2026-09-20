@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { builtInScenario, createGame, legalActions, redact, type Action } from "@katan/engine";
 import { boardBounds } from "@/board3d/layout3d";
-import { bankLayout, barbarianTrackLayout, pileLayout, pileSlot } from "@/board/props/layout";
+import type { RedactedState } from "@/driver/types";
+import { BOOK_GAP, TRACK_MIN_STEP, bankLayout, barbarianTrackLayout, booksLayout, pileLayout, pileSlot } from "@/board/props/layout";
 import { HUD_COPY } from "@/hud/hudCopy";
 import { bannerStats, costRows, handSize, onlyEndTurnLeft, pushRoll, rollHistogram, waitingText } from "@/hud/model";
 
@@ -41,8 +42,11 @@ describe("docs/phase12.md §4 build cost card rows", () => {
     const rows = costRows(view, "a", { wood: 1, clay: 1, wool: 1, grain: 1, ore: 0 }, []);
     expect(rows.map((r) => r.key)).toEqual(["road", "settlement", "city", "devCard"]);
     expect(rows.every((r) => !r.affordable)).toBe(true);
-    expect(rows[0]!.reason).toBe("Only after rolling");
+    // A fresh game is in setup: the starting pieces go on the board, not through the card.
+    expect(rows[0]!.reason).toBe("Place your starting pieces on the board");
     expect(rows[0]!.cost).toEqual(["wood", "clay"]);
+    const rolling = costRows({ ...view, phase: { kind: "roll" } } as RedactedState, "a", { wood: 1, clay: 1, wool: 1, grain: 1, ore: 0 }, []);
+    expect(rolling[0]!.reason).toBe("Only after rolling");
   });
 
   it("Crown rows replace the development card and explain themselves", () => {
@@ -57,7 +61,7 @@ describe("docs/phase12.md §4 build cost card rows", () => {
 
   it("a legal build is affordable and carries its mode; a legal buy carries its action", () => {
     const state = createGame({ seed: "hud-5", players: PLAYERS, board: "beginner" });
-    const view = redact(state, "a");
+    const view = { ...redact(state, "a"), phase: { kind: "action" } } as RedactedState;
     const legal: Action[] = [
       { type: "BUILD_ROAD", playerId: "a", edge: "x" },
       { type: "BUY_DEV_CARD", playerId: "a" },
@@ -122,11 +126,36 @@ describe("docs/phase12.md §7 on-table prop layout", () => {
     expect(b.centre.z).toBeCloseTo(b.origin.z + 2 * b.step);
   });
 
-  it("the barbarian track has seven dots on a circle past the left edge", () => {
+  it("the barbarian lane runs along the bottom-left edge, seven evenly spaced markers ending left of the dice tray", () => {
     const t = barbarianTrackLayout(bounds);
     expect(t.dots).toHaveLength(7);
-    expect(t.centre.x).toBeLessThan(bounds.minX);
-    for (const d of t.dots) expect(Math.hypot(d.x - t.centre.x, d.z - t.centre.z)).toBeCloseTo(t.radius);
+    // Past the near (bottom) edge, in a straight line.
+    expect(t.start.z).toBeGreaterThan(bounds.maxZ);
+    for (const d of t.dots) expect(d.z).toBe(t.start.z);
+    // From the open sea (left) toward the landing (right), clear of the dice tray at cx - 1.1 ± 0.8.
+    for (let i = 1; i < t.dots.length; i++) expect(t.dots[i]!.x - t.dots[i - 1]!.x).toBeCloseTo(t.step);
+    expect(t.dots[0]!.x - t.start.x).toBeCloseTo(t.step);
+    expect(t.end).toEqual(t.dots[6]);
+    expect(t.end.x).toBeLessThan(bounds.cx - 1.9);
+    expect(t.step).toBeGreaterThanOrEqual(TRACK_MIN_STEP);
+  });
+
+  it("a narrow board keeps the markers at the minimum spacing by extending the lane leftward", () => {
+    const narrow = { ...bounds, minX: bounds.cx - 1, maxX: bounds.cx + 1 };
+    const t = barbarianTrackLayout(narrow);
+    expect(t.step).toBe(TRACK_MIN_STEP);
+    expect(t.start.x).toBeLessThan(narrow.minX);
+  });
+
+  it("each seat's improvement books lie just before its pile, stepping across it", () => {
+    for (const seat of [0, 1, 2, 3]) {
+      const pile = pileLayout(bounds, seat);
+      const books = booksLayout(bounds, seat);
+      // Behind the pile's origin along its row direction.
+      expect((books.origin.x - pile.origin.x) * pile.along.x + (books.origin.z - pile.origin.z) * pile.along.z).toBeLessThan(0);
+      expect(books.across).toEqual(pile.across);
+      expect(BOOK_GAP).toBeGreaterThan(0.3);
+    }
   });
 
   it("piles are outside the board and every seat gets a distinct spot", () => {

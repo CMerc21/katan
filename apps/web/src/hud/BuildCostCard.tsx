@@ -2,10 +2,12 @@
 
 /**
  * The parchment build-cost reference card (docs/phase12.md §4), bottom
- * left, tilted two degrees. Rows the player can afford right now get a gold
- * left bar and are clickable: a board row enters its placement mode, the
- * development card row buys one, the improvement row opens the sheet. Crown
- * rows appear only under that module; the ship row only under Tides.
+ * left, tilted two degrees, opened from the Build toggle beneath it (it is
+ * closed by default: the board itself marks every affordable spot). Rows the
+ * player can afford right now get a gold left bar and are clickable: a board
+ * row enters its placement mode, the development card row buys one, the
+ * improvement row opens the sheet. Crown rows appear only under that module;
+ * the ship row only under Tides.
  */
 
 import type { Action } from "@katan/engine";
@@ -71,10 +73,17 @@ function Row({ row, mode, onMode, onDispatch, onImprove }: { row: CostRow; mode:
   );
 }
 
-export function BuildCostCard({ rows, mode, onMode, onDispatch, onImprove }: { rows: readonly CostRow[]; mode: TargetMode; onMode: (m: TargetMode) => void; onDispatch: (a: Action) => void; onImprove: () => void }) {
+export function BuildCostCard({ rows, mode, onMode, onDispatch, onImprove, onClose }: { rows: readonly CostRow[]; mode: TargetMode; onMode: (m: TargetMode) => void; onDispatch: (a: Action) => void; onImprove: () => void; onClose?: (() => void) | undefined }) {
   return (
-    <div className="hud-cost-card" role="group" aria-label="Build costs" data-testid="build-cost-card">
-      <div className="hud-cost-title">Build costs</div>
+    <div className="hud-cost-card" role="group" aria-label="Build costs" data-testid="build-cost-card" id="build-cost-card">
+      <div className="hud-cost-title">
+        Build costs
+        {onClose && (
+          <button type="button" className="hud-cost-close" onClick={onClose} aria-label="Close the build costs" data-testid="build-costs-close">
+            ✕
+          </button>
+        )}
+      </div>
       {rows.map((row) => (
         <Row key={row.key} row={row} mode={mode} onMode={onMode} onDispatch={onDispatch} onImprove={onImprove} />
       ))}

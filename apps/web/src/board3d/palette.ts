@@ -74,6 +74,12 @@ export const HEARTH_LANTERN = "#FFD79A";
 // §4–§5 Pieces
 export const WALL_PLASTER = "#F4EFE6";
 export const KEEP_STONE = "#7A8798";
+/** The GLB cities' walls: a warm sandstone in place of the blue-grey mass, so the player-coloured roofs and the light caps read against it. */
+export const KEEP_WALL = "#B3A88E";
+/** Level faces on the GLB cities (wall tops, battlements, terraces). */
+export const KEEP_CAP = "#DAD3C3";
+/** The roofs' share of the player colour (`dimColor` factor): dark enough to sit under the flag, light enough to still name the owner. */
+export const ROOF_TINT = 0.72;
 export const ROAD_TOP = "#C9976A";
 export const ROBBER = "#2B2118";
 export const ROBBER_SACK = "#E8B84A";
@@ -86,6 +92,8 @@ export const PIRATE_SAIL = "#1f1a17";
 export const INACTIVE = "#9A9A94";
 export const TOKEN_CLAY = "#C9976A";
 export const TOKEN_HOT = "#C0392B";
+/** The token's face: pale bone under an ink numeral, for contrast at the token's on-screen size. */
+export const TOKEN_FACE = "#F4EBD6";
 export const DIE_BONE = "#F4EFE6";
 export const DIE_RED = "#C8553D";
 export const TRAY_LEATHER = "#6B3E2E";

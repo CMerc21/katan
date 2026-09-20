@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { GEOMETRY } from "@katan/engine";
-import { CITY_HEIGHT, PIECES, PIECE_COLORS, WALL_FOOTPRINT, ZONE_BASE, ZONE_MIDDLE, ZONE_TOP, assemblePiece, axisRotationY, dimColor, disposePiece, parsePiece, pieceFit, pieceMaterial, pieceMaterials, prepareGeometry, zoneOf, type PieceName } from "@/board3d/loadPiece";
+import { CAP_NY, CITY_HEIGHT, PIECES, PIECE_COLORS, ROOF_NY, WALL_FOOTPRINT, ZONE_BASE, ZONE_CAP, ZONE_MIDDLE, ZONE_ROOF, ZONE_TOP, assemblePiece, axisRotationY, dimColor, disposePiece, parsePiece, pieceFit, pieceMaterial, pieceMaterials, prepareGeometry, zoneCount, zoneOf, type PieceName } from "@/board3d/loadPiece";
 import { EDGE_LENGTH, HEX_RADIUS, edgeWorld } from "@/board3d/layout3d";
 
 const MODELS = path.resolve(__dirname, "../public/models");
@@ -65,13 +65,13 @@ describe("piece config (world units, hex edge = 1)", () => {
   });
 
   it("pins the zone thresholds and which pieces turn their length axis", () => {
-    expect(PIECES.metropolis.zones).toEqual({ baseMaxY: -0.42, topMinY: 0.38 });
-    expect(PIECES.metropolis_walled.zones).toEqual({ baseMaxY: -0.42, topMinY: 0.4 });
-    expect(PIECES.city_walled.zones).toEqual({ baseMaxY: -0.32, topMinY: 0.2 });
+    expect(PIECES.metropolis.zones).toEqual({ baseMaxY: -0.42, topMinY: 0.38, detail: true });
+    expect(PIECES.metropolis_walled.zones).toEqual({ baseMaxY: -0.42, topMinY: 0.4, detail: true });
+    expect(PIECES.city_walled.zones).toEqual({ baseMaxY: -0.32, topMinY: 0.2, detail: true });
     expect(PIECES.ship.zones).toEqual({ topMinY: 0.2 });
     expect(PIECES.barbarian_ship.zones).toEqual({ topMinY: 0.24 });
     expect(PIECES.pirate.zones).toEqual({ topMinY: 0.18 });
-    expect(PIECES.merchant.zones).toBeNull();
+    expect(PIECES.merchant.zones).toEqual({ baseMaxY: -0.39, topMinY: 0.3 });
     expect(PIECES.knight_1.zones).toEqual({ baseMaxY: -0.42, topMinY: 0.1 });
     expect(PIECES.knight_2.zones).toEqual({ baseMaxY: -0.33, topMinY: 0.22 });
     expect(PIECES.knight_3.zones).toEqual({ baseMaxY: -0.38, topMinY: 0.19 });
@@ -125,6 +125,37 @@ describe("zones", () => {
     expect(zoneOf(z.baseMaxY - 0.01, z)).toBe(ZONE_BASE);
     expect(zoneOf(z.topMinY, z)).toBe(ZONE_TOP);
     expect(zoneOf((z.baseMaxY + z.topMinY) / 2, z)).toBe(ZONE_MIDDLE);
+    // Without `detail` the facing is ignored.
+    expect(zoneOf((z.baseMaxY + z.topMinY) / 2, z, 1)).toBe(ZONE_MIDDLE);
+    expect(zoneCount(z)).toBe(3);
+  });
+
+  it("a detail zone set splits the middle band by facing into wall, roof and cap", () => {
+    const z = { baseMaxY: -0.4, topMinY: 0.3, detail: true };
+    expect(zoneCount(z)).toBe(5);
+    expect(zoneOf(0, z, 0)).toBe(ZONE_MIDDLE);
+    expect(zoneOf(0, z, ROOF_NY)).toBe(ZONE_MIDDLE);
+    expect(zoneOf(0, z, ROOF_NY + 0.01)).toBe(ZONE_ROOF);
+    expect(zoneOf(0, z, -0.6)).toBe(ZONE_ROOF);
+    expect(zoneOf(0, z, CAP_NY + 0.01)).toBe(ZONE_CAP);
+    expect(zoneOf(0, z, -1)).toBe(ZONE_CAP);
+    // Base and top still win over facing.
+    expect(zoneOf(-0.45, z, 1)).toBe(ZONE_BASE);
+    expect(zoneOf(0.35, z, 1)).toBe(ZONE_TOP);
+  });
+
+  it("a detail box gets its level faces in the cap group and its vertical faces in the wall group", () => {
+    const g = prepareGeometry(meshyBox(1, 1, 1, -0.5), { zones: { baseMaxY: -0.4, topMinY: 0.4, detail: true }, fit: { height: 1 } });
+    expect(g.groups.map((gr) => gr.materialIndex)).toEqual([ZONE_BASE, ZONE_MIDDLE, ZONE_TOP, ZONE_ROOF, ZONE_CAP]);
+    // The bottom face is base, the top face is top; the four sides are wall; a box has no slopes and no level face in the middle band.
+    expect(g.groups[ZONE_MIDDLE]!.count).toBe(4 * 8 * 3);
+    expect(g.groups[ZONE_ROOF]!.count).toBe(0);
+    expect(g.groups[ZONE_CAP]!.count).toBe(0);
+    const mats = pieceMaterials({ zones: { baseMaxY: -0.4, topMinY: 0.4, detail: true }, fit: { height: 1 } }, { color: "#ff0000", neutral: "#808080", roof: "#402020", cap: "#e0e0e0" }) as THREE.MeshStandardMaterial[];
+    expect(mats).toHaveLength(5);
+    expect(mats[ZONE_ROOF]!.color.getHexString()).toBe("402020");
+    expect(mats[ZONE_CAP]!.color.getHexString()).toBe("e0e0e0");
+    expect(mats[ZONE_MIDDLE]!.color.getHexString()).toBe("808080");
   });
 
   it("a top-only zone (ship sail) has an empty base group and colours the sail, not the hull", () => {
@@ -226,7 +257,7 @@ describe("fit and lift", () => {
 
 describe("materials", () => {
   it("a zoned piece gets the player colour on base and top and the neutral in the middle", () => {
-    const mats = pieceMaterials(PIECES.city, { color: "#3060c0", neutral: "#7a8798" }) as THREE.MeshStandardMaterial[];
+    const mats = pieceMaterials(PIECES.knight_1, { color: "#3060c0", neutral: "#7a8798" }) as THREE.MeshStandardMaterial[];
     expect(mats).toHaveLength(3);
     expect(mats[ZONE_BASE]!.color.getHexString()).toBe("3060c0");
     expect(mats[ZONE_MIDDLE]!.color.getHexString()).toBe("7a8798");
@@ -237,9 +268,19 @@ describe("materials", () => {
     }
   });
 
+  it("the city models are detail pieces whose roof and cap default to the neutral", () => {
+    for (const name of ["city", "city_walled", "metropolis", "metropolis_walled"] as const) {
+      expect(PIECES[name].zones?.detail).toBe(true);
+      const mats = pieceMaterials(PIECES[name], { color: "#3060c0", neutral: "#7a8798" }) as THREE.MeshStandardMaterial[];
+      expect(mats).toHaveLength(5);
+      expect(mats[ZONE_ROOF]!.color.getHexString()).toBe("7a8798");
+      expect(mats[ZONE_CAP]!.color.getHexString()).toBe("7a8798");
+    }
+  });
+
   it("unzoned and fully player-coloured pieces get one material", () => {
     expect(Array.isArray(pieceMaterials(PIECES.road, { color: "#c03030" }))).toBe(false);
-    expect(Array.isArray(pieceMaterials(PIECES.merchant, { color: "#c9b58a" }))).toBe(false);
+    expect(Array.isArray(pieceMaterials(PIECES.robber, { color: "#1a1a1a" }))).toBe(false);
   });
 
   it("the material takes its colour and roughness from the caller and honours ghost", () => {
@@ -274,18 +315,28 @@ describe("GLB files in public/models", () => {
     expect(Math.abs(box.min.y + box.max.y)).toBeLessThan(0.1);
   });
 
-  it.each(ZONED)("%s is split into base / middle / top draw groups that honour the thresholds", async (name) => {
+  it.each(ZONED)("%s is split into base / middle / top (and roof / cap) draw groups that honour the thresholds", async (name) => {
     const g = await parsePiece(name, glb(name));
     const zones = PIECES[name].zones!;
     const pos = g.getAttribute("position");
-    expect(g.groups.map((gr) => gr.materialIndex)).toEqual([ZONE_BASE, ZONE_MIDDLE, ZONE_TOP]);
+    const normal = g.getAttribute("normal");
+    expect(g.groups.map((gr) => gr.materialIndex)).toEqual(zones.detail ? [ZONE_BASE, ZONE_MIDDLE, ZONE_TOP, ZONE_ROOF, ZONE_CAP] : [ZONE_BASE, ZONE_MIDDLE, ZONE_TOP]);
     expect(g.groups.reduce((sum, gr) => sum + gr.count, 0)).toBe(pos.count);
     for (const gr of g.groups) {
       for (let v = gr.start; v < gr.start + gr.count; v += 3) {
         const y = (pos.getY(v) + pos.getY(v + 1) + pos.getY(v + 2)) / 3;
-        expect(zoneOf(y, zones)).toBe(gr.materialIndex);
+        // The flat normal of the corner is the triangle's; the split used the same facing.
+        expect(zoneOf(y, zones, normal.getY(v))).toBe(gr.materialIndex);
       }
     }
+  });
+
+  it.each(["city", "city_walled", "metropolis", "metropolis_walled"] as const)("%s has roofs and caps to colour", async (name) => {
+    const g = await parsePiece(name, glb(name));
+    const count = (zone: number) => g.groups.find((gr) => gr.materialIndex === zone)!.count;
+    expect(count(ZONE_ROOF)).toBeGreaterThan(0);
+    expect(count(ZONE_CAP)).toBeGreaterThan(0);
+    expect(count(ZONE_MIDDLE)).toBeGreaterThan(0);
   });
 
   it.each(ZONED)("%s puts real geometry in every zone it declares", async (name) => {

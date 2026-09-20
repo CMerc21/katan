@@ -11,7 +11,7 @@ import * as THREE from "three";
 import type { PortKind, Resource } from "@katan/engine";
 import { RESOURCE_SHORT, portLabel } from "@/game/labels";
 import { INK, PARCHMENT, RESOURCE_COLOR } from "@/game/theme";
-import { EVENT_FLEET, TABLE_WALNUT, TOKEN_CLAY, TOKEN_HOT } from "./palette";
+import { EVENT_FLEET, TABLE_WALNUT, TOKEN_CLAY, TOKEN_FACE, TOKEN_HOT } from "./palette";
 
 const cache = new Map<string, THREE.Texture>();
 
@@ -34,7 +34,12 @@ function finish(key: string, c: HTMLCanvasElement): THREE.Texture {
 
 const PIPS: Record<number, number> = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
 
-/** The recessed face of a number token: clay (red for 6 and 8), the numeral, pips below it. */
+/**
+ * The recessed face of a number token: a clay rim (red for 6 and 8) around a
+ * pale bone face, the numeral in ink (wax red on 6 and 8), pips below it. The
+ * face used to be a darker clay under an ink numeral, which is about 3:1 and
+ * unreadable at the token's on-screen size; bone under ink is 12:1.
+ */
 export function tokenTexture(n: number): THREE.Texture {
   const key = `token:${n}`;
   const hit = cache.get(key);
@@ -45,27 +50,27 @@ export function tokenTexture(n: number): THREE.Texture {
   ctx.beginPath();
   ctx.arc(128, 128, 128, 0, Math.PI * 2);
   ctx.fill();
-  // The recessed face: a slightly darker disc with a soft shadow along its upper rim.
-  ctx.fillStyle = hot ? "#b64b36" : "#b98a5f";
+  ctx.fillStyle = TOKEN_FACE;
   ctx.beginPath();
-  ctx.arc(128, 128, 112, 0, Math.PI * 2);
+  ctx.arc(128, 128, 110, 0, Math.PI * 2);
   ctx.fill();
-  const shade = ctx.createLinearGradient(0, 16, 0, 96);
-  shade.addColorStop(0, "rgba(40,20,10,0.28)");
+  // A soft shadow along the upper rim so the face still reads as recessed.
+  const shade = ctx.createLinearGradient(0, 18, 0, 90);
+  shade.addColorStop(0, "rgba(40,20,10,0.22)");
   shade.addColorStop(1, "rgba(40,20,10,0)");
   ctx.fillStyle = shade;
   ctx.beginPath();
-  ctx.arc(128, 128, 112, 0, Math.PI * 2);
+  ctx.arc(128, 128, 110, 0, Math.PI * 2);
   ctx.fill();
-  ctx.font = "bold 124px 'Palatino Linotype', Palatino, Georgia, serif";
+  ctx.font = "bold 150px 'Palatino Linotype', Palatino, Georgia, serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillStyle = hot ? "#f6ead3" : INK;
-  ctx.fillText(String(n), 128, 112);
+  ctx.fillStyle = hot ? TOKEN_HOT : INK;
+  ctx.fillText(String(n), 128, 116);
   const pips = PIPS[n] ?? 0;
   for (let i = 0; i < pips; i++) {
     ctx.beginPath();
-    ctx.arc(128 + (i - (pips - 1) / 2) * 22, 196, 7, 0, Math.PI * 2);
+    ctx.arc(128 + (i - (pips - 1) / 2) * 20, 204, 6.5, 0, Math.PI * 2);
     ctx.fill();
   }
   return finish(key, c);
