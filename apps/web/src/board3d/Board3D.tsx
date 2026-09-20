@@ -22,8 +22,9 @@ import { AnimatedPirate, AnimatedRobber, DiceTray3D, Projector, projectWorld, ty
 import { Harbor } from "./Harbor";
 import { INTERACTION_LAYER, InteractionLayer, NO_PICK, computeTargets, targetLabel, targetName, type CrownPick, type TargetMode } from "./Interaction";
 import { boardBounds, hexWorld, edgeWorld, vertexWorld, SLAB_HEIGHT, type Bounds, type World } from "./layout3d";
+import { TERRAIN_LIFT } from "./slab";
 import { DioramaEnvironment } from "./environment";
-import { KEY_LIGHT, FILL_GROUND, FILL_SKY, RIM_LIGHT } from "./palette";
+import { BACKDROP, KEY_LIGHT, FILL_GROUND, FILL_SKY, RIM_LIGHT } from "./palette";
 import { CityFigure, RoadFigure, SettlementFigure, ShipFigure } from "./Pieces";
 import { Props, type PropHex } from "./Props";
 import { FrameWatchdog, QUALITY_PRESETS, detectQuality, readDeviceInfo, type Quality } from "./quality";
@@ -110,6 +111,30 @@ export const SHADOW_MARGIN = 1.5;
 export const EXPOSURE = 1.28;
 /** The contact-shadow plane clears the land tops' relief (±`LAND_RELIEF`). */
 export const CONTACT_LIFT = 0.03;
+
+/**
+ * Atmospheric depth. Without fog the board is equally crisp from the near edge
+ * to the far one and the table runs to a hard horizon, which flattens the
+ * whole scene into a single plane. The fog colour is the backdrop, so the
+ * table dissolves into the background instead of ending.
+ *
+ * Both distances are relative to the board's radius rather than absolute: the
+ * camera frames the board by its radius (`framingDistance`), so this keeps the
+ * same look on a Beginner board and on a large Phase 8 one.
+ */
+/*
+ * These bracket a narrow range on purpose. The camera frames the board by its
+ * radius (`framingDistance` at FOV 32), which puts the board centre about 4x
+ * the radius away and the whole visible scene inside roughly 3.3x to 5.5x --
+ * so a far plane out at 7x or 9x spreads the gradient over depth the camera
+ * never shows and fogs nothing but the top corners. Measured by rendering the
+ * fog in magenta and reading off what it actually covered.
+ *
+ * At 4.0 / 6.0 the board centre is clear, its far edge takes about a third,
+ * and the table behind it dissolves into the backdrop.
+ */
+export const FOG_NEAR = 4;
+export const FOG_FAR = 6;
 
 function lightPosition(cx: number, cz: number, azimuth: number, elevation: number, distance: number): [number, number, number] {
   return [cx + distance * Math.cos(elevation) * Math.sin(azimuth), distance * Math.sin(elevation), cz + distance * Math.cos(elevation) * Math.cos(azimuth)];
@@ -204,6 +229,12 @@ export function Board3D(props: Board3DProps) {
   const robberCentred = view.board.hexes[view.robberHex]?.token === null;
   const cityUpgrades = useMemo(() => crownCityUpgrades(view), [view]);
   const landSet = useMemo(() => new Set(hexIds), [hexIds]);
+  /**
+   * A tile's interior rides its terrain's centre lift (`TERRAIN_LIFT`), so
+   * everything standing at the middle of a hex has to rise with it. Sea and
+   * frame cells are not in `board.hexes`, so they fall through to 0.
+   */
+  const liftOf = useCallback((hex: HexId) => (view.board.hexes[hex]?.terrain ? TERRAIN_LIFT[view.board.hexes[hex]!.terrain as Terrain] : 0), [view.board.hexes]);
   const bounds = useMemo(() => boardBounds([...hexIds, ...view.board.sea]), [hexIds, view.board.sea]);
   // The shadow frustum and the contact-shadow plane are fitted to the land alone.
   const landBounds = useMemo(() => boardBounds(hexIds), [hexIds]);
@@ -314,7 +345,8 @@ export function Board3D(props: Board3DProps) {
         }}
         style={{ touchAction: "none" }}
       >
-        <color attach="background" args={["#2a1c13"]} />
+        <color attach="background" args={[BACKDROP]} />
+        <fog attach="fog" args={[BACKDROP, bounds.radius * FOG_NEAR, bounds.radius * FOG_FAR]} />
         <CameraRig bounds={bounds} resetToken={resetToken} focus={focus} hero={hero} />
         <Lights shadows={preset.shadows} shadowMap={preset.shadowMap} bounds={bounds} landBounds={landBounds} environment={preset.envIntensity > 0} />
         <DioramaEnvironment intensity={preset.envIntensity} keyAzimuth={KEY_AZIMUTH} keyElevation={KEY_ELEVATION} />
@@ -355,10 +387,10 @@ export function Board3D(props: Board3DProps) {
             ])}
           </group>
           <WayfarersBoard view={view} shadows={preset.shadows} idle={preset.idleMotion} centre={centre} land={landSet} />
-          <CrownBoard view={view} shadows={preset.shadows} freshKnight={freshKnight} />
-          <AnimatedRobber hex={view.robberHex} shadows={preset.shadows} centred={robberCentred} />
+          <CrownBoard view={view} shadows={preset.shadows} freshKnight={freshKnight} liftOf={liftOf} />
+          <AnimatedRobber hex={view.robberHex} shadows={preset.shadows} centred={robberCentred} liftOf={liftOf} />
           {view.pirateHex !== null && <AnimatedPirate hex={view.pirateHex} shadows={preset.shadows} />}
-          <InteractionLayer targets={targets} color={meColor} onAction={onAction} idle={preset.idleMotion} {...(onPickShip ? { onPickShip } : {})} {...(onPickStep ? { onPickStep } : {})} {...(onPickKnight ? { onPickKnight } : {})} {...(onPick ? { onPick } : {})} />
+          <InteractionLayer targets={targets} color={meColor} onAction={onAction} idle={preset.idleMotion} liftOf={liftOf} {...(onPickShip ? { onPickShip } : {})} {...(onPickStep ? { onPickStep } : {})} {...(onPickKnight ? { onPickKnight } : {})} {...(onPick ? { onPick } : {})} />
           <DiceTray3D bounds={bounds} dice={view.lastRoll} rollKey={rollKey} shadows={preset.shadows} eventDie={eventDie} redDie={view.scenario?.crown === true} />
           {children}
         </group>

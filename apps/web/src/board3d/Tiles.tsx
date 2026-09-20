@@ -13,7 +13,7 @@ import * as THREE from "three";
 import type { HexId, Terrain } from "@katan/engine";
 import { hexWorld, tileJitter } from "./layout3d";
 import { TOKEN_CLAY, TOKEN_HOT } from "./palette";
-import { LAND_HEIGHT, RECESS_DEPTH, SEA_SLAB_HEIGHT, SEA_VARIANTS, buildSlab, seaVariant, type SlabSpec } from "./slab";
+import { LAND_HEIGHT, RECESS_DEPTH, SEA_SLAB_HEIGHT, SEA_VARIANTS, TERRAIN_LIFT, buildSlab, seaVariant, type SlabSpec } from "./slab";
 import { tokenTexture } from "./textures";
 
 export interface TileInfo {
@@ -227,10 +227,13 @@ export function Tiles({ tiles, robberHex, rolled, rollKey, blockedHex, shadows, 
         else geometry = land.get(tile.id);
         if (!geometry) return null;
         const height = (isSea || isFrame ? SEA_SLAB_HEIGHT : LAND_HEIGHT) * j.height;
+        // The tile's interior rides its terrain's centre lift, so anything
+        // standing at the middle of the hex has to rise with it.
+        const lift = tile.kind === "land" && tile.terrain ? TERRAIN_LIFT[tile.terrain] : 0;
         const blocked = blockedHex === tile.id;
         const slab = <mesh geometry={geometry} material={isSea ? materials.sea : materials.land} position={[c.x, 0, c.z]} rotation={[0, j.rotation + turn, 0]} scale={[1, j.height, 1]} receiveShadow={shadows} castShadow={shadows && !isSea} name={`tile:${tile.id}`} />;
-        const token = tile.token !== null && tile.kind === "land" ? <Token n={tile.token} x={c.x} z={c.z} y={height - RECESS_DEPTH * j.height} bounceKey={rolled === tile.token && tile.id !== robberHex ? rollKey : null} dim={blocked} /> : null;
-        const glitter = tile.terrain === "gold" ? <GoldGlitter x={c.x} z={c.z} y={height} /> : null;
+        const token = tile.token !== null && tile.kind === "land" ? <Token n={tile.token} x={c.x} z={c.z} y={height + (lift - RECESS_DEPTH) * j.height} bounceKey={rolled === tile.token && tile.id !== robberHex ? rollKey : null} dim={blocked} /> : null;
+        const glitter = tile.terrain === "gold" ? <GoldGlitter x={c.x} z={c.z} y={height + lift * j.height} /> : null;
         return blocked ? (
           <group key={tile.id} ref={shaking}>
             {slab}

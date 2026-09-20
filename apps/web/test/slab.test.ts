@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GEOMETRY } from "@katan/engine";
-import { CORNER_RADIUS, LAND_HEIGHT, LAND_RELIEF, RECESS_DEPTH, RECESS_RADIUS, SEA_RELIEF, SEA_SLAB_HEIGHT, SLAB_RADIUS, buildSlab, propBoundary, roundedHexOutline, roundedHexRadius, seaVariant, slabJitter } from "@/board3d/slab";
+import { CORNER_RADIUS, LAND_HEIGHT, LAND_RELIEF, RECESS_DEPTH, RECESS_RADIUS, SEA_RELIEF, SEA_SLAB_HEIGHT, SLAB_RADIUS, TERRAIN_LIFT, buildSlab, propBoundary, roundedHexOutline, roundedHexRadius, seaVariant, slabJitter } from "@/board3d/slab";
 
 const deg = Math.PI / 180;
 
@@ -21,6 +21,9 @@ describe("docs/props.md §1 slab", () => {
   });
 
   it("a land slab is 0.22 R tall with a 0.03 R recess and ±0.05 R relief, and every top face points up", () => {
+    // Forest carries a centre lift, so the recess floor and the top sit that
+    // much higher; the rim stays at LAND_HEIGHT, which is the plane pieces use.
+    const lift = TERRAIN_LIFT.forest;
     const { geometry, height } = buildSlab({ kind: "land", terrain: "forest", seed: "0,0" });
     expect(height).toBeCloseTo(LAND_HEIGHT, 9);
     const pos = geometry.attributes.position!;
@@ -37,22 +40,26 @@ describe("docs/props.md §1 slab", () => {
       maxY = Math.max(maxY, y);
       expect(Math.hypot(x, z)).toBeLessThanOrEqual(SLAB_RADIUS + 1e-6);
       if (Math.hypot(x, z) < RECESS_RADIUS - 1e-6 && y > 0.01) {
-        expect(y).toBeCloseTo(LAND_HEIGHT - RECESS_DEPTH, 6);
+        expect(y).toBeCloseTo(LAND_HEIGHT + lift - RECESS_DEPTH, 6);
         floorSeen = true;
       }
     }
     expect(floorSeen).toBe(true);
     expect(minY).toBeCloseTo(0, 9);
-    expect(maxY).toBeLessThanOrEqual(LAND_HEIGHT + LAND_RELIEF + 1e-6);
+    expect(maxY).toBeLessThanOrEqual(LAND_HEIGHT + lift + LAND_RELIEF + 1e-6);
     expect(maxY).toBeGreaterThan(LAND_HEIGHT);
     // Faces on the top plane face up, the walls face out.
     for (let i = 0; i < pos.count; i += 3) {
       const y = (pos.getY(i) + pos.getY(i + 1) + pos.getY(i + 2)) / 3;
+      const cx = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3;
+      const cz = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3;
       const ny = nrm.getY(i);
-      if (y > LAND_HEIGHT - 0.005) expect(ny).toBeGreaterThan(0.5);
+      // The ring between the recess floor and the surface is a deliberately
+      // near-vertical wall. Classifying faces by height alone put it on the
+      // top plane once the recess started riding the terrain's centre lift.
+      const onRecessWall = Math.abs(Math.hypot(cx, cz) - RECESS_RADIUS) < 0.02;
+      if (!onRecessWall && y > LAND_HEIGHT - 0.005) expect(ny).toBeGreaterThan(0.5);
       else if (y < LAND_HEIGHT - RECESS_DEPTH - 0.01) {
-        const cx = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3;
-        const cz = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3;
         expect(nrm.getX(i) * cx + nrm.getZ(i) * cz).toBeGreaterThan(0);
       }
     }

@@ -334,7 +334,7 @@ function VertexGhost({ action, vertex, color }: { action: Action; vertex: Vertex
   }
 }
 
-export function InteractionLayer({ targets, color, onAction, onHover, onPickShip, onPickStep, onPickKnight, onPick, idle = true }: { targets: Targets; color: PlayerColor; onAction: (a: Action) => void; onHover?: (h: Hover) => void; onPickShip?: (edge: EdgeId) => void; onPickStep?: (vertex: VertexId) => void; onPickKnight?: (vertex: VertexId) => void; onPick?: (id: string) => void; idle?: boolean }) {
+export function InteractionLayer({ targets, color, onAction, onHover, onPickShip, onPickStep, onPickKnight, onPick, idle = true, liftOf = () => 0 }: { targets: Targets; color: PlayerColor; onAction: (a: Action) => void; onHover?: (h: Hover) => void; onPickShip?: (edge: EdgeId) => void; onPickStep?: (vertex: VertexId) => void; onPickKnight?: (vertex: VertexId) => void; onPick?: (id: string) => void; idle?: boolean; liftOf?: (hex: HexId) => number }) {
   const accent = PLAYER_FILL[color];
   const [hover, setHover] = useState<Hover>(null);
   const rings = useRef<THREE.Object3D[]>([]);
@@ -485,7 +485,7 @@ export function InteractionLayer({ targets, color, onAction, onHover, onPickShip
         const key = `ph:${h}`;
         const hovered = hover?.kind === "pick" && hover.id === h;
         return (
-          <group key={key} position={[c.x, SLAB_HEIGHT + 0.005, c.z]}>
+          <group key={key} position={[c.x, SLAB_HEIGHT + liftOf(h) + 0.005, c.z]}>
             <mesh layers={INTERACTION_LAYER} onPointerDown={press(key)} onPointerUp={releasePick(key, h)} onClick={stop} onPointerOver={(ev) => (stop(ev), set({ kind: "pick", id: h }))} onPointerOut={() => set(null)} rotation={[-Math.PI / 2, 0, 0]} userData={{ target: key }}>
               <circleGeometry args={[0.9, 6]} />
               {invisible}
@@ -571,7 +571,7 @@ export function InteractionLayer({ targets, color, onAction, onHover, onPickShip
         const merchant = action.type === "PLAY_PROGRESS" && action.card === "merchant";
         const o = pirate ? pirateOffset() : guard ? guardOffset(0) : merchant ? merchantOffset() : robberOffset();
         return (
-          <group key={key} position={[c.x, SLAB_HEIGHT + 0.005, c.z]}>
+          <group key={key} position={[c.x, SLAB_HEIGHT + liftOf(h) + 0.005, c.z]}>
             <mesh layers={INTERACTION_LAYER} onPointerDown={press(key)} onPointerUp={release(key, action)} onClick={stop} onPointerOver={(ev) => (stop(ev), set({ kind: "hex", id: h }))} onPointerOut={() => set(null)} rotation={[-Math.PI / 2, 0, 0]} userData={{ target: key }}>
               <circleGeometry args={[0.9, 6]} />
               {invisible}

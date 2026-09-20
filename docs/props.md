@@ -21,6 +21,23 @@ shading renders as almost no value change, so the polygons were there but
 invisible. Without both, every tile reads as one flat colour whatever the
 lighting does. `test/slab.test.ts` pins the separation.
 
+**Terrain lift.** A tile's interior rises or dips by its terrain's
+`TERRAIN_LIFT` — mountains +0.10 R, gold +0.07, hills +0.055, forest +0.025,
+pasture and fields flat, desert −0.02, lake −0.03 — as a dome anchored at the
+slab rim, easing from the lift at the recess to zero at the edge.
+
+It is deliberately *not* a change of slab height. Pieces sit on a single flat
+plane: settlements and cities at the hex vertices (radius 1, just outside
+`SLAB_RADIUS`), roads at the edge midpoints, and every one is placed at the
+constant `SLAB_HEIGHT`. Raising whole slabs would make all of that per-tile,
+and a road spanning two tiles of different heights has no correct answer. The
+rim therefore stays put and only the interior moves, which reads as elevation
+from above without giving the board cliffs. Anything standing at a hex centre
+has to rise with it — the number token, the robber, the merchant, the gold
+glitter and the hex target rings all take the lift (`liftOf` in `Board3D`);
+props get it through `reliefField`. The relief also fades out at the rim now,
+so roads and settlements sit flush instead of proud of the tile.
+
 ## 2. Terrain colors
 
 The tops are a **luminance ladder**, not just a set of hues: every terrain sits
@@ -104,6 +121,7 @@ Props avoid the center recess and a 0.06 R margin at the slab edge. Layout posit
 - Tone mapping: `NeutralToneMapping` (Khronos PBR Neutral) at exposure 1.28. Not ACES — it is built for filmed footage and desaturates exactly the saturated mid-tones §2 is made of.
 - Table: plane with a subtle procedural wood-grain shader or a single tiling texture, walnut `#5B3A24`, receives shadows.
 - Post (High and Medium): vignette offset 0.55 darkness 0.22, tilt-shift blur 0.35 with a 0.8 taper.
+- Fog: linear, the backdrop colour `#2a1c13`, from 4.0x to 6.0x the board's radius. The distances bracket a narrow range on purpose: the camera frames the board by its radius, which puts the whole visible scene inside roughly 3.3x to 5.5x, so a far plane at 7x or 9x spreads the gradient over depth the camera never shows and fogs nothing but the top corners. Tuned by rendering the fog in magenta and reading off what it actually covered. The board centre stays clear, its far edge takes about a third, and the table dissolves into the backdrop rather than running to a hard edge.
 - Contact shadows (High only): a grounding pass under the pieces and props, on a plane 0.03 R above the land tops so the slabs' own relief never darkens it.
 
 ## 7. Implementation notes and deviations

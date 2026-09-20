@@ -96,6 +96,8 @@ export const RIM_LIGHT = "#A8C8E4";
 export const FILL_SKY = "#CFE3F0";
 export const FILL_GROUND = "#4A5060";
 export const TABLE_WALNUT = "#5B3A24";
+/** The canvas backdrop, and the fog colour: the table fades into it rather than running to a hard horizon. */
+export const BACKDROP = "#2a1c13";
 
 // §6 Image-based light (`environment.ts`): the equirect sky's ramp and blobs.
 export const ENV_ZENITH = "#6E96B8";

@@ -36,6 +36,38 @@ export const SEA_RELIEF = 0.05;
  * blend into a smooth gradient.
  */
 export const FACET_SHADE = 0.14;
+
+/**
+ * Per-terrain centre lift (docs/props.md §1): how far a tile's interior rises
+ * above, or dips below, the nominal top face.
+ *
+ * It is a dome anchored at the slab rim, not a change of slab height. Pieces
+ * sit on a single flat plane -- settlements and cities at the hex vertices
+ * (radius 1, just outside `SLAB_RADIUS`), roads at the edge midpoints -- and
+ * every one of them is placed at the constant `SLAB_HEIGHT`. Raising whole
+ * slabs would need all of that to become per-tile, and a road spanning two
+ * tiles of different heights has no correct answer, so the rim stays put and
+ * only the interior moves. That reads as elevation from above without giving
+ * the board cliffs.
+ */
+export const TERRAIN_LIFT: Record<Terrain, number> = {
+  mountain: 0.1,
+  gold: 0.07,
+  claypit: 0.055,
+  forest: 0.025,
+  meadow: 0,
+  farmland: 0,
+  wasteland: -0.02,
+  lake: -0.03,
+};
+
+export const MAX_TERRAIN_LIFT = Math.max(...Object.values(TERRAIN_LIFT));
+export const MIN_TERRAIN_LIFT = Math.min(...Object.values(TERRAIN_LIFT));
+
+/** The centre lift for a slab; only land tiles carry one. */
+export function centreLift(spec: SlabSpec): number {
+  return spec.kind === "land" && spec.terrain ? TERRAIN_LIFT[spec.terrain] : 0;
+}
 export const RECESS_RADIUS = 0.32;
 export const LAKE_RADIUS = 0.6;
 export const RECESS_DEPTH = 0.03;
@@ -241,12 +273,25 @@ export function reliefField(spec: SlabSpec): (x: number, z: number) => number {
   if (relief === 0) return () => 0;
   const ox = ((seed & 0xffff) / 0xffff) * 10;
   const oz = (((seed >>> 16) & 0xffff) / 0xffff) * 10;
+  const lift = centreLift(spec);
   return (x, z) => {
     const r = Math.hypot(x, z);
     const taper = recess > 0 ? Math.min(1, Math.max(0, (r - recess - 0.04) / 0.12)) : 1;
+    // Fade the relief out at the rim as well. Roads lie at the edge midpoints
+    // and settlements at the corners; at ±0.05 R of relief right up to the
+    // edge they visibly sat proud of, or sunk into, the tile.
+    const rim = Math.min(1, Math.max(0, (SLAB_RADIUS - r) / 0.18));
     const n = valueNoise(x * 2.4 + ox, z * 2.4 + oz, seed) * 0.7 + valueNoise(x * 6 + oz, z * 6 + ox, seed ^ 0x9e37) * 0.3;
-    return n * relief * taper;
+    return n * relief * taper * rim + domeAt(r, lift, recess);
   };
+}
+
+/** The centre dome: `lift` at the recess and inside it, easing to 0 at the rim. */
+export function domeAt(r: number, lift: number, recess: number): number {
+  if (lift === 0) return 0;
+  const inner = Math.max(recess, 0);
+  const t = Math.min(1, Math.max(0, (SLAB_RADIUS - r) / (SLAB_RADIUS - inner)));
+  return lift * t * t * (3 - 2 * t);
 }
 
 /** Build the slab for `spec`. Base at y = 0; the nominal top face at y = height, relief around it. */
@@ -259,12 +304,13 @@ export function buildSlab(spec: SlabSpec): SlabBuild {
   const topAt = reliefField(spec);
   const colorAt = (r: number): THREE.Color => (apron && r < 0.52 ? apron : topColor);
 
+  const lift = centreLift(spec);
   const rings: Pt[][] = [];
   if (recess > 0) {
-    rings.push([{ x: 0, z: 0, y: -RECESS_DEPTH, t: 0, color: floor }]);
-    rings.push(ring(8, () => recess * 0.5, () => -RECESS_DEPTH, () => floor));
-    rings.push(ring(18, () => recess, () => -RECESS_DEPTH, () => floor));
-    rings.push(ring(18, () => recess + 0.004, () => 0, () => colorAt(recess)));
+    rings.push([{ x: 0, z: 0, y: lift - RECESS_DEPTH, t: 0, color: floor }]);
+    rings.push(ring(8, () => recess * 0.5, () => lift - RECESS_DEPTH, () => floor));
+    rings.push(ring(18, () => recess, () => lift - RECESS_DEPTH, () => floor));
+    rings.push(ring(18, () => recess + 0.004, () => domeAt(recess, lift, recess), () => colorAt(recess)));
   } else {
     rings.push([{ x: 0, z: 0, y: topAt(0, 0), t: 0, color: topColor }]);
   }

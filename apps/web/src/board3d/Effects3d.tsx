@@ -24,7 +24,7 @@ import { fleetFaceTexture } from "./textures";
 // Robber
 
 /** The robber hops between hexes; `centred` stands it in the recess (the desert has no token). */
-export function AnimatedRobber({ hex, shadows, centred = false }: { hex: HexId; shadows: boolean; centred?: boolean }) {
+export function AnimatedRobber({ hex, shadows, centred = false, liftOf = () => 0 }: { hex: HexId; shadows: boolean; centred?: boolean; liftOf?: (hex: HexId) => number }) {
   const group = useRef<THREE.Group>(null);
   const from = useRef<(World & { y: number }) | null>(null);
   const to = useRef<HexId>(hex);
@@ -33,7 +33,7 @@ export function AnimatedRobber({ hex, shadows, centred = false }: { hex: HexId; 
   const dest = (h: HexId, c: boolean): World & { y: number } => {
     const at = hexWorld(h);
     const o = robberOffset(c);
-    return { x: at.x + o.dx, z: at.z + o.dz, y: SLAB_HEIGHT + o.dy };
+    return { x: at.x + o.dx, z: at.z + o.dz, y: SLAB_HEIGHT + liftOf(h) + o.dy };
   };
   useEffect(() => {
     if (to.current !== hex) {

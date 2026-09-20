@@ -502,7 +502,7 @@ function ProceduralLongship({ shadows }: { shadows: boolean }) {
 // ---------------------------------------------------------------------------
 
 /** Everything Crown & Castle adds to the board, from the rendered view. */
-export function CrownBoard({ view, shadows, freshKnight }: { view: RedactedState; shadows: boolean; freshKnight: VertexId | null }) {
+export function CrownBoard({ view, shadows, freshKnight, liftOf = () => 0 }: { view: RedactedState; shadows: boolean; freshKnight: VertexId | null; liftOf?: (hex: HexId) => number }) {
   const c = view.crown;
   if (!c || !view.scenario?.crown) return null;
   const colorOf = new Map(view.players.map((p) => [p.id, p.color] as const));
@@ -515,7 +515,7 @@ export function CrownBoard({ view, shadows, freshKnight }: { view: RedactedState
       ))}
       {/* Walls and metropolises are whole-city models: Board3D draws `CrownCityFigure` in place of the city (see `crownCityUpgrades`). */}
       {merchant && (
-        <group position={[merchant.x + mo.dx, SLAB_HEIGHT, merchant.z + mo.dz]}>
+        <group position={[merchant.x + mo.dx, SLAB_HEIGHT + (c.merchant ? liftOf(c.merchant.hex) : 0), merchant.z + mo.dz]}>
           <MerchantFigure shadows={shadows} />
         </group>
       )}
