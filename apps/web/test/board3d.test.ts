@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GEOMETRY, createGame, legalActions, parseEdgeId, type Action, type HexId } from "@katan/engine";
 import { createLayout } from "@/board/layout";
-import { boardBounds, edgeWorld, framingDistance, hexCornerWorld, hexWorld, shorelineEdges, tileJitter, vertexWorld } from "@/board3d/layout3d";
+import { CAMERA_SEA_MARGIN, boardBounds, cameraBounds, edgeWorld, framingDistance, hexCornerWorld, hexWorld, shorelineEdges, tileJitter, vertexWorld } from "@/board3d/layout3d";
 import { computeTargets, targetName, wagonMoveFor } from "@/board3d/Interaction";
 import { FrameWatchdog, QUALITY_PRESETS, detectQuality, resolveDpr, stepDown } from "@/board3d/quality";
 import { FOOTPRINT, HERO_PROP, propsForHex, type PropKind, type PropTerrain } from "@/board3d/props";
@@ -61,6 +61,23 @@ describe("docs/phase7-5.md §2 world layout agrees with the 2D layout", () => {
       expect(Math.abs(j.rotation)).toBeLessThanOrEqual(0.4 * deg);
       expect(Math.abs(j.height - 1)).toBeLessThanOrEqual(0.015);
     }
+  });
+});
+
+describe("docs/phase12.md §9 camera framing", () => {
+  it("frames the land plus one ring of sea, never more than the whole board", () => {
+    const state = createGame({ seed: "frame", players: [{ id: "a", name: "A" }, { id: "b", name: "B" }, { id: "c", name: "C" }], board: "beginner" });
+    const land = boardBounds(Object.keys(state.board.hexes));
+    // The beginner board has a frame, not a sea, so its bounds are the land's: the camera frames the land.
+    expect(cameraBounds(boardBounds([...Object.keys(state.board.hexes), ...state.board.sea]), land)).toEqual(land);
+    // A wide sea (two rings and more) is cut to one ring past the land plus room for the props.
+    const wide = { ...land, radius: land.radius + 6 };
+    const framed = cameraBounds(wide, land);
+    expect(framed.cx).toBe(land.cx);
+    expect(framed.radius).toBeCloseTo(land.radius + CAMERA_SEA_MARGIN);
+    // A narrow sea is framed whole.
+    const narrow = { ...land, radius: land.radius + 1 };
+    expect(cameraBounds(narrow, land).radius).toBeCloseTo(narrow.radius);
   });
 });
 

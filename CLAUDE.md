@@ -86,7 +86,7 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 ### Phase 12 — HUD rework (done)
 
-* Presentation only. One full-bleed diorama with a single `HudLayer` over it (`apps/web/src/hud/`): player banners across the top, an icon-only resource tray, a left rail of square icon buttons with slide-in side panels (chat, emote, log, stats, rules, settings, leave), the parchment build-cost card, round Trade / End turn / Cards buttons, dark event toasts and help tips fed by `hudCopy.ts`. On-table props in `apps/web/src/board/props/` (bank decks, piece piles, the barbarian track). The old sidebar and bottom bar are gone (tag `hud-legacy`). Details in `docs/phase12.md`.
+* Presentation, plus three small rules that the HUD exposes: counter-offers (`COUNTER_TRADE` / `ACCEPT_COUNTER`, `docs/rules.md` §9.1), taking the last paid build back (`UNDO_BUILD`, §5.6) and razing a sacked city with no settlement piece left (§16.6). One full-bleed diorama with a single `HudLayer` over it (`apps/web/src/hud/`): player banners across the top, an icon-only resource tray, a left rail of square icon buttons with slide-in side panels (chat, emote, log, stats, rules, settings, leave), the parchment build-cost card, round Trade / End turn / Cards buttons, dark event toasts and help tips fed by `hudCopy.ts`. On-table props in `apps/web/src/board/props/` (bank decks, piece piles, the barbarian track). The old sidebar and bottom bar are gone (tag `hud-legacy`). Details in `docs/phase12.md`.
 
 ## Conventions
 

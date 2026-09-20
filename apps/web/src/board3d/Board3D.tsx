@@ -22,7 +22,7 @@ import { AnimatedPirate, AnimatedRobber, DiceTray3D, Projector, projectWorld, ty
 import { Foam } from "./Foam";
 import { Harbor } from "./Harbor";
 import { INTERACTION_LAYER, InteractionLayer, NO_PICK, computeTargets, targetLabel, targetName, type CrownPick, type TargetMode } from "./Interaction";
-import { boardBounds, hexWorld, edgeWorld, vertexWorld, SLAB_HEIGHT, type Bounds, type World } from "./layout3d";
+import { boardBounds, cameraBounds, hexWorld, edgeWorld, vertexWorld, SLAB_HEIGHT, type Bounds, type World } from "./layout3d";
 import { TERRAIN_LIFT } from "./slab";
 import { DioramaEnvironment } from "./environment";
 import { BACKDROP, KEY_LIGHT, FILL_GROUND, FILL_SKY, RIM_LIGHT } from "./palette";
@@ -140,20 +140,6 @@ export const CONTACT_LIFT = 0.03;
  */
 export const FOG_NEAR = 4;
 export const FOG_FAR = 6;
-
-/**
- * What the default camera frames. The whole board's bounds include the sea
- * ring (and the frame), which put the land in the middle 60% of the frame
- * with water and table around it. The camera now frames the land plus the
- * first ring of sea and the props that stand just off it, and never more than
- * the whole board.
- */
-export const CAMERA_SEA_MARGIN = 2.4;
-
-export function cameraBounds(bounds: Bounds, landBounds: Bounds): Bounds {
-  const radius = Math.min(bounds.radius, landBounds.radius + CAMERA_SEA_MARGIN);
-  return { ...landBounds, radius };
-}
 
 function lightPosition(cx: number, cz: number, azimuth: number, elevation: number, distance: number): [number, number, number] {
   return [cx + distance * Math.cos(elevation) * Math.sin(azimuth), distance * Math.sin(elevation), cz + distance * Math.cos(elevation) * Math.cos(azimuth)];

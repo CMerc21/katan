@@ -122,3 +122,17 @@ export function framingDistance(radius: number, fovDeg: number, aspect: number, 
 export function tileJitter(hex: HexId): { rotation: number; height: number } {
   return slabJitter(hex);
 }
+
+/**
+ * What the default camera frames. The whole board's bounds include the sea
+ * ring (and the frame), which put the land in the middle 60% of the frame
+ * with water and table around it. The camera now frames the land plus the
+ * first ring of sea and the props that stand just off it, and never more than
+ * the whole board.
+ */
+export const CAMERA_SEA_MARGIN = 2.4;
+
+export function cameraBounds(bounds: Bounds, landBounds: Bounds): Bounds {
+  const radius = Math.min(bounds.radius, landBounds.radius + CAMERA_SEA_MARGIN);
+  return { ...landBounds, radius };
+}
