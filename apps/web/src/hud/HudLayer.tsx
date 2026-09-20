@@ -50,6 +50,10 @@ export interface HudLayerProps {
   seats?: SeatInfo[] | undefined;
   connected?: ReadonlySet<string> | undefined;
   botifiable: ReadonlySet<string>;
+  /** Milliseconds the waited-on human has been away, by player id (docs/phase5.md §4). */
+  away?: ReadonlyMap<string, number> | undefined;
+  /** The lobby's absent threshold in milliseconds. */
+  absentAfter?: number | undefined;
   onBotify: (playerId: string, level: BotLevel) => void;
   step: Step | null;
   draining: boolean;
@@ -133,7 +137,7 @@ function isTyping(e: KeyboardEvent): boolean {
 }
 
 export function HudLayer(props: HudLayerProps) {
-  const { driver, view, me, legal, seats, connected, botifiable, onBotify, step, draining, onSkip, interactive, revealed, mode, onMode, crownPick, wagon, onDispatch, error, waitingOn, glint, activeQuality, toasts, pushToast, shiftToast, tradePicking, onTrade, onPickResources, onFish, onImprove, onProgress, onExit, onCapability, onHighlight, children } = props;
+  const { driver, view, me, legal, seats, connected, botifiable, away, absentAfter, onBotify, step, draining, onSkip, interactive, revealed, mode, onMode, crownPick, wagon, onDispatch, error, waitingOn, glint, activeQuality, toasts, pushToast, shiftToast, tradePicking, onTrade, onPickResources, onFish, onImprove, onProgress, onExit, onCapability, onHighlight, children } = props;
   const [panel, setPanel] = useState<RailKey | null>(null);
   const [cardsOpen, setCardsOpen] = useState(false);
   const [costOpen, setCostOpen] = useState(false);
@@ -300,6 +304,8 @@ export function HudLayer(props: HudLayerProps) {
               thinking={thinking?.playerId === p.id ? thinking.duration : null}
               online={connected ? connected.has(p.id) : null}
               botifiable={botifiable.has(p.id)}
+              away={away?.get(p.id) ?? null}
+              absentAfter={absentAfter ?? null}
               onBotify={onBotify}
               glint={glint === p.id}
               emote={emote && p.id === me ? emote.text : null}

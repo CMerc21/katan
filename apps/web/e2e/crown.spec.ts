@@ -163,7 +163,10 @@ test("Crown & Castle — Standard hotseat: setup, a roll with the event die, the
       await expect(page.getByTestId("defense-p1-ada")).toContainText("1");
       await expect(page.getByTestId("fleet-odds")).toHaveText("0 vs 1");
     } else {
-      await expect(page.getByTestId("knight-promote")).toBeDisabled();
+      // docs/rules.md §16.5: a fresh knight may be promoted at once, so the row is on exactly when wool and ore remain.
+      const promotable = (await count("wool")) >= 1 && (await count("ore")) >= 1;
+      if (promotable) await expect(page.getByTestId("knight-promote")).toBeEnabled();
+      else await expect(page.getByTestId("knight-promote")).toBeDisabled();
     }
   } else {
     await expect(knight).toBeDisabled();

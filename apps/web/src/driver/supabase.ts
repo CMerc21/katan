@@ -219,6 +219,13 @@ export class SupabaseDriver implements GameDriver {
 
   host: string | null = null;
 
+  absentAfterMs(): number | null {
+    return this.absentAfter;
+  }
+
+  /** The lobby's absent-player threshold, set by the play page from the lobby projection. */
+  absentAfter: number | null = null;
+
   private async call(fn: string, body: Record<string, unknown>): Promise<Result<void, DriverError>> {
     try {
       const reply = await this.api.invoke(fn, { gameId: this.gameId, ...body });

@@ -36,6 +36,7 @@ import { ProgressSheet } from "./crown/ProgressSheet";
 
 type Dialog = { kind: "trade" } | { kind: "picker"; card: "invention" | "monopoly" } | { kind: "fish" } | { kind: "improve" } | { kind: "progress"; card: ProgressCard | null } | null;
 
+/** The absent-player threshold when the driver does not carry the lobby's own (docs/phase5.md §4). */
 const ABSENT_MS = 10 * 60 * 1000;
 const EMPTY_HAND: Hand = { wood: 0, clay: 0, wool: 0, grain: 0, ore: 0 };
 
@@ -226,17 +227,24 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
   const isHost = Boolean(driver.userId && driver.hostUserId && driver.userId() === driver.hostUserId());
   const waitingOn = useMemo(() => nextActor(viewToState(latest)), [latest]);
 
-  const botifiable = useMemo(() => {
-    const out = new Set<string>();
-    if (!isHost || !seats || !driver.botifyAbsent || ended) return out;
+  const absentAfter = driver.absentAfterMs?.() ?? ABSENT_MS;
+  // How long the waited-on human has been away (offline, by last heartbeat), for the banner's away chip.
+  const away = useMemo(() => {
+    const out = new Map<string, number>();
+    if (!seats || ended || !connected) return out;
     for (const s of seats) {
-      if (s.kind !== "human" || s.playerId !== waitingOn || s.playerId === me) continue;
+      if (s.kind !== "human" || s.playerId !== waitingOn || s.playerId === me || connected.has(s.playerId)) continue;
       const lastSeen = s.lastSeenAt ? Date.parse(s.lastSeenAt) : 0;
-      const present = connected?.has(s.playerId) ?? false;
-      if (!present && now - lastSeen > ABSENT_MS) out.add(s.playerId);
+      if (lastSeen > 0) out.set(s.playerId, Math.max(0, now - lastSeen));
     }
     return out;
-  }, [isHost, seats, driver, ended, waitingOn, me, connected, now]);
+  }, [seats, ended, connected, waitingOn, me, now]);
+  const botifiable = useMemo(() => {
+    const out = new Set<string>();
+    if (!isHost || !driver.botifyAbsent) return out;
+    for (const [id, ms] of away) if (ms > absentAfter) out.add(id);
+    return out;
+  }, [isHost, driver, away, absentAfter]);
 
   const run = useCallback(
     async (action: Action) => {
@@ -386,6 +394,8 @@ function GameScreenInner({ driver, onExit }: { driver: GameDriver; onExit?: (() 
         seats={seats}
         connected={connected}
         botifiable={botifiable}
+        away={away}
+        absentAfter={absentAfter}
         onBotify={(playerId: string, level: BotLevel) => void capability(driver.botifyAbsent ? () => driver.botifyAbsent!(playerId, level) : undefined)}
         step={current}
         draining={draining}

@@ -57,7 +57,10 @@ export function normalizeCode(code: string): string {
   return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+/** The default absent-player threshold; the host may pick 2–30 minutes per lobby (docs/phase5.md §4). */
 export const ABSENT_AFTER_MS = 10 * 60 * 1000;
+export const ABSENT_MIN_MINUTES = 2;
+export const ABSENT_MAX_MINUTES = 30;
 
 function requireHost(game: GameRow, userId: string): void {
   if (game.host_user_id !== userId) throw new ServiceError("NOT_HOST", "only the host can do that", 403);
@@ -98,6 +101,8 @@ function cleanName(name: unknown, fallback: string): string {
 export interface CreateLobbyInput {
   hostUserId: string;
   name: string;
+  /** Minutes a waited-on player must be unseen before the host may hand their seat to a bot (2–30, default 10). */
+  absentMinutes?: number;
   /**
    * A built-in kind, a built-in frame id (`large`, `longStrip`, `ring`), a saved
    * board id (`{ boardId }`), an inline definition (docs/phase8.md §4.3), a
@@ -157,6 +162,8 @@ export async function createLobby(sql: Db, input: CreateLobbyInput): Promise<{ g
   const chosen = await resolveLobbyBoard(sql, input.board, input.hostUserId);
   const seatCap = chosen.definition ? chosen.definition.seats.max : 4;
   if (input.maxPlayers > seatCap) throw new ServiceError("BAD_REQUEST", `that board seats at most ${seatCap}`);
+  const absentMinutes = input.absentMinutes ?? ABSENT_AFTER_MS / 60_000;
+  if (!Number.isInteger(absentMinutes) || absentMinutes < ABSENT_MIN_MINUTES || absentMinutes > ABSENT_MAX_MINUTES) throw new ServiceError("BAD_REQUEST", `the absent threshold is ${ABSENT_MIN_MINUTES} to ${ABSENT_MAX_MINUTES} minutes`);
   const random = input.random ?? Math.random;
   for (let attempt = 0; attempt < 20; attempt++) {
     const joinCode = generateJoinCode(random);
@@ -167,8 +174,8 @@ export async function createLobby(sql: Db, input: CreateLobbyInput): Promise<{ g
           values (${randomSeed(random)}, '{}'::jsonb, 0, 'lobby', ${input.hostUserId}, ${joinCode}, ${input.hostUserId}, ${input.maxPlayers}, ${chosen.kind}, ${chosen.definition ? tx.json(chosen.definition as unknown as JSONValue) : null}, ${chosen.scenario ? tx.json(chosen.scenario as unknown as JSONValue) : null})
           returning id`;
         const gameId = row!.id;
-        await tx`insert into lobbies (game_id, join_code, status, host_user_id, max_players, board, board_name)
-                 values (${gameId}, ${joinCode}, 'lobby', ${input.hostUserId}, ${input.maxPlayers}, ${chosen.kind}, ${chosen.name})`;
+        await tx`insert into lobbies (game_id, join_code, status, host_user_id, max_players, board, board_name, absent_after_ms)
+                 values (${gameId}, ${joinCode}, 'lobby', ${input.hostUserId}, ${input.maxPlayers}, ${chosen.kind}, ${chosen.name}, ${absentMinutes * 60_000})`;
         await tx`insert into game_players (game_id, user_id, player_id, seat, name, color, kind, ready, last_seen_at, avatar)
                  values (${gameId}, ${input.hostUserId}, ${playerIdForSeat(0)}, 0, ${cleanName(input.name, "Host")}, 'red', 'human', false, now(), ${tx.json(defaultAvatar(gameId, 0) as unknown as JSONValue)})`;
         return { gameId, joinCode };
@@ -374,7 +381,9 @@ export async function botifyAbsent(
     const target = seats.find((s) => s.player_id === input.playerId);
     if (!target || target.kind !== "human") throw new ServiceError("BAD_REQUEST", "that seat is not a human");
     const lastSeen = target.last_seen_at ?? target.joined_at;
-    if (now.getTime() - lastSeen.getTime() < ABSENT_AFTER_MS) throw new ServiceError("NOT_ABSENT", "that player was seen less than 10 minutes ago", 409);
+    const [lobby] = await tx<{ absent_after_ms: number }[]>`select absent_after_ms from lobbies where game_id = ${game.id}`;
+    const afterMs = lobby?.absent_after_ms ?? ABSENT_AFTER_MS;
+    if (now.getTime() - lastSeen.getTime() < afterMs) throw new ServiceError("NOT_ABSENT", `that player was seen less than ${Math.round(afterMs / 60_000)} minutes ago`, 409);
     if (nextActor(game.state) !== target.player_id) throw new ServiceError("NOT_ABSENT", "the game is not waiting on that player", 409);
     const version = await convertSeatToBot(tx as Tx, game, seats, target.player_id, level, `${target.name} was absent; a bot (${level}) plays their seat`);
     return { version };

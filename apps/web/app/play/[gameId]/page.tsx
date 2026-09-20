@@ -30,8 +30,9 @@ export default function OnlinePlayPage() {
         setRemoteSettingsSync((s) => void client.auth.updateUser({ data: { settings: s } }).catch(() => undefined));
         const api = createSupabaseApi(client, session.user.id);
         const d = await SupabaseDriver.connect(api, gameId, session.user.id);
-        const { data: lobby } = await client.from("lobby_games").select("host_user_id, status").eq("id", gameId).maybeSingle();
+        const { data: lobby } = await client.from("lobby_games").select("host_user_id, status, absent_after_ms").eq("id", gameId).maybeSingle();
         d.host = (lobby?.host_user_id as string | null) ?? null;
+        d.absentAfter = typeof lobby?.absent_after_ms === "number" ? lobby.absent_after_ms : null;
         if (lobby?.status === "lobby") {
           const { data: code } = await client.from("lobby_games").select("join_code").eq("id", gameId).maybeSingle();
           if (code?.join_code) router.replace(`/lobby/${code.join_code}`);

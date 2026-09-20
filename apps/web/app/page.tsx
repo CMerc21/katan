@@ -23,6 +23,8 @@ export default function HomePage() {
   const { session, loading, configured } = useSession();
   const [board, setBoard] = useState<BoardChoice>({ kind: "builtin", id: "beginner" });
   const [maxPlayers, setMaxPlayers] = useState<number>(4);
+  // How long a waited-on player may be away before the host can hand their seat to a bot (docs/phase5.md §4).
+  const [absentMinutes, setAbsentMinutes] = useState<number>(10);
   const seatCap = choiceDefinition(board).seats.max;
   const players = Math.min(maxPlayers, seatCap);
   const [code, setCode] = useState("");
@@ -44,7 +46,7 @@ export default function HomePage() {
     if (!session) return;
     setBusy(true);
     setProblem(null);
-    const reply = await callFunction<{ gameId: string; joinCode: string }>("create-lobby", { board: choiceForLobby(board), maxPlayers: players, name: displayNameOf(session) });
+    const reply = await callFunction<{ gameId: string; joinCode: string }>("create-lobby", { board: choiceForLobby(board), maxPlayers: players, name: displayNameOf(session), absentMinutes });
     setBusy(false);
     if (!reply.ok) return setProblem(errorText(reply.code));
     router.push(`/lobby/${reply.joinCode}`);
@@ -111,6 +113,16 @@ export default function HomePage() {
                     </Button>
                   ))}
                 </div>
+                <label className="flex flex-wrap items-center gap-2 text-sm">
+                  <span>Hand an absent player to a bot after</span>
+                  <select className="rounded border border-line bg-white/60 px-2 py-1 text-sm" value={absentMinutes} onChange={(e) => setAbsentMinutes(Number(e.target.value))} aria-label="Absent threshold" data-testid="absent-minutes">
+                    {[2, 5, 10, 20, 30].map((m) => (
+                      <option key={m} value={m}>
+                        {m} minutes
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <Button type="submit" variant="primary" disabled={busy} data-testid="create-lobby">
                   Create game
                 </Button>

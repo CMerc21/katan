@@ -45,6 +45,10 @@ export interface PlayerBannerProps {
   thinking: number | null;
   online: boolean | null;
   botifiable: boolean;
+  /** Milliseconds this player has been away while the game waits on them, or null. */
+  away?: number | null | undefined;
+  /** The lobby's absent threshold, for the chip's "bot at N min". */
+  absentAfter?: number | null | undefined;
   onBotify?: ((playerId: string, level: BotLevel) => void) | undefined;
   glint: boolean;
   emote: string | null;
@@ -211,14 +215,14 @@ function WayfarersBadges({ p, view, glint }: { p: RedactedPlayer; view: Redacted
   );
 }
 
-export function PlayerBanner({ p, view, me, seat, acting, thinking, online, botifiable, onBotify, glint, emote, onHover }: PlayerBannerProps) {
+export function PlayerBanner({ p, view, me, seat, acting, thinking, online, botifiable, away = null, absentAfter = null, onBotify, glint, emote, onHover }: PlayerBannerProps) {
   const anchor = useAnchor(`player:${p.id}`);
   const stats = useMemo(() => bannerStats(view, p), [view, p]);
   const isBot = seat?.kind === "bot";
   const crown = view.scenario?.crown === true;
   const cp = crown ? view.crown?.players[p.id] : undefined;
   const tip = useTipHandlers(detail(view, p), 300);
-  const hasExtra = Boolean(view.wayfarers && view.scenario?.variants) || p.islandChips.length > 0 || (botifiable && onBotify);
+  const hasExtra = Boolean(view.wayfarers && view.scenario?.variants) || p.islandChips.length > 0 || (botifiable && onBotify) || away !== null;
   return (
     <div
       className="hud-banner hud-panel"
@@ -297,6 +301,11 @@ export function PlayerBanner({ p, view, me, seat, acting, thinking, online, boti
             </span>
           )}
           <WayfarersBadges p={p} view={view} glint={glint} />
+          {away !== null && (
+            <span className="hud-badge" title={absentAfter ? `The host may hand this seat to a bot after ${Math.round(absentAfter / 60_000)} minutes away` : "Away"} data-testid={`away-${p.id}`}>
+              away {Math.max(1, Math.round(away / 60_000))} min{absentAfter && away < absentAfter ? ` · bot at ${Math.round(absentAfter / 60_000)}` : ""}
+            </span>
+          )}
           {botifiable && onBotify && <BotifyButton id={p.id} name={p.name} onBotify={onBotify} />}
         </div>
       )}

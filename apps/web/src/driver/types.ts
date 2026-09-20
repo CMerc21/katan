@@ -74,6 +74,8 @@ export interface GameDriver {
   reclaimSeat?(): Promise<Result<void, DriverError>>;
   botifyAbsent?(playerId: string, level: BotLevel): Promise<Result<void, DriverError>>;
 
+  /** Online: how long a waited-on player must be unseen before the host may hand their seat to a bot (docs/phase5.md §4). */
+  absentAfterMs?(): number | null;
   /** Online: post a chat line; the line comes back through `subscribeChat` for everyone. */
   sendChat?(text: string): Promise<Result<void, DriverError>>;
   /** Online: the chat so far, then every new line. Absent on hotseat (chat stays on the screen). */

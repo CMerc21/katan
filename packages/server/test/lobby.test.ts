@@ -260,6 +260,24 @@ describe("§4 escape hatches", () => {
     await sql`update game_players set last_seen_at = now() - interval '11 minutes' where game_id = ${gameId} and player_id = 'seat-1'`;
     const { version } = await botifyAbsent(sql, { gameId, userId: host, playerId: "seat-1" });
     expect(version).toBeGreaterThan(2);
+  });
+
+  it("docs/phase5.md §4 the host picks the absent threshold per lobby (2–30 minutes), and the lobby projection exposes it", async () => {
+    await expect(createLobby(sql, { hostUserId: host, name: "Host", board: "beginner", maxPlayers: 4, absentMinutes: 1 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const lobby = await createLobby(sql, { hostUserId: host, name: "Host", board: "beginner", maxPlayers: 4, absentMinutes: 2 });
+    for (const u of [bob, carol]) await joinGame(sql, { code: lobby.joinCode, userId: u, name: u.slice(0, 4) });
+    const gameId = lobby.gameId;
+    expect(await asUser(sql, bob, (tx) => tx`select absent_after_ms from lobby_games where id = ${gameId}`)).toEqual([{ absent_after_ms: 120000 }]);
+    for (const u of [host, bob, carol]) await setReady(sql, { gameId, userId: u, ready: true });
+    await startGame(sql, { gameId, userId: host });
+    const s = (await game(gameId)).state;
+    await applyActionForUser(sql, { gameId, userId: host, action: legalActions(s, "seat-0")[0]!, expectedVersion: 0 });
+    const s2 = (await game(gameId)).state;
+    await applyActionForUser(sql, { gameId, userId: host, action: legalActions(s2, "seat-0")[0]!, expectedVersion: 1 });
+    expect(nextActor((await game(gameId)).state)).toBe("seat-1");
+    await sql`update game_players set last_seen_at = now() - interval '3 minutes' where game_id = ${gameId} and player_id = 'seat-1'`;
+    const { version } = await botifyAbsent(sql, { gameId, userId: host, playerId: "seat-1" });
+    expect(version).toBeGreaterThan(2);
     const g = await game(gameId);
     expect(g.state.log.some((l) => l.text.includes("was absent"))).toBe(true);
     expect(nextActor(g.state)).not.toBe("seat-1");

@@ -10,6 +10,7 @@ Deno.serve(handle(async ({ sql, userId, body }) => {
     name: typeof body.name === "string" ? body.name : "",
     board: (body.board as never) ?? "beginner",
     maxPlayers: ([3, 4, 5, 6].includes(max) ? max : 4) as 3 | 4 | 5 | 6,
+    ...(body.absentMinutes !== undefined ? { absentMinutes: Number(body.absentMinutes) } : {}),
   });
   return { ...r };
 }));

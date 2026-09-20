@@ -33,7 +33,7 @@ Realtime Presence on the per-game channel tracks `{ playerId, userId, connectedA
 ## 4. Stuck-game escape hatches
 
 - **Let a bot play for me** (`hand-to-bot`): converts my seat to a bot (default medium) and runs the bot loop immediately; the seat keeps my `user_id` so I still see my view and can **Take my seat back** (`reclaim: true`). While a bot holds my seat the board is inert and the bar says so.
-- **Bot-ify an absent player** (`botify-absent`, host only): allowed when the target is human, is the player being waited on (`engine.nextActor`), and was last seen 10+ minutes ago. Logged in the game log. The players panel offers the button only when those conditions hold client-side; the server re-checks.
+- **Bot-ify an absent player** (`botify-absent`, host only): allowed when the target is human, is the player being waited on (`engine.nextActor`), and was last seen longer ago than the lobby's absent threshold (`lobbies.absent_after_ms`, 2–30 minutes, picked by the host on the create form, default 10; migration `20260920120100_absent_after.sql`, exposed on `lobby_games`). Logged in the game log. While the game waits on an offline human every banner shows an "away N min · bot at M" chip; the host's banner offers the button once the threshold is passed, and the server re-checks.
 - **Abandon game** (`abandon-game`, host only): status `ended`, `phase = ended`, no winner; every view updates and the ended overlay shows.
 
 ## 5. Error handling and copy
