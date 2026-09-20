@@ -70,14 +70,15 @@ export function TriTrack({ cp, id }: { cp: RedactedCrownPlayer; id: string }) {
   );
 }
 
+/** The hand as a fan of up to three tiny cards with the count always beside it (the number is what the table reads). */
 function HandCards({ count }: { count: number }) {
   const shown = Math.min(count, 3);
   return (
-    <span className="hud-cards" aria-label={`${count} cards in hand`} title={`${count} cards`}>
+    <span className="hud-cards" aria-label={`${count} cards in hand`} title={`${count} cards`} data-count={count}>
       {Array.from({ length: shown }, (_, i) => (
-        <span key={i} style={{ left: i * 5 }} />
+        <span key={i} style={{ left: i * 4 }} />
       ))}
-      {count > 3 && <b>{Math.min(count, 12) === 12 && count > 12 ? "12+" : count}</b>}
+      <b className="hud-num">{count > 19 ? "19+" : count}</b>
     </span>
   );
 }
@@ -271,7 +272,7 @@ export function PlayerBanner({ p, view, me, seat, acting, thinking, online, boti
 
       <div className="hud-stats" role="group" aria-label={`${p.name}'s statistics`}>
         {stats.columns.map((col) => (
-          <span key={col.key} className={`hud-stat ${glint && col.title ? "badge-glint" : ""}`} data-title={col.title ? "true" : "false"} data-stat={col.key} title={HUD_COPY.stats[col.key === "army" ? "army" : col.key]} data-testid={col.key === "knights" ? `knights-${p.id}` : col.key === "defense" ? `defense-${p.id}` : undefined}>
+          <span key={col.key} className={`hud-stat ${glint && col.title ? "badge-glint" : ""}`} data-title={col.title ? "true" : "false"} data-zero={col.value === 0 && !col.title ? "true" : "false"} data-stat={col.key} title={HUD_COPY.stats[col.key === "army" ? "army" : col.key]} data-testid={col.key === "knights" ? `knights-${p.id}` : col.key === "defense" ? `defense-${p.id}` : undefined}>
             <Numeral value={col.value} label={col.label} />
             {col.key === "improvements" && cp ? <TriTrack cp={cp} id={p.id} /> : <Icon name={col.icon} />}
           </span>

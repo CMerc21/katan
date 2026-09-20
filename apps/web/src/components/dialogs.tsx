@@ -412,11 +412,14 @@ export function ratiosFor(view: RedactedState, playerId: string): Record<Resourc
 export function TradeResponse({
   view,
   me,
+  hand,
   legal,
   onDispatch,
 }: {
   view: RedactedState;
   me: string;
+  /** My hand, for composing a counter; null before the handoff. */
+  hand?: Hand | null | undefined;
   legal: Action[];
   onDispatch: (action: Action) => void;
 }) {
@@ -424,29 +427,111 @@ export function TradeResponse({
   // Wayfarers, Fishing (docs/rules.md §15.2): the boot may ride along with the acceptance.
   const bootAccept = legal.some((a) => a.type === "ACCEPT_TRADE" && a.boot === true);
   const [boot, setBoot] = useState(false);
+  // §9.1: a counter proposal composed inline.
+  const [countering, setCountering] = useState(false);
+  const [give, setGive] = useState<Hand>(emptyHand);
+  const [want, setWant] = useState<Hand>(emptyHand);
   if (!trade) return null;
   const from = view.players.find((p) => p.id === trade.from)!;
   const canAccept = legal.some((a) => a.type === "ACCEPT_TRADE");
+  const canCounter = hand !== null && hand !== undefined && legal.some((a) => a.type === "COUNTER_TRADE");
+  const mine = trade.counters.find((c) => c.from === me) ?? null;
+  const counterOk = total(give) > 0 && total(want) > 0 && !RESOURCES.some((r) => give[r] > 0 && want[r] > 0);
   return (
-    <div className="flex flex-wrap items-center gap-3" data-testid="trade-response">
-      <PlayerTag name={from.name} color={from.color} />
-      <span className="text-sm">offers</span>
-      <HandInline hand={trade.give} />
-      <span className="text-sm">for your</span>
-      <HandInline hand={trade.receive} />
-      {trade.boot && <span className="rounded bg-ink px-1 text-xs text-parchment" data-testid="trade-boot">with the old boot</span>}
-      <div className="ml-auto flex items-center gap-2">
-        {bootAccept && (
-          <label className="flex items-center gap-1.5 text-sm">
-            <input type="checkbox" checked={boot} onChange={(e) => setBoot(e.target.checked)} data-testid="accept-boot" />
-            Pass the old boot
-          </label>
-        )}
-        <Button variant="primary" disabled={!canAccept} reason="You do not hold those cards" onClick={() => onDispatch({ type: "ACCEPT_TRADE", playerId: me, ...(bootAccept && boot ? { boot: true } : {}) })}>
-          Accept
-        </Button>
-        <Button onClick={() => onDispatch({ type: "REJECT_TRADE", playerId: me })}>Decline</Button>
+    <div className="flex flex-col gap-2" data-testid="trade-response">
+      <div className="flex flex-wrap items-center gap-3">
+        <PlayerTag name={from.name} color={from.color} />
+        <span className="text-sm">offers</span>
+        <HandInline hand={trade.give} />
+        <span className="text-sm">for your</span>
+        <HandInline hand={trade.receive} />
+        {trade.boot && <span className="rounded bg-ink px-1 text-xs text-parchment" data-testid="trade-boot">with the old boot</span>}
+        <div className="ml-auto flex items-center gap-2">
+          {bootAccept && (
+            <label className="flex items-center gap-1.5 text-sm">
+              <input type="checkbox" checked={boot} onChange={(e) => setBoot(e.target.checked)} data-testid="accept-boot" />
+              Pass the old boot
+            </label>
+          )}
+          <Button variant="primary" disabled={!canAccept} reason="You do not hold those cards" onClick={() => onDispatch({ type: "ACCEPT_TRADE", playerId: me, ...(bootAccept && boot ? { boot: true } : {}) })}>
+            Accept
+          </Button>
+          {canCounter && (
+            <Button onClick={() => setCountering((c) => !c)} aria-expanded={countering} data-testid="counter-offer">
+              {mine ? "Revise counter" : "Counter"}
+            </Button>
+          )}
+          <Button onClick={() => onDispatch({ type: "REJECT_TRADE", playerId: me })}>Decline</Button>
+        </div>
       </div>
+      {mine && !countering && (
+        <p className="text-xs text-ink-soft" data-testid="my-counter">
+          Your counter is with {from.name}: <HandInline hand={mine.give} /> for <HandInline hand={mine.receive} />
+        </p>
+      )}
+      {countering && hand && (
+        <div className="grid grid-cols-1 gap-3 border-t border-white/15 pt-2 sm:grid-cols-2" data-testid="counter-form">
+          <div>
+            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-soft">You give</h4>
+            <div className="space-y-1">
+              {RESOURCES.filter((r) => hand[r] > 0).map((r) => (
+                <Stepper key={r} label={RESOURCE_LABEL[r]} accent={RESOURCE_COLOR[r]} value={give[r]} min={0} max={hand[r]} onChange={(n) => setGive({ ...give, [r]: n })} />
+              ))}
+            </div>
+          </div>
+          <div>
+            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-soft">You want from {from.name}</h4>
+            <div className="space-y-1">
+              {RESOURCES.map((r) => (
+                <Stepper key={r} label={RESOURCE_LABEL[r]} accent={RESOURCE_COLOR[r]} value={want[r]} min={0} max={19} onChange={(n) => setWant({ ...want, [r]: n })} />
+              ))}
+            </div>
+            <div className="mt-2 flex justify-end">
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={!counterOk}
+                reason="Give and want at least one card each, with no resource on both sides"
+                onClick={() => {
+                  onDispatch({ type: "COUNTER_TRADE", playerId: me, give, receive: want });
+                  setCountering(false);
+                }}
+                data-testid="send-counter"
+              >
+                Send counter
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** §9.1: the offerer's view of the counters to their open offer, each with an accept button when both sides can pay. */
+export function CounterOffers({ view, me, legal, onDispatch }: { view: RedactedState; me: string; legal: Action[]; onDispatch: (action: Action) => void }) {
+  const trade = view.pendingTrade;
+  if (!trade || trade.from !== me || trade.counters.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1.5" role="group" aria-label="Counter-offers" data-testid="counter-offers">
+      {trade.counters.map((c) => {
+        const from = view.players.find((p) => p.id === c.from)!;
+        const ok = legal.some((a) => a.type === "ACCEPT_COUNTER" && a.from === c.from);
+        return (
+          <div key={c.from} className="flex flex-wrap items-center gap-3" data-testid={`counter-${c.from}`}>
+            <PlayerTag name={from.name} color={from.color} />
+            <span className="text-sm">would give</span>
+            <HandInline hand={c.give} />
+            <span className="text-sm">for your</span>
+            <HandInline hand={c.receive} />
+            <div className="ml-auto">
+              <Button size="sm" variant="primary" disabled={!ok} reason="You no longer hold those cards" onClick={() => onDispatch({ type: "ACCEPT_COUNTER", playerId: me, from: c.from })} data-testid={`accept-counter-${c.from}`}>
+                Accept
+              </Button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

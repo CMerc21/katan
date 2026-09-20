@@ -54,7 +54,7 @@ function Die({ n, rolling, delay, red = false }: { n: number; rolling: boolean; 
     ],
   };
   return (
-    <svg viewBox="0 0 100 100" width={34} height={34} className={rolling ? "die-tumble" : "die-settle"} style={{ animationDelay: `${delay}ms` }} aria-label={`${red ? "red die" : "die"} ${n}`} data-testid={red ? "red-die" : undefined}>
+    <svg viewBox="0 0 100 100" width={40} height={40} className={rolling ? "die-tumble" : "die-settle"} style={{ animationDelay: `${delay}ms` }} aria-label={`${red ? "red die" : "die"} ${n}`} data-testid={red ? "red-die" : undefined}>
       <rect x="6" y="6" width="88" height="88" rx="16" fill={red ? PLAYER_FILL.red : BONE} stroke={INK} strokeWidth={4} />
       {(pips[n] ?? []).map(([x, y], i) => (
         <circle key={i} cx={x} cy={y} r={8} fill={red ? BONE : INK} />
@@ -67,7 +67,7 @@ function Die({ n, rolling, delay, red = false }: { n: number; rolling: boolean; 
 function EventDieFace({ event, rolling, delay }: { event: EventDie; rolling: boolean; delay: number }) {
   const fill = event === "fleet" ? FLEET_COLOR : COMMODITY_COLOR[event === "trade" ? "cloth" : event === "politics" ? "coin" : "paper"];
   return (
-    <svg viewBox="0 0 100 100" width={34} height={34} className={rolling ? "die-tumble" : "die-settle"} style={{ animationDelay: `${delay}ms` }} aria-label={`event die ${EVENT_DIE_LABEL[event]}`} data-testid="event-die" data-event={event}>
+    <svg viewBox="0 0 100 100" width={40} height={40} className={rolling ? "die-tumble" : "die-settle"} style={{ animationDelay: `${delay}ms` }} aria-label={`event die ${EVENT_DIE_LABEL[event]}`} data-testid="event-die" data-event={event}>
       <rect x="6" y="6" width="88" height="88" rx="16" fill={BONE} stroke={INK} strokeWidth={4} />
       {event === "fleet" ? (
         <>
@@ -125,10 +125,14 @@ function CurrentRoll({ step, view }: { step: Step | null; view: RedactedState })
     );
   }
   return (
-    <div className="hud-panel flex items-center gap-1.5 rounded-lg px-2 py-1" data-testid="dice-tray" aria-label={`dice ${dice[0]} and ${dice[1]}`}>
+    <div className="hud-panel flex items-center gap-1.5 rounded-lg px-2 py-1" data-testid="dice-tray" aria-label={`dice ${dice[0]} and ${dice[1]}, total ${dice[0] + dice[1]}`}>
       <Die n={dice[0]} rolling={!!rolling} delay={0} red={crown} />
       <Die n={dice[1]} rolling={!!rolling} delay={120} />
       {crown && eventDie && <EventDieFace event={eventDie} rolling={!!rolling} delay={240} />}
+      {/* The total beside the faces: nobody should have to count pips or catch the toast. */}
+      <span className="hud-num ml-1 text-2xl" data-testid="dice-total" aria-hidden>
+        {dice[0] + dice[1]}
+      </span>
     </div>
   );
 }

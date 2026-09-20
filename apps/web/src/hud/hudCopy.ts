@@ -25,6 +25,7 @@ export const HUD_COPY = {
     skip: { label: "Skip", help: "Fast-forward the animations. Space skips too." },
     camera: { label: "Reset view", help: "Bring the camera back to the table's default framing." },
     diceHistory: { label: "Dice history", help: "The last six rolls, with the event die under Crown & Castle." },
+    undo: { label: "Undo", help: "Take back the last road, settlement or city you paid for this turn. Only until anything else happens; U does it too." },
     costs: { label: "Build", help: "The build-cost card. Everything you can afford is already marked on the board: click a spot to build. B opens and closes the card." },
   },
   costs: {

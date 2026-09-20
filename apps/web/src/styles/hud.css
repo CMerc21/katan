@@ -211,17 +211,17 @@
 }
 .hud-vp .hud-num {
   color: inherit;
-  font-size: 15px;
+  font-size: 19px;
 }
 .hud-pill .hud-num {
   font-size: 12px;
 }
 .hud-vp {
   position: absolute;
-  left: -8px;
-  top: -8px;
-  width: 30px;
-  height: 30px;
+  left: -10px;
+  top: -10px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: var(--hud-accent);
   border: 3px solid var(--hud-panel-solid);
@@ -319,26 +319,29 @@
 .hud-cards {
   position: relative;
   height: 20px;
-  width: 26px;
+  width: 40px;
   flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
 }
 .hud-cards span {
   position: absolute;
-  bottom: 0;
-  width: 12px;
-  height: 17px;
+  left: 0;
+  bottom: 1px;
+  width: 11px;
+  height: 15px;
   border-radius: 2px;
   background: #f4f1ea;
   border: 1px solid rgba(0, 0, 0, 0.45);
 }
+/* The count sits beside the fan at the ribbon's size: the number is the fact
+   the table reads; the fan is decoration. */
 .hud-cards b {
-  position: absolute;
-  right: -2px;
-  bottom: -4px;
-  font-size: 10px;
-  padding: 0 3px;
+  position: relative;
+  font-size: 15px;
+  padding: 0 2px;
   border-radius: 3px;
-  background: var(--hud-panel-solid);
   color: #fff;
   line-height: 1.2;
 }
@@ -385,6 +388,13 @@
 .hud-stat[data-title="true"] {
   color: var(--hud-accent);
   background: rgba(217, 164, 55, 0.14);
+}
+/* A zero is not information: the glyph stays as the column's label, the numeral recedes. */
+.hud-stat[data-zero="true"] .hud-num {
+  color: rgba(255, 255, 255, 0.28);
+}
+.hud-stat[data-zero="true"] svg {
+  opacity: 0.45;
 }
 .hud-stat[data-title="true"] .hud-num {
   color: var(--hud-accent);
@@ -986,17 +996,22 @@
     transform: translate(-50%, 0) scale(0.6);
   }
 }
+/* Docked in a column under the camera button at the top right, so a roll
+   result never sits on the status line or over the far side of the board. */
 .hud-toast {
   position: absolute;
-  left: 50%;
-  top: 20%;
-  transform: translateX(-50%);
-  max-width: 480px;
+  right: var(--hud-margin);
+  top: calc(var(--hud-top) + var(--hud-margin) + 44px);
+  max-width: min(360px, 32vw);
   padding: 10px 16px;
   font-size: 15px;
   pointer-events: none;
   animation: hud-toast-in 200ms ease-out both;
   z-index: 4;
+}
+.hud-toast::before {
+  left: auto;
+  right: 14px;
 }
 .hud-toast::before,
 .hud-tip::before {
@@ -1011,11 +1026,11 @@
 @keyframes hud-toast-in {
   from {
     opacity: 0;
-    transform: translate(-50%, -8px);
+    transform: translateY(-8px);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, 0);
+    transform: translateY(0);
   }
 }
 .hud-tip {

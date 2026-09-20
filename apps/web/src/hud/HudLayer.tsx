@@ -9,8 +9,8 @@
  * the turn ribbon, event toasts, help tips. Pointer events pass through to
  * the canvas everywhere except on interactive children.
  *
- * Keys: E end turn, T trade, L log, B build costs, Space skip, Esc closes
- * any panel or targeting mode.
+ * Keys: E end turn, T trade, U undo the last build, L log, B build costs,
+ * Space skip, Esc closes any panel or targeting mode.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
@@ -20,7 +20,7 @@ import type { GameDriver, RedactedState, SeatInfo } from "@/driver/types";
 import type { Step } from "@/game/eventQueue";
 import { EVENT_CARD_HELP, EVENT_CARD_LABEL, EVENT_DIE_LABEL, MODE_HINT, PROGRESS_CARD_LABEL, TRACK_LABEL, bannerText, currentPlayerId, playerName } from "@/game/labels";
 import type { CrownPick, TargetMode } from "@/board3d/Interaction";
-import { TradeResponse } from "@/components/dialogs";
+import { CounterOffers, TradeResponse } from "@/components/dialogs";
 import { ActionButtons } from "./ActionButtons";
 import { BuildCostCard } from "./BuildCostCard";
 import { CardsPanel } from "./CardsPanel";
@@ -218,6 +218,7 @@ export function HudLayer(props: HudLayerProps) {
   // Keyboard (docs/phase12.md §8).
   const endTurnEnabled = acting && has("END_TURN");
   const tradeEnabled = acting && !view.pendingTrade && hand !== null;
+  const undoEnabled = interactive && has("UNDO_BUILD");
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTyping(e)) return;
@@ -230,12 +231,13 @@ export function HudLayer(props: HudLayerProps) {
       const k = e.key.toLowerCase();
       if (k === "e" && endTurnEnabled) onDispatch({ type: "END_TURN", playerId: me });
       else if (k === "t" && tradeEnabled) onTrade();
+      else if (k === "u" && undoEnabled) onDispatch({ type: "UNDO_BUILD", playerId: me });
       else if (k === "l") setPanel((p) => (p === "log" ? null : "log"));
       else if (k === "b") toggleCost();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [panel, cardsOpen, endTurnEnabled, tradeEnabled, onDispatch, onTrade, me, toggleCost]);
+  }, [panel, cardsOpen, endTurnEnabled, tradeEnabled, undoEnabled, onDispatch, onTrade, me, toggleCost]);
 
   useEffect(() => {
     if (!interactive) setCardsOpen(false);
@@ -343,7 +345,14 @@ export function HudLayer(props: HudLayerProps) {
             {interactive && phase.kind === "action" && view.pendingTrade && !isCurrent && (
               <div className="hud-above-tray left-1/2 -translate-x-1/2">
                 <div className="hud-panel hud-dark hud-interactive p-2">
-                  <TradeResponse view={view} me={me} legal={legal} onDispatch={onDispatch} />
+                  <TradeResponse view={view} me={me} hand={hand} legal={legal} onDispatch={onDispatch} />
+                </div>
+              </div>
+            )}
+            {interactive && phase.kind === "action" && view.pendingTrade?.from === me && view.pendingTrade.counters.length > 0 && (
+              <div className="hud-above-tray left-1/2 -translate-x-1/2">
+                <div className="hud-panel hud-dark hud-interactive p-2">
+                  <CounterOffers view={view} me={me} legal={legal} onDispatch={onDispatch} />
                 </div>
               </div>
             )}
@@ -357,6 +366,7 @@ export function HudLayer(props: HudLayerProps) {
           </div>
           <ActionButtons
             roll={interactive && phase.kind === "roll" && isCurrent ? { enabled: has("ROLL"), reason: "Finish the current step first", onClick: () => onDispatch({ type: "ROLL", playerId: me }) } : null}
+            undo={undoEnabled ? { enabled: true, onClick: () => onDispatch({ type: "UNDO_BUILD", playerId: me }) } : null}
             endTurn={{ enabled: endTurnEnabled, reason: acting ? "Finish the current step first" : "Not your turn", onClick: () => onDispatch({ type: "END_TURN", playerId: me }) }}
             endTurnPulse={acting && onlyEndTurnLeft(legal)}
             trade={{ enabled: tradeEnabled, reason: view.pendingTrade ? "An offer is already open" : "Trade on your turn, after rolling", onClick: onTrade }}
@@ -374,6 +384,11 @@ export function HudLayer(props: HudLayerProps) {
           {view.pendingTrade?.from === me && view.pendingTrade.rejectedBy.length > 0 && (
             <span className="hud-dim text-xs" data-testid="declined">
               Declined: {view.pendingTrade.rejectedBy.map((id) => playerName(view, id)).join(", ")}
+            </span>
+          )}
+          {view.pendingTrade?.from === me && view.pendingTrade.counters.length > 0 && (
+            <span className="hud-dim text-xs" data-testid="countered">
+              Countered: {view.pendingTrade.counters.map((c) => playerName(view, c.from)).join(", ")}
             </span>
           )}
           {error && (

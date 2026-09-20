@@ -54,6 +54,8 @@ function Round({ icon, label, help, action, testId, size = "large", pulse = fals
 export interface ActionButtonsProps {
   /** The roll phase for me: the primary slot rolls. */
   roll: RoundAction | null;
+  /** §5.6: take back the last paid build; shown only while it is legal. */
+  undo: RoundAction | null;
   endTurn: RoundAction;
   /** End turn is the only remaining action: pulse gold. */
   endTurnPulse: boolean;
@@ -68,7 +70,7 @@ export interface ActionButtonsProps {
 }
 
 export function ActionButtons(props: ActionButtonsProps) {
-  const { roll, endTurn, endTurnPulse, trade, cards, cardCount, cardsOpen, specialBuildDone, draining, onSkip } = props;
+  const { roll, undo, endTurn, endTurnPulse, trade, cards, cardCount, cardsOpen, specialBuildDone, draining, onSkip } = props;
   if (draining) {
     return (
       <div className="hud-actions" aria-label="Actions">
@@ -78,6 +80,7 @@ export function ActionButtons(props: ActionButtonsProps) {
   }
   return (
     <div className="hud-actions" aria-label="Actions">
+      {undo && <Round icon="undo" label={HUD_COPY.actions.undo.label} help={HUD_COPY.actions.undo.help} action={undo} testId="undo-build" size="small" />}
       <Round icon="cards" label={HUD_COPY.actions.cards.label} help={HUD_COPY.actions.cards.help} action={cards} testId="cards" size="small" count={cardCount} pressed={cardsOpen} />
       <Round icon="trade" label={HUD_COPY.actions.trade.label} help={HUD_COPY.actions.trade.help} action={trade} testId="trade" />
       {roll ? (

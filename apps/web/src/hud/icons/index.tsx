@@ -44,7 +44,8 @@ export type IconName =
   | "bot"
   | "history"
   | "fish"
-  | "sail";
+  | "sail"
+  | "undo";
 
 const PATHS: Record<IconName, string> = {
   wood: "M4 6h16v3H4zM4 10.5h16v3H4zM4 15h16v3H4z M7 6.8h1.5v11.2H7zM15.5 6.8H17v11.2h-1.5z",
@@ -79,6 +80,7 @@ const PATHS: Record<IconName, string> = {
   camera: "M9 4h6l1.5 2H20a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h3.5zm3 4a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zm0 2a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z",
   bot: "M11 2h2v3h4a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4zm-4 5v9h10V7zm2 2h2v3H9zm4 0h2v3h-2zm-4 5h6v1.5H9zM3 9h1.5v5H3zm16.5 0H21v5h-1.5zM9 19h6v2H9z",
   history: "M12 3a9 9 0 1 1-8.4 12h2.2A7 7 0 1 0 5.6 9H8l-4 4-4-4h3.2A9 9 0 0 1 12 3zm-1 4h2v5.2l3.5 2-1 1.7L11 13.3z",
+  undo: "M9 5l-6 6 6 6v-4h5a4 4 0 0 1 0 8h-3v2h3a6 6 0 0 0 0-12H9z",
   fish: "M3 12c3-4 7-6 11-6l3 3 4-2-2 5 2 5-4-2-3 3c-4 0-8-2-11-6zm11-1.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z",
   sail: "M12 2v14h8zm-1 15h11l-2 4H8zm-7-1h3l-1 3H3z",
 };
