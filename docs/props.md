@@ -11,6 +11,15 @@ Companion to `docs/phase7-5.md` §1; implemented in `apps/web/src/board3d` (`sla
 - **Center recess (land only):** circular depression radius 0.32 R, depth 0.03 R, floor color earth tan `#B8865A`. The number token sits in it; the robber stands in it on the desert.
 - Top face has a gentle low-poly relief: displace vertices ±0.02 R by seeded noise, flat-shaded, so the surface shows facets like the references.
 
+**Cell edge.** A land tile's top face is lightened over its outer 0.16 R,
+lerping up to 32% toward a warm tint. Tiles are drawn a hair inside their cell
+(`SLAB_RADIUS` 0.985) so neighbours never touch, which left a dark gap reading
+as a seam; with a lit bevel either side of it the same gap reads as a border
+and the grid looks deliberate. It is a build-time change to the colour
+attribute, like the facet shading, so it costs nothing to draw. Land only —
+the sea should read as continuous water, and a rim on every sea tile would
+draw a grid across it. `test/slab.test.ts` pins both halves.
+
 **Facet shading.** Each triangle of a slab is shaded separately: a coherent
 value-noise patch (frequency 4.5) plus a per-face step, ±14% of the face's
 colour. The slab buffer is non-indexed and `tri` already wrote one colour per

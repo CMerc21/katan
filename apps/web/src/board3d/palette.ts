@@ -26,6 +26,8 @@ export const TERRAIN_TOP: Record<Terrain, string> = {
   wasteland: "#EDDAAF",
 };
 export const HILLS_APRON = "#E0A470";
+/** Warm light caught by the bevel at a tile's edge, so each cell reads as a cell. */
+export const RIM_TINT = "#F2E0BC";
 
 // §3 Props
 export const PINE_LIGHT = "#7FB84E";

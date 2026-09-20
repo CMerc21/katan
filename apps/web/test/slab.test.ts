@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GEOMETRY } from "@katan/engine";
-import { CORNER_RADIUS, LAND_HEIGHT, LAND_RELIEF, RECESS_DEPTH, RECESS_RADIUS, SEA_RELIEF, SEA_SLAB_HEIGHT, SLAB_RADIUS, TERRAIN_LIFT, buildSlab, propBoundary, roundedHexOutline, roundedHexRadius, seaVariant, slabJitter } from "@/board3d/slab";
+import { CORNER_RADIUS, LAND_HEIGHT, LAND_RELIEF, RECESS_DEPTH, RECESS_RADIUS, RIM_BAND, SEA_RELIEF, SEA_SLAB_HEIGHT, SLAB_RADIUS, TERRAIN_LIFT, buildSlab, propBoundary, roundedHexOutline, roundedHexRadius, seaVariant, slabJitter } from "@/board3d/slab";
 
 const deg = Math.PI / 180;
 
@@ -63,6 +63,46 @@ describe("docs/props.md §1 slab", () => {
         expect(nrm.getX(i) * cx + nrm.getZ(i) * cz).toBeGreaterThan(0);
       }
     }
+  });
+
+  it("docs/props.md §1 lights the outer band of a land tile, and leaves the sea alone", () => {
+    /** Mean brightness of faces whose centroid falls in a radius band. */
+    const bandMean = (spec: Parameters<typeof buildSlab>[0], lo: number, hi: number) => {
+      const g = buildSlab(spec).geometry;
+      const pos = g.attributes.position!;
+      const col = g.attributes.color!;
+      const nrm = g.attributes.normal!;
+      let sum = 0;
+      let n = 0;
+      for (let i = 0; i < pos.count; i += 3) {
+        // Top faces only, picked by normal: the side walls carry their own
+        // layer colours, and picking by height instead misses top faces that
+        // the relief has pushed down.
+        if (nrm.getY(i) < 0.5) continue;
+        const cx = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3;
+        const cz = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3;
+        const r = Math.hypot(cx, cz);
+        if (r < lo || r > hi) continue;
+        sum += col.getX(i) + col.getY(i) + col.getZ(i);
+        n++;
+      }
+      return n > 0 ? sum / n : 0;
+    };
+
+    const land = { kind: "land", terrain: "meadow", seed: "0,0" } as const;
+    const inner = bandMean(land, 0.4, 0.6);
+    const rim = bandMean(land, SLAB_RADIUS - RIM_BAND / 2, SLAB_RADIUS);
+    expect(inner).toBeGreaterThan(0);
+    // The band used to be the same colour as the tile body, so tiles met the
+    // dark gap between them with no edge at all.
+    expect(rim).toBeGreaterThan(inner * 1.05);
+
+    // The sea stays uniform, or the rims would draw a grid across open water.
+    const sea = { kind: "sea", terrain: null, seed: "0,0" } as const;
+    const seaInner = bandMean(sea, 0.3, 0.6);
+    const seaRim = bandMean(sea, SLAB_RADIUS - RIM_BAND / 2, SLAB_RADIUS);
+    expect(seaInner).toBeGreaterThan(0);
+    expect(Math.abs(seaRim - seaInner)).toBeLessThan(seaInner * 0.05);
   });
 
   it("docs/props.md §1 shades each face separately, so a tile is not one flat colour", () => {

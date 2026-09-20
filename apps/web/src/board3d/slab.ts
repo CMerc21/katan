@@ -10,7 +10,7 @@
 
 import * as THREE from "three";
 import { hashString, type Terrain } from "@katan/engine";
-import { EARTH, EARTH_BAND, FRAME_WOOD, HILLS_APRON, RECESS_FLOOR, SEA_SIDE, SEA_TOP, TERRAIN_TOP } from "./palette";
+import { EARTH, EARTH_BAND, FRAME_WOOD, HILLS_APRON, RECESS_FLOOR, RIM_TINT, SEA_SIDE, SEA_TOP, TERRAIN_TOP } from "./palette";
 
 export const HEX_RADIUS = 1;
 /** The slab is drawn a hair smaller than the cell so neighbours never touch. */
@@ -36,6 +36,19 @@ export const SEA_RELIEF = 0.05;
  * blend into a smooth gradient.
  */
 export const FACET_SHADE = 0.14;
+
+/**
+ * The cell edge (docs/props.md §1). Land tiles are drawn a hair inside their
+ * cell so neighbours never touch, which left a dark gap between them reading
+ * as a seam rather than a border. Lightening the outer band of the top face
+ * turns that into a lit bevel with a dark line between two of them, so the
+ * grid looks deliberate.
+ *
+ * Land only: the sea should read as continuous water, and a rim on every sea
+ * tile would draw a grid across it.
+ */
+export const RIM_BAND = 0.16;
+export const RIM_MIX = 0.32;
 
 /**
  * Per-terrain centre lift (docs/props.md §1): how far a tile's interior rises
@@ -302,7 +315,14 @@ export function buildSlab(spec: SlabSpec): SlabBuild {
   const apron = spec.kind === "land" && spec.terrain === "claypit" ? new THREE.Color(HILLS_APRON) : null;
   const floor = new THREE.Color(spec.terrain === "lake" ? LAKE_FLOOR : RECESS_FLOOR);
   const topAt = reliefField(spec);
-  const colorAt = (r: number): THREE.Color => (apron && r < 0.52 ? apron : topColor);
+  const rimTint = spec.kind === "land" ? new THREE.Color(RIM_TINT) : null;
+  const rimStart = SLAB_RADIUS - RIM_BAND;
+  const colorAt = (r: number): THREE.Color => {
+    const base = apron && r < 0.52 ? apron : topColor;
+    if (!rimTint) return base;
+    const t = Math.min(1, Math.max(0, (r - rimStart) / RIM_BAND));
+    return t > 0 ? base.clone().lerp(rimTint, t * RIM_MIX) : base;
+  };
 
   const lift = centreLift(spec);
   const rings: Pt[][] = [];
