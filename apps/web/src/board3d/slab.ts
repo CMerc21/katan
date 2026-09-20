@@ -47,8 +47,8 @@ export const FACET_SHADE = 0.14;
  * Land only: the sea should read as continuous water, and a rim on every sea
  * tile would draw a grid across it.
  */
-export const RIM_BAND = 0.16;
-export const RIM_MIX = 0.32;
+export const RIM_BAND = 0.1;
+export const RIM_MIX = 0.22;
 
 /**
  * Per-terrain centre lift (docs/props.md §1): how far a tile's interior rises
@@ -316,11 +316,17 @@ export function buildSlab(spec: SlabSpec): SlabBuild {
   const floor = new THREE.Color(spec.terrain === "lake" ? LAKE_FLOOR : RECESS_FLOOR);
   const topAt = reliefField(spec);
   const rimTint = spec.kind === "land" ? new THREE.Color(RIM_TINT) : null;
-  const rimStart = SLAB_RADIUS - RIM_BAND;
-  const colorAt = (r: number): THREE.Color => {
+  /**
+   * The band is measured in from the tile's *outline*, not from its centre. A
+   * hexagon's outline sits at 0.853 R along the flat edges and 0.985 R at the
+   * corners, so banding on the raw radius put the rim on the six corners only
+   * and left the edges bare.
+   */
+  const colorAt = (r: number, theta: number): THREE.Color => {
     const base = apron && r < 0.52 ? apron : topColor;
     if (!rimTint) return base;
-    const t = Math.min(1, Math.max(0, (r - rimStart) / RIM_BAND));
+    const edge = roundedHexRadius(theta);
+    const t = Math.min(1, Math.max(0, (r - (edge - RIM_BAND)) / RIM_BAND));
     return t > 0 ? base.clone().lerp(rimTint, t * RIM_MIX) : base;
   };
 
@@ -330,7 +336,7 @@ export function buildSlab(spec: SlabSpec): SlabBuild {
     rings.push([{ x: 0, z: 0, y: lift - RECESS_DEPTH, t: 0, color: floor }]);
     rings.push(ring(8, () => recess * 0.5, () => lift - RECESS_DEPTH, () => floor));
     rings.push(ring(18, () => recess, () => lift - RECESS_DEPTH, () => floor));
-    rings.push(ring(18, () => recess + 0.004, () => domeAt(recess, lift, recess), () => colorAt(recess)));
+    rings.push(ring(18, () => recess + 0.004, () => domeAt(recess, lift, recess), (theta) => colorAt(recess, theta)));
   } else {
     rings.push([{ x: 0, z: 0, y: topAt(0, 0), t: 0, color: topColor }]);
   }
@@ -342,10 +348,10 @@ export function buildSlab(spec: SlabSpec): SlabBuild {
     const w = s * s;
     const rho = (theta: number) => f * ((1 - w) * SLAB_RADIUS + w * roundedHexRadius(theta));
     const count = Math.max(8, Math.round((TWO_PI * f * SLAB_RADIUS) / 0.13));
-    rings.push(ring(count, rho, (x, z) => topAt(x, z), (_t, r) => colorAt(r)));
+    rings.push(ring(count, rho, (x, z) => topAt(x, z), (theta, r) => colorAt(r, theta)));
   }
   const outline = roundedHexOutline();
-  const boundary: Pt[] = outline.map((p) => ({ x: p.x, z: p.z, y: topAt(p.x, p.z), t: angleOf(p.x, p.z), color: colorAt(1) }));
+  const boundary: Pt[] = outline.map((p) => ({ x: p.x, z: p.z, y: topAt(p.x, p.z), t: angleOf(p.x, p.z), color: colorAt(Math.hypot(p.x, p.z), angleOf(p.x, p.z)) }));
   boundary.sort((a, b) => a.t - b.t);
   rings.push(boundary);
 

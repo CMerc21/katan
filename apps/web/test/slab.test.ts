@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GEOMETRY } from "@katan/engine";
-import { CORNER_RADIUS, LAND_HEIGHT, LAND_RELIEF, RECESS_DEPTH, RECESS_RADIUS, RIM_BAND, SEA_RELIEF, SEA_SLAB_HEIGHT, SLAB_RADIUS, TERRAIN_LIFT, buildSlab, propBoundary, roundedHexOutline, roundedHexRadius, seaVariant, slabJitter } from "@/board3d/slab";
+import { CORNER_RADIUS, LAND_HEIGHT, LAND_RELIEF, RECESS_DEPTH, RECESS_RADIUS, SEA_RELIEF, SEA_SLAB_HEIGHT, SLAB_RADIUS, TERRAIN_LIFT, buildSlab, propBoundary, roundedHexOutline, roundedHexRadius, seaVariant, slabJitter } from "@/board3d/slab";
 
 const deg = Math.PI / 180;
 
@@ -66,7 +66,13 @@ describe("docs/props.md §1 slab", () => {
   });
 
   it("docs/props.md §1 lights the outer band of a land tile, and leaves the sea alone", () => {
-    /** Mean brightness of faces whose centroid falls in a radius band. */
+    /**
+     * Mean brightness of top faces whose centroid falls in a band, measured as
+     * a fraction of the distance from the centre to the tile's outline at that
+     * angle. A raw radius band is wrong here: the outline is at 0.853 R along
+     * the flat edges and 0.985 R at the corners, so a band near 0.985 catches
+     * only corners and misses the edges entirely.
+     */
     const bandMean = (spec: Parameters<typeof buildSlab>[0], lo: number, hi: number) => {
       const g = buildSlab(spec).geometry;
       const pos = g.attributes.position!;
@@ -81,8 +87,8 @@ describe("docs/props.md §1 slab", () => {
         if (nrm.getY(i) < 0.5) continue;
         const cx = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3;
         const cz = (pos.getZ(i) + pos.getZ(i + 1) + pos.getZ(i + 2)) / 3;
-        const r = Math.hypot(cx, cz);
-        if (r < lo || r > hi) continue;
+        const frac = Math.hypot(cx, cz) / roundedHexRadius(Math.atan2(cz, cx));
+        if (frac < lo || frac > hi) continue;
         sum += col.getX(i) + col.getY(i) + col.getZ(i);
         n++;
       }
@@ -90,8 +96,8 @@ describe("docs/props.md §1 slab", () => {
     };
 
     const land = { kind: "land", terrain: "meadow", seed: "0,0" } as const;
-    const inner = bandMean(land, 0.4, 0.6);
-    const rim = bandMean(land, SLAB_RADIUS - RIM_BAND / 2, SLAB_RADIUS);
+    const inner = bandMean(land, 0.45, 0.65);
+    const rim = bandMean(land, 0.94, 1);
     expect(inner).toBeGreaterThan(0);
     // The band used to be the same colour as the tile body, so tiles met the
     // dark gap between them with no edge at all.
@@ -99,8 +105,8 @@ describe("docs/props.md §1 slab", () => {
 
     // The sea stays uniform, or the rims would draw a grid across open water.
     const sea = { kind: "sea", terrain: null, seed: "0,0" } as const;
-    const seaInner = bandMean(sea, 0.3, 0.6);
-    const seaRim = bandMean(sea, SLAB_RADIUS - RIM_BAND / 2, SLAB_RADIUS);
+    const seaInner = bandMean(sea, 0.45, 0.65);
+    const seaRim = bandMean(sea, 0.94, 1);
     expect(seaInner).toBeGreaterThan(0);
     expect(Math.abs(seaRim - seaInner)).toBeLessThan(seaInner * 0.05);
   });

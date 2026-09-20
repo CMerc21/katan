@@ -11,8 +11,11 @@ Companion to `docs/phase7-5.md` §1; implemented in `apps/web/src/board3d` (`sla
 - **Center recess (land only):** circular depression radius 0.32 R, depth 0.03 R, floor color earth tan `#B8865A`. The number token sits in it; the robber stands in it on the desert.
 - Top face has a gentle low-poly relief: displace vertices ±0.02 R by seeded noise, flat-shaded, so the surface shows facets like the references.
 
-**Cell edge.** A land tile's top face is lightened over its outer 0.16 R,
-lerping up to 32% toward a warm tint. Tiles are drawn a hair inside their cell
+**Cell edge.** A land tile's top face is lightened over the outer 0.10 R of
+the distance to its outline, lerping up to 22% toward a warm tint. The band is
+measured in from the **outline**, not from the centre: a hexagon's outline sits
+at 0.853 R along the flat edges and 0.985 R at the corners, so banding on the
+raw radius puts the rim on the six corners only and leaves the edges bare. Tiles are drawn a hair inside their cell
 (`SLAB_RADIUS` 0.985) so neighbours never touch, which left a dark gap reading
 as a seam; with a lit bevel either side of it the same gap reads as a border
 and the grid looks deliberate. It is a build-time change to the colour
