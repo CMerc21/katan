@@ -118,28 +118,38 @@ export const EXPOSURE = 1.28;
 export const CONTACT_LIFT = 0.03;
 
 /**
- * Atmospheric depth. Without fog the board is equally crisp from the near edge
- * to the far one and the table runs to a hard horizon, which flattens the
- * whole scene into a single plane. The fog colour is the backdrop, so the
- * table dissolves into the background instead of ending.
+ * Atmospheric depth. Without fog the table runs to a hard horizon, which
+ * flattens the scene into a single plane; the fog colour is the backdrop, so
+ * the table dissolves into the background instead of ending.
  *
- * Both distances are relative to the board's radius rather than absolute: the
- * camera frames the board by its radius (`framingDistance`), so this keeps the
- * same look on a Beginner board and on a large Phase 8 one.
+ * The fog follows the camera. It used to be fixed at 4–6 board radii from
+ * the eye, which was tuned for the default framing and swallowed the whole
+ * board as soon as the view was zoomed out (the camera can pull back to 2.2×
+ * the framing distance). `DepthFog` now sets the near plane just past the
+ * board's far edge for wherever the camera is, so the board itself is never
+ * fogged at any zoom and only the table beyond it fades.
  */
-/*
- * These bracket a narrow range on purpose. The camera frames the board by its
- * radius (`framingDistance` at FOV 32), which puts the board centre about 4x
- * the radius away and the whole visible scene inside roughly 3.3x to 5.5x --
- * so a far plane out at 7x or 9x spreads the gradient over depth the camera
- * never shows and fogs nothing but the top corners. Measured by rendering the
- * fog in magenta and reading off what it actually covered.
- *
- * At 4.0 / 6.0 the board centre is clear, its far edge takes about a third,
- * and the table behind it dissolves into the backdrop.
- */
-export const FOG_NEAR = 4;
-export const FOG_FAR = 6;
+export const FOG_NEAR = 1.6;
+export const FOG_FAR = 5;
+
+/** Keeps the scene fog's near and far planes relative to the camera's distance from the board (see `FOG_NEAR`). */
+function DepthFog({ bounds }: { bounds: Bounds }) {
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
+  const fog = useMemo(() => new THREE.Fog(BACKDROP, 1, 2), []);
+  useEffect(() => {
+    scene.fog = fog;
+    return () => {
+      if (scene.fog === fog) scene.fog = null;
+    };
+  }, [scene, fog]);
+  useFrame(() => {
+    const d = Math.hypot(camera.position.x - bounds.cx, camera.position.y, camera.position.z - bounds.cz);
+    fog.near = d + bounds.radius * FOG_NEAR;
+    fog.far = d + bounds.radius * FOG_FAR;
+  });
+  return null;
+}
 
 function lightPosition(cx: number, cz: number, azimuth: number, elevation: number, distance: number): [number, number, number] {
   return [cx + distance * Math.cos(elevation) * Math.sin(azimuth), distance * Math.sin(elevation), cz + distance * Math.cos(elevation) * Math.cos(azimuth)];
@@ -402,7 +412,7 @@ export function Board3D(props: Board3DProps) {
         style={{ touchAction: "none" }}
       >
         <color attach="background" args={[BACKDROP]} />
-        <fog attach="fog" args={[BACKDROP, bounds.radius * FOG_NEAR, bounds.radius * FOG_FAR]} />
+        <DepthFog bounds={bounds} />
         <CameraRig bounds={framed} resetToken={resetToken} focus={focus} hero={hero} />
         <Lights shadows={preset.shadows} shadowMap={preset.shadowMap} bounds={bounds} landBounds={landBounds} environment={preset.envIntensity > 0} />
         <DioramaEnvironment intensity={preset.envIntensity} keyAzimuth={KEY_AZIMUTH} keyElevation={KEY_ELEVATION} />

@@ -24,7 +24,7 @@
   --player-gold: #c99a2e;
   --hud-margin: 16px;
   /* The bands were 120 / 96 and ate 30% of a 720p screen. */
-  --hud-top: 84px;
+  --hud-top: 92px;
   --hud-bottom: 88px;
 }
 
@@ -172,10 +172,10 @@
   flex: 1 1 232px;
   max-width: 300px;
   min-width: 232px;
-  height: 76px;
+  height: 84px;
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr);
-  grid-template-rows: 24px minmax(0, 1fr);
+  grid-template-rows: 28px minmax(0, 1fr);
   column-gap: 10px;
   row-gap: 4px;
   padding: 8px 0 0 8px;
@@ -281,7 +281,7 @@
 .hud-ribbon {
   grid-column: 2;
   grid-row: 1;
-  height: 24px;
+  height: 28px;
   margin-right: 8px;
   padding: 0 18px 0 8px;
   background: var(--player);
@@ -315,35 +315,6 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   opacity: 0.85;
-}
-.hud-cards {
-  position: relative;
-  height: 20px;
-  width: 40px;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-}
-.hud-cards span {
-  position: absolute;
-  left: 0;
-  bottom: 1px;
-  width: 11px;
-  height: 15px;
-  border-radius: 2px;
-  background: #f4f1ea;
-  border: 1px solid rgba(0, 0, 0, 0.45);
-}
-/* The count sits beside the fan at the ribbon's size: the number is the fact
-   the table reads; the fan is decoration. */
-.hud-cards b {
-  position: relative;
-  font-size: 15px;
-  padding: 0 2px;
-  border-radius: 3px;
-  color: #fff;
-  line-height: 1.2;
 }
 .hud-progress {
   position: absolute;
@@ -383,7 +354,7 @@
   color: var(--hud-text-dim);
 }
 .hud-stat .hud-num {
-  font-size: 17px;
+  font-size: 18px;
 }
 .hud-stat[data-title="true"] {
   color: var(--hud-accent);
@@ -400,8 +371,8 @@
   color: var(--hud-accent);
 }
 .hud-stat svg {
-  width: 12px;
-  height: 12px;
+  width: 15px;
+  height: 15px;
   fill: currentColor;
 }
 .hud-banner-extra {
@@ -1149,31 +1120,43 @@
   height: 18px;
   background: var(--hud-border);
 }
+/* The improvement tracks at the ribbon's end: three pip columns, the track's
+   colour filling one pip per level from the bottom. Big enough to count from
+   across the table; the metropolis is the gold frame round the column. */
 .hud-tracks {
   display: inline-flex;
   align-items: flex-end;
-  gap: 2px;
+  gap: 3px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 2px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.32);
 }
 .hud-tracks > span {
   position: relative;
   display: flex;
   flex-direction: column-reverse;
   gap: 1px;
-  width: 4px;
-  height: 14px;
+  width: 7px;
+  height: 19px;
+  border-radius: 2px;
+}
+.hud-tracks > span[data-metropolis="true"] {
+  box-shadow: 0 0 0 1.5px var(--hud-accent);
 }
 .hud-tracks > span > i {
   display: block;
-  height: 2px;
+  height: 3px;
   border-radius: 1px;
+  background: rgba(255, 255, 255, 0.16);
 }
-.hud-tracks svg {
-  position: absolute;
-  top: -8px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 10px;
-  height: 8px;
+.hud-tracks > span > i[data-reached="true"] {
+  background: var(--track);
+}
+.hud-tracks > span > i[data-unlock="true"] {
+  outline: 1px solid rgba(217, 164, 55, 0.75);
+  outline-offset: -1px;
 }
 .hud-emote {
   position: absolute;

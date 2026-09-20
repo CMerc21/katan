@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { GEOMETRY, createGame, legalActions, parseEdgeId, type Action, type HexId } from "@katan/engine";
 import { createLayout } from "@/board/layout";
-import { CAMERA_SEA_MARGIN, boardBounds, cameraBounds, edgeWorld, framingDistance, hexCornerWorld, hexWorld, shorelineEdges, tileJitter, vertexWorld } from "@/board3d/layout3d";
+import { CAMERA_SEA_MARGIN, CAMERA_TABLE_MARGIN, CAMERA_TABLE_SHIFT, boardBounds, cameraBounds, edgeWorld, framingDistance, hexCornerWorld, hexWorld, shorelineEdges, tileJitter, vertexWorld } from "@/board3d/layout3d";
 import { computeTargets, targetName, wagonMoveFor } from "@/board3d/Interaction";
 import { FrameWatchdog, QUALITY_PRESETS, detectQuality, resolveDpr, stepDown } from "@/board3d/quality";
-import { FOOTPRINT, HERO_PROP, propsForHex, type PropKind, type PropTerrain } from "@/board3d/props";
+import { FOOTPRINT, HERO_PROP, LANDMARK_CHANCE, PROP_SCALE, hasLandmark, propsForHex, type PropKind, type PropTerrain } from "@/board3d/props";
 import { RECESS_RADIUS, propBoundary } from "@/board3d/slab";
 
 const close = (a: number, b: number, tol = 1e-9) => Math.abs(a - b) < tol;
@@ -65,19 +65,24 @@ describe("docs/phase7-5.md §2 world layout agrees with the 2D layout", () => {
 });
 
 describe("docs/phase12.md §9 camera framing", () => {
-  it("frames the land plus one ring of sea, never more than the whole board", () => {
+  it("frames the land plus one ring of sea, never more than the whole board, plus the table round it shifted toward the viewer", () => {
     const state = createGame({ seed: "frame", players: [{ id: "a", name: "A" }, { id: "b", name: "B" }, { id: "c", name: "C" }], board: "beginner" });
     const land = boardBounds(Object.keys(state.board.hexes));
-    // The beginner board has a frame, not a sea, so its bounds are the land's: the camera frames the land.
-    expect(cameraBounds(boardBounds([...Object.keys(state.board.hexes), ...state.board.sea]), land)).toEqual(land);
+    // The beginner board has a frame, not a sea, so its bounds are the land's: the camera frames the land and the table margin.
+    const beginner = cameraBounds(boardBounds([...Object.keys(state.board.hexes), ...state.board.sea]), land);
+    expect(beginner.cx).toBe(land.cx);
+    expect(beginner.cz).toBeCloseTo(land.cz + CAMERA_TABLE_SHIFT);
+    expect(beginner.radius).toBeCloseTo(land.radius + CAMERA_TABLE_MARGIN);
     // A wide sea (two rings and more) is cut to one ring past the land plus room for the props.
     const wide = { ...land, radius: land.radius + 6 };
     const framed = cameraBounds(wide, land);
     expect(framed.cx).toBe(land.cx);
-    expect(framed.radius).toBeCloseTo(land.radius + CAMERA_SEA_MARGIN);
+    expect(framed.radius).toBeCloseTo(land.radius + CAMERA_SEA_MARGIN + CAMERA_TABLE_MARGIN);
     // A narrow sea is framed whole.
     const narrow = { ...land, radius: land.radius + 1 };
-    expect(cameraBounds(narrow, land).radius).toBeCloseTo(narrow.radius);
+    expect(cameraBounds(narrow, land).radius).toBeCloseTo(narrow.radius + CAMERA_TABLE_MARGIN);
+    // The viewer's own pile and card lie on the near edge: the frame reaches at least that far.
+    expect(beginner.cz + beginner.radius).toBeGreaterThan(land.maxZ + 2.4);
   });
 });
 
@@ -188,13 +193,33 @@ describe("docs/props.md §3 props", () => {
     for (const p of propsForHex("0,1", "sea", 1)) expect(Math.hypot(p.x, p.z) + FOOTPRINT[p.kind]).toBeLessThanOrEqual(boundaryAt(p.x, p.z) + 1e-9);
   });
 
-  it("every terrain keeps its hero prop at every density, and the counts follow the brief at High", () => {
+  it("a terrain's landmark stands on a seeded share of its tiles, the same tiles at every density, and never twice", () => {
+    const hexes = Array.from({ length: 200 }, (_, i) => `${i % 20},${Math.floor(i / 20)}` as HexId);
     for (const [terrain, hero] of Object.entries(HERO_PROP) as [PropTerrain, PropKind][]) {
-      for (const density of [1, 0.7, 0.4]) {
-        const kinds = propsForHex("0,0", terrain, density).map((p) => p.kind);
-        expect(kinds.filter((k) => k === hero).length).toBe(1);
+      const chance = LANDMARK_CHANCE[terrain]!;
+      expect(chance).toBeGreaterThan(0);
+      expect(chance).toBeLessThanOrEqual(1);
+      let withLandmark = 0;
+      for (const hex of hexes) {
+        const expected = hasLandmark(hex, terrain);
+        if (expected) withLandmark++;
+        for (const density of [1, 0.7, 0.4]) {
+          const kinds = propsForHex(hex, terrain, density).map((p) => p.kind);
+          expect(kinds.filter((k) => k === hero).length).toBe(expected ? 1 : 0);
+        }
       }
+      // Roughly the recipe's share of tiles, never all of them.
+      expect(withLandmark / hexes.length).toBeGreaterThan(chance - 0.12);
+      expect(withLandmark / hexes.length).toBeLessThan(chance + 0.12);
     }
+    // No building stands on every tile of its terrain; a house on a forest hex is what a settlement looks like, so the cabin is the rarest.
+    for (const terrain of ["forest", "meadow", "farmland", "claypit", "mountain", "gold"] as const) expect(LANDMARK_CHANCE[terrain]).toBeLessThanOrEqual(0.5);
+    expect(LANDMARK_CHANCE.forest).toBeLessThanOrEqual(0.15);
+    // Every terrain prop is drawn smaller than modelled so the pieces stand out.
+    expect(PROP_SCALE).toBeLessThan(0.8);
+  });
+
+  it("the counts follow the brief at High", () => {
     const counts = (terrain: PropTerrain, kind: PropKind, hex = "0,0") => propsForHex(hex, terrain, 1).filter((p) => p.kind === kind).length;
     expect(counts("meadow", "sheep")).toBeGreaterThanOrEqual(5);
     expect(counts("meadow", "sheep")).toBeLessThanOrEqual(6);
@@ -226,7 +251,10 @@ describe("docs/props.md §3 props", () => {
     }
     const sorted = [...angles].sort((a, b) => a - b);
     for (let i = 1; i < 4; i++) expect(sorted[i]! - sorted[i - 1]!).toBeCloseTo(Math.PI / 2, 6);
-    expect(propsForHex("0,0", "farmland", 0.4).filter((p) => p.kind === "windmill")).toHaveLength(1);
+    const mills = (hex: HexId) => propsForHex(hex, "farmland", 0.4).filter((p) => p.kind === "windmill").length;
+    const withMill = ["0,0", "1,0", "2,0", "0,1", "1,1", "2,1", "0,2", "1,2", "2,2", "3,3"].find((h) => hasLandmark(h, "farmland"));
+    expect(withMill).toBeDefined();
+    expect(mills(withMill!)).toBe(1);
   });
 });
 

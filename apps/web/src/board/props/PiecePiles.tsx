@@ -3,9 +3,9 @@
 /**
  * Each player's unplaced pieces (docs/phase12.md §7) as the same figurines
  * that stand on the board, at 0.7 of their board size, in clusters by the
- * seat's table edge: roads side by side like stacked planks, then a row of
- * settlements, a row of cities, and ships (Tides) or level-1 knights (Crown &
- * Castle). The piles shrink as pieces reach the board, so a glance at the
+ * seat's table edge, the viewer's own at the near edge in front of them:
+ * roads side by side like stacked planks, then a row of settlements, a row
+ * of cities, and ships (Tides) or level-1 knights (Crown & Castle). The piles shrink as pieces reach the board, so a glance at the
  * table says what everyone has left. One GLB load per kind and colour; each
  * pile item is a clone sharing that geometry and those materials. Until a
  * model loads, or if it cannot, a plain block in the player's tint stands in.
@@ -19,12 +19,12 @@ import { PIECE_COLORS, dimColor, usePiece, type PieceName, type PieceOptions } f
 import { cityPieceOptions } from "@/board3d/Pieces";
 import * as P from "@/board3d/palette";
 import { PLAYER_FILL } from "@/game/theme";
-import { pileLayout, pileSlot, type PileLayout } from "./layout";
+import { pileLayout, pileSlot, seatFrom, type PileLayout } from "./layout";
 
 /** Pile figurines are drawn at this share of their on-board size. */
 export const PILE_SCALE = 0.7;
 /** Across-the-pile offset of each row: roads (long across), settlements, cities, ships or knights. */
-export const PILE_ROWS = [0, 0.78, 1.14, 1.56] as const;
+export const PILE_ROWS = [0, 0.62, 0.96, 1.32] as const;
 /** The most pieces drawn in one row before the rest are folded (a road pile holds 15). */
 const PER_ROW = 16;
 
@@ -59,10 +59,11 @@ function Row({ layout, row, count, name, options, gap, fallback, turn = 0, shado
 
 export function PiecePiles({ view, bounds, shadows }: { view: RedactedState; bounds: Bounds; shadows: boolean }) {
   const crown = view.scenario?.crown === true ? view.crown : null;
+  const order = view.players.map((p) => p.id);
   return (
     <group name="piles">
-      {view.players.map((p, seat) => {
-        const layout = pileLayout(bounds, seat);
+      {view.players.map((p) => {
+        const layout = pileLayout(bounds, seatFrom(order, view.viewer, p.id));
         const color = p.color as PlayerColor;
         const fill = PLAYER_FILL[color];
         const onBoard = crown ? crown.knights.filter((k) => k.owner === p.id).length : 0;

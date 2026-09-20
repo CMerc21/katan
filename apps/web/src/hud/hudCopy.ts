@@ -56,12 +56,14 @@ export const HUD_COPY = {
     defense: "Active defence: the levels of your activated knights",
     knights: "Knights on the board",
     dev: "Development cards in hand",
+    hand: "Resource cards in hand",
     progress: "Progress cards in hand",
     improvements: "City improvement levels across the three tracks",
   },
   table: {
     barbarians: "The barbarian fleet advances on a black sail. When it lands, the realm's active knights face the cities' strength.",
     bank: "The bank's cards. Hover a stack for its count.",
-    piles: "Unplaced pieces wait by each seat.",
+    piles: "Unplaced pieces wait by each seat; yours are nearest you.",
+    improvements: "Your city improvements. Click the card to improve a track.",
   },
 } as const;

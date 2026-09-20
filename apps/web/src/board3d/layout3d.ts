@@ -126,13 +126,20 @@ export function tileJitter(hex: HexId): { rotation: number; height: number } {
 /**
  * What the default camera frames. The whole board's bounds include the sea
  * ring (and the frame), which put the land in the middle 60% of the frame
- * with water and table around it. The camera now frames the land plus the
- * first ring of sea and the props that stand just off it, and never more than
- * the whole board.
+ * with water and table around it. The camera frames the land plus the first
+ * ring of sea and the props that stand just off it (never more than the whole
+ * board), and then the table around that: `CAMERA_TABLE_MARGIN` of radius for
+ * the piece piles, the bank and the fleet's track, with the framed centre
+ * pushed `CAMERA_TABLE_SHIFT` toward the camera so the viewer's own pile and
+ * improvement card, on the near edge, are in the frame rather than under the
+ * bottom band (the far edge is foreshortened and sits under the banners
+ * anyway).
  */
 export const CAMERA_SEA_MARGIN = 2.4;
+export const CAMERA_TABLE_MARGIN = 1.5;
+export const CAMERA_TABLE_SHIFT = 0.8;
 
 export function cameraBounds(bounds: Bounds, landBounds: Bounds): Bounds {
-  const radius = Math.min(bounds.radius, landBounds.radius + CAMERA_SEA_MARGIN);
-  return { ...landBounds, radius };
+  const radius = Math.min(bounds.radius, landBounds.radius + CAMERA_SEA_MARGIN) + CAMERA_TABLE_MARGIN;
+  return { ...landBounds, cz: landBounds.cz + CAMERA_TABLE_SHIFT, radius };
 }

@@ -21,7 +21,7 @@ import { PIECE_COLORS, dimColor, usePiece, type PieceOptions } from "./loadPiece
 import * as P from "./palette";
 import { RECESS_DEPTH } from "./slab";
 
-export const PIECE_SCALE = 1.5;
+export const PIECE_SCALE = 2;
 
 function colorOf(color: PlayerColor): string {
   return PLAYER_FILL[color];

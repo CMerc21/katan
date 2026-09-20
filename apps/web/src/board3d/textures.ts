@@ -8,9 +8,9 @@
  */
 
 import * as THREE from "three";
-import type { PortKind, Resource } from "@katan/engine";
-import { RESOURCE_SHORT, portLabel } from "@/game/labels";
-import { INK, PARCHMENT, RESOURCE_COLOR } from "@/game/theme";
+import { MAX_LEVEL, TRACKS, type PortKind, type Resource, type Track } from "@katan/engine";
+import { RESOURCE_SHORT, TRACK_LABEL, portLabel } from "@/game/labels";
+import { INK, PARCHMENT, RESOURCE_COLOR, TRACK_COLOR } from "@/game/theme";
 import { EVENT_FLEET, TABLE_WALNUT, TOKEN_CLAY, TOKEN_FACE, TOKEN_HOT } from "./palette";
 
 const cache = new Map<string, THREE.Texture>();
@@ -94,6 +94,111 @@ export function signTexture(kind: PortKind): THREE.Texture {
   ctx.fillText(portLabel(kind), 128, 66);
   ctx.font = "bold 48px 'Palatino Linotype', Palatino, Georgia, serif";
   ctx.fillText(kind === "any" ? "any" : RESOURCE_SHORT[kind as Resource], 128, 132);
+  return finish(key, c);
+}
+
+/**
+ * The face of a port disc (docs/props.md §5): the resource's colour as a
+ * broad ring (ink on parchment for a 3:1 port) around a bone face with the
+ * ratio large and the resource's short name under it. It sits on the sea
+ * beside the pier, where the hanging sign was too small to read from the
+ * table view, and turns to face the camera like a number token.
+ */
+export function portTokenTexture(kind: PortKind): THREE.Texture {
+  const key = `portToken:${kind}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const { c, ctx } = canvas(256, 256);
+  const ring = kind === "any" ? INK : RESOURCE_COLOR[kind];
+  ctx.fillStyle = ring;
+  ctx.beginPath();
+  ctx.arc(128, 128, 128, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = TOKEN_FACE;
+  ctx.beginPath();
+  ctx.arc(128, 128, 96, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = INK;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold 96px 'Palatino Linotype', Palatino, Georgia, serif";
+  ctx.fillText(portLabel(kind), 128, 110);
+  ctx.font = "bold 44px 'Palatino Linotype', Palatino, Georgia, serif";
+  ctx.fillStyle = kind === "any" ? INK : ring;
+  ctx.fillText(kind === "any" ? "ANY" : RESOURCE_SHORT[kind as Resource].toUpperCase(), 128, 178);
+  return finish(key, c);
+}
+
+/**
+ * A player's city improvement card (docs/phase12.md §4): a band in the
+ * player's colour with their name, then one column per track, five cells
+ * from level 1 at the bottom, filled in the track's colour to the level
+ * reached, the third cell (the ability level) ringed in gold and a gold
+ * crown over a track whose metropolis the player holds. Portrait, 256 × 324,
+ * the card's own aspect.
+ */
+export function improvementCardTexture(name: string, color: string, tracks: Record<Track, number>, metropolises: Record<Track, boolean>): THREE.Texture {
+  const key = `card:${color}:${name}:${TRACKS.map((t) => `${tracks[t]}${metropolises[t] ? "m" : ""}`).join("")}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const W = 256;
+  const H = 324;
+  const { c, ctx } = canvas(W, H);
+  ctx.fillStyle = PARCHMENT;
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 4;
+  ctx.strokeRect(2, 2, W - 4, H - 4);
+  // The name band.
+  ctx.fillStyle = color;
+  ctx.fillRect(4, 4, W - 8, 46);
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold 28px 'Palatino Linotype', Palatino, Georgia, serif";
+  ctx.fillText(name.length > 12 ? `${name.slice(0, 11)}…` : name, W / 2, 28);
+  // Three columns.
+  const colW = (W - 24) / 3;
+  const cellH = 34;
+  const cellW = colW - 18;
+  const top = 96;
+  TRACKS.forEach((t, i) => {
+    const x0 = 12 + i * colW;
+    ctx.fillStyle = TRACK_COLOR[t];
+    ctx.font = "bold 20px 'Palatino Linotype', Palatino, Georgia, serif";
+    ctx.fillText(TRACK_LABEL[t], x0 + colW / 2, 74);
+    for (let level = 1; level <= MAX_LEVEL; level++) {
+      const y = top + (MAX_LEVEL - level) * (cellH + 6);
+      const x = x0 + (colW - cellW) / 2;
+      ctx.fillStyle = level <= tracks[t] ? TRACK_COLOR[t] : "rgba(33,29,25,0.12)";
+      ctx.fillRect(x, y, cellW, cellH);
+      ctx.strokeStyle = level === 3 ? "#d9a437" : "rgba(33,29,25,0.45)";
+      ctx.lineWidth = level === 3 ? 4 : 2;
+      ctx.strokeRect(x, y, cellW, cellH);
+      ctx.fillStyle = level <= tracks[t] ? "#ffffff" : "rgba(33,29,25,0.5)";
+      ctx.font = "bold 18px 'Palatino Linotype', Palatino, Georgia, serif";
+      ctx.fillText(String(level), x + cellW / 2, y + cellH / 2 + 1);
+    }
+    if (metropolises[t]) {
+      // A gold crown over the column.
+      const cx = x0 + colW / 2;
+      const cy = top - 10;
+      ctx.fillStyle = "#d9a437";
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx - 20, cy + 8);
+      ctx.lineTo(cx - 20, cy - 8);
+      ctx.lineTo(cx - 9, cy);
+      ctx.lineTo(cx, cy - 12);
+      ctx.lineTo(cx + 9, cy);
+      ctx.lineTo(cx + 20, cy - 8);
+      ctx.lineTo(cx + 20, cy + 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  });
   return finish(key, c);
 }
 

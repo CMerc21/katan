@@ -14,8 +14,23 @@ import * as THREE from "three";
 import { easeInOut } from "./geo";
 import { framingDistance, type Bounds, type World } from "./layout3d";
 
-export const DEFAULT_AZIMUTH = (-35 * Math.PI) / 180;
-export const DEFAULT_ELEVATION = (48 * Math.PI) / 180;
+/**
+ * The table view is the same for every seat: squarely in front of the board
+ * (azimuth 0, so the hex rows run across the screen) and steep enough that
+ * the whole board reads at once, the way it does when four people sit round
+ * a real table with the board turned toward each of them. Number tokens and
+ * the port discs turn to face this direction (`LABEL_TURN`), so their labels
+ * always read upright from the default view.
+ */
+export const DEFAULT_AZIMUTH = 0;
+export const DEFAULT_ELEVATION = (56 * Math.PI) / 180;
+/**
+ * The Y rotation that turns a label baked onto a cylinder's top cap toward
+ * the default camera. A cap's texture has its top along local +x (three maps
+ * the cap's v to x), and the camera at azimuth `a` sees "up" on the table as
+ * the direction (−sin a, −cos a); rotating by π/2 + a takes +x there.
+ */
+export const LABEL_TURN = Math.PI / 2 + DEFAULT_AZIMUTH;
 export const MIN_ELEVATION = (20 * Math.PI) / 180;
 export const MAX_ELEVATION = (80 * Math.PI) / 180;
 /**

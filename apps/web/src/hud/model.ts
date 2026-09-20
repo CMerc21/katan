@@ -26,7 +26,7 @@ export function totalVP(p: RedactedPlayer): number {
 }
 
 export interface StatColumn {
-  readonly key: "roads" | "army" | "defense" | "knights" | "dev" | "progress" | "improvements";
+  readonly key: "roads" | "army" | "defense" | "knights" | "dev" | "progress" | "hand";
   readonly value: number;
   readonly icon: IconName;
   /** The column glows gold while the player holds the matching title. */
@@ -51,8 +51,6 @@ export function bannerStats(view: RedactedState, p: RedactedPlayer): BannerStats
     const active = knights.filter((k) => k.active);
     const defense = active.reduce((n, k) => n + k.level, 0);
     const progress = isHiddenProgress(cp.progress) ? cp.progress.count : cp.progress.length;
-    const levels = cp.tracks.trade + cp.tracks.politics + cp.tracks.science;
-    const metropolis = cp.metropolises.trade !== null || cp.metropolises.politics !== null || cp.metropolises.science !== null;
     return {
       vp: totalVP(p),
       cards: handSize(p),
@@ -65,7 +63,7 @@ export function bannerStats(view: RedactedState, p: RedactedPlayer): BannerStats
         { key: "defense", value: defense, icon: "shield", title: cp.defenderChips > 0, label: "defence" },
         { key: "knights", value: knights.length, icon: "knight", title: false, label: "knights" },
         { key: "progress", value: progress, icon: "card", title: false, label: "progress cards" },
-        { key: "improvements", value: levels, icon: "tower", title: metropolis, label: "city improvements" },
+        { key: "hand", value: handSize(p), icon: "cards", title: false, label: "cards in hand" },
       ],
     };
   }
@@ -81,6 +79,7 @@ export function bannerStats(view: RedactedState, p: RedactedPlayer): BannerStats
       { key: "army", value: p.playedKnights, icon: "army", title: view.largestArmy.playerId === p.id, label: "knights played" },
       { key: "knights", value: isHiddenCount(p.devCards) ? 0 : p.devCards.filter((c) => c.type === "knight").length, icon: "knight", title: false, label: "knight cards" },
       { key: "dev", value: devCount(p), icon: "card", title: false, label: "development cards" },
+      { key: "hand", value: handSize(p), icon: "cards", title: false, label: "cards in hand" },
     ],
   };
 }

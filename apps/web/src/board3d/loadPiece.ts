@@ -58,15 +58,22 @@ export interface PieceConfig {
   fit: { height: number } | { width: number; height: number; length: number };
 }
 
-/** The 1.5× the procedural figures are drawn at (docs/props.md), already folded into the world sizes below. */
-const FIGURE_SCALE = 1.5;
+/**
+ * The 2× the procedural figures are drawn at (docs/props.md §4), already
+ * folded into the world sizes below. It was 1.5×, at which a settlement
+ * (0.27 tall) stood lower than the cabin on the forest tile beside it and a
+ * level-1 knight (0.26) vanished among the sheep; the terrain props are now
+ * drawn at `PROP_SCALE` (0.72) as well, so the pieces are the biggest things
+ * on the land.
+ */
+const FIGURE_SCALE = 2;
 /**
  * The plain city's world height. Both upgrades stand taller than it, and the
  * walled models share one footprint so the wall ring reads the same size on a
  * walled city and a walled metropolis.
  */
-export const CITY_HEIGHT = 0.34 * FIGURE_SCALE;
-export const WALL_FOOTPRINT = 0.62;
+export const CITY_HEIGHT = 0.31 * FIGURE_SCALE;
+export const WALL_FOOTPRINT = 0.72;
 const GREY = "#8a8f99";
 const WOOD = "#8b6a45";
 const NEAR_BLACK = "#1a1a1a";
@@ -76,37 +83,38 @@ const DARK_RED = "#7a2a2a";
 export const PIECE_COLORS = { grey: GREY, wood: WOOD, nearBlack: NEAR_BLACK, darkRed: DARK_RED, merchant: "#c9b58a" } as const;
 
 export const PIECES: Record<PieceName, PieceConfig> = {
-  // Base disc, cone body and the tip of the tilted hood cone: (0.27 + 0.05·cos(0.25)) × 1.5.
-  robber: { zones: null, fit: { height: 0.32 * FIGURE_SCALE } },
-  // Base ring to the crown of the thatched roof: (0.12 + 0.8·0.08) × 1.5.
+  // Base disc, cone body and the tip of the tilted hood cone: (0.27 + 0.05·cos(0.25)) × 2.
+  robber: { zones: null, fit: { height: 0.28 * FIGURE_SCALE } },
+  // Base ring to the crown of the thatched roof: (0.12 + 0.8·0.08) × 2.
   settlement: { zones: { baseMaxY: -0.34, topMinY: -0.11 }, fit: { height: 0.18 * FIGURE_SCALE } },
-  // Base ring to the top of the keep's flag pole: (0.2 + 0.14) × 1.5. Roofs and caps split out (`detail`).
+  // Base ring to the top of the keep's flag pole. Roofs and caps split out (`detail`).
   city: { zones: { baseMaxY: -0.41, topMinY: 0.27, detail: true }, fit: { height: CITY_HEIGHT } },
-  // 1.0 long on local Z, 0.46 wide, 0.10 thick. Stops short of the vertices where settlements sit.
-  road: { zones: null, fullPlayerColor: true, fit: { width: 0.18 * EDGE_LENGTH, height: 0.08 * EDGE_LENGTH, length: 0.8 * EDGE_LENGTH } },
+  // 0.8 long on local Z, 0.22 wide, 0.1 thick. Stops short of the vertices where settlements sit.
+  road: { zones: null, fullPlayerColor: true, fit: { width: 0.22 * EDGE_LENGTH, height: 0.1 * EDGE_LENGTH, length: 0.8 * EDGE_LENGTH } },
   // Replaces the city at a metropolis vertex: taller than the plain city (CITY_HEIGHT), the crown is the top zone.
-  metropolis: { zones: { baseMaxY: -0.42, topMinY: 0.38, detail: true }, fit: { width: 0.5, height: 0.65, length: 0.5 } },
+  metropolis: { zones: { baseMaxY: -0.42, topMinY: 0.38, detail: true }, fit: { width: 0.62, height: 0.78, length: 0.62 } },
   // Replaces the city when the vertex has a wall: the wall ring makes it wider (WALL_FOOTPRINT) and it stands taller than the plain city.
-  city_walled: { zones: { baseMaxY: -0.32, topMinY: 0.2, detail: true }, fit: { width: WALL_FOOTPRINT, height: 0.56, length: WALL_FOOTPRINT } },
+  city_walled: { zones: { baseMaxY: -0.32, topMinY: 0.2, detail: true }, fit: { width: WALL_FOOTPRINT, height: 0.68, length: WALL_FOOTPRINT } },
   // A metropolis that also has a wall: one model, the same wall footprint as `city_walled`, the tallest piece on the board.
   // Thresholds read off the model's own profile: the base disc sits below -0.42 (radius 0.45 against the wall's 0.39) and
   // the crown above 0.42, with no geometry at all between 0.34 and 0.42.
-  metropolis_walled: { zones: { baseMaxY: -0.42, topMinY: 0.4, detail: true }, fit: { width: WALL_FOOTPRINT, height: 0.7, length: WALL_FOOTPRINT } },
+  metropolis_walled: { zones: { baseMaxY: -0.42, topMinY: 0.4, detail: true }, fit: { width: WALL_FOOTPRINT, height: 0.84, length: WALL_FOOTPRINT } },
   // Sea-edge piece, length on local X; only the sail takes the player colour, the hull bottom (raw Y -0.455) sits on the water.
-  ship: { zones: { topMinY: 0.2 }, axis: "x", fit: { width: 0.22, height: 0.26, length: 0.7 } },
+  ship: { zones: { topMinY: 0.2 }, axis: "x", fit: { width: 0.26, height: 0.32, length: 0.76 } },
   // The fleet's longboat on the table track, length on local X: dark red sail over a near-black hull.
   barbarian_ship: { zones: { topMinY: 0.24 }, axis: "x", fit: { width: 0.3, height: 0.28, length: 0.65 } },
   // Sea hex centre, length on local X, laid along the hex's flat sides.
-  pirate: { zones: { topMinY: 0.18 }, axis: "x", fit: { width: 0.36, height: 0.32, length: 0.32 } },
+  pirate: { zones: { topMinY: 0.18 }, axis: "x", fit: { width: 0.42, height: 0.38, length: 0.38 } },
   // Hex centre like the robber, lifted by its own min Y (-0.436). Green base disc and hat over a warm tan coat,
   // so the figure reads as the merchant (docs/props.md §5) rather than a lump of the tile's colour.
-  merchant: { zones: { baseMaxY: -0.39, topMinY: 0.3 }, fit: { width: 0.3, height: 0.3, length: 0.3 } },
+  merchant: { zones: { baseMaxY: -0.39, topMinY: 0.3 }, fit: { width: 0.36, height: 0.36, length: 0.36 } },
   // Vertex pieces; the level is which model loads. Base and top in the player colour, body grey.
-  knight_1: { zones: { baseMaxY: -0.42, topMinY: 0.1 }, fit: { width: 0.18, height: 0.26, length: 0.18 } },
-  knight_2: { zones: { baseMaxY: -0.33, topMinY: 0.22 }, fit: { width: 0.2, height: 0.28, length: 0.2 } },
-  knight_3: { zones: { baseMaxY: -0.38, topMinY: 0.19 }, fit: { width: 0.23, height: 0.3, length: 0.23 } },
+  // A knight stands with the settlement (0.36): at the old 0.26 it was the smallest thing on the land.
+  knight_1: { zones: { baseMaxY: -0.42, topMinY: 0.1 }, fit: { width: 0.28, height: 0.4, length: 0.28 } },
+  knight_2: { zones: { baseMaxY: -0.33, topMinY: 0.22 }, fit: { width: 0.31, height: 0.44, length: 0.31 } },
+  knight_3: { zones: { baseMaxY: -0.38, topMinY: 0.19 }, fit: { width: 0.35, height: 0.48, length: 0.35 } },
   // At each port's edge midpoint on the sea side, facing the land hex.
-  port_sign: { zones: null, fit: { width: 0.26, height: 0.3, length: 0.24 } },
+  port_sign: { zones: null, fit: { width: 0.3, height: 0.36, length: 0.28 } },
 };
 
 /** Material slot order for a zoned piece; a `detail` piece adds the roof and cap slots. */

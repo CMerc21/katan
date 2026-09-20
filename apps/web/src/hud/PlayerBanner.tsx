@@ -1,12 +1,15 @@
 "use client";
 
 /**
- * One player's banner (docs/phase12.md §1): VP badge over the portrait,
- * gold turn marker, a player-colour name ribbon with the bot glyph and the
- * hand as tiny cards, two pills hanging under the portrait, and a five (or
- * four) column stat block. Hovering the banner opens a detailed tip after
- * 300 ms. Wayfarers badges ride in an extra row under the block, since those
- * variants carry state the columns do not cover.
+ * One player's banner (docs/phase12.md §1), laid out like a table-top
+ * scoreboard: VP badge over the portrait, gold turn marker, a player-colour
+ * name ribbon with the bot glyph and, under Crown & Castle, the three city
+ * improvement tracks as tall pip columns at the ribbon's end (the level of
+ * each track and its metropolis are readable from across the table), two
+ * pills hanging under the portrait, and a five column stat block of numeral
+ * over glyph ending with the hand. Hovering the banner opens a detailed tip
+ * after 300 ms. Wayfarers badges ride in an extra row under the block, since
+ * those variants carry state the columns do not cover.
  */
 
 import { useMemo, type CSSProperties, type ReactNode } from "react";
@@ -56,35 +59,22 @@ export interface PlayerBannerProps {
   onHover?: ((playerId: string | null) => void) | undefined;
 }
 
-/** Three small bars, one per improvement track (docs/rules.md §16.3, §16.7). */
+/**
+ * The three improvement tracks (docs/rules.md §16.3, §16.7) as pip columns in
+ * the track colours, one pip per level from the bottom, the third pip ringed
+ * in gold (the level that unlocks the track's ability) and the whole column
+ * ringed in gold while the player holds that track's metropolis.
+ */
 export function TriTrack({ cp, id }: { cp: RedactedCrownPlayer; id: string }) {
   return (
-    <span className="hud-tracks" aria-label={TRACKS.map((t) => `${TRACK_LABEL[t]} level ${cp.tracks[t]}`).join(", ")} data-testid={`tracks-${id}`}>
+    <span className="hud-tracks" aria-label={TRACKS.map((t) => `${TRACK_LABEL[t]} level ${cp.tracks[t]}${cp.metropolises[t] ? " with the metropolis" : ""}`).join(", ")} title={TRACKS.map((t) => `${TRACK_LABEL[t]} ${cp.tracks[t]}/${MAX_LEVEL}`).join(" · ")} data-testid={`tracks-${id}`}>
       {TRACKS.map((t) => (
-        <span key={t} data-track={t} data-level={cp.tracks[t]}>
+        <span key={t} data-track={t} data-level={cp.tracks[t]} data-metropolis={cp.metropolises[t] ? "true" : undefined} style={{ "--track": TRACK_COLOR[t] } as CSSProperties}>
           {Array.from({ length: MAX_LEVEL }, (_, i) => (
-            <i key={i} style={{ background: i < cp.tracks[t] ? TRACK_COLOR[t] : "rgba(255,255,255,.18)", outline: i === 2 ? "1px solid rgba(217,164,55,.7)" : undefined, outlineOffset: -1 }} />
+            <i key={i} data-reached={i < cp.tracks[t] ? "true" : "false"} data-unlock={i === 2 ? "true" : undefined} />
           ))}
-          {cp.metropolises[t] && (
-            <svg viewBox="0 0 10 8" aria-hidden>
-              <path d="M1 7 L1 2 L3.5 4 L5 1 L6.5 4 L9 2 L9 7 Z" fill={TRACK_COLOR[t]} stroke="#000" strokeWidth={0.6} />
-            </svg>
-          )}
         </span>
       ))}
-    </span>
-  );
-}
-
-/** The hand as a fan of up to three tiny cards with the count always beside it (the number is what the table reads). */
-function HandCards({ count }: { count: number }) {
-  const shown = Math.min(count, 3);
-  return (
-    <span className="hud-cards" aria-label={`${count} cards in hand`} title={`${count} cards`} data-count={count}>
-      {Array.from({ length: shown }, (_, i) => (
-        <span key={i} style={{ left: i * 4 }} />
-      ))}
-      <b className="hud-num">{count > 19 ? "19+" : count}</b>
     </span>
   );
 }
@@ -278,7 +268,7 @@ export function PlayerBanner({ p, view, me, seat, acting, thinking, online, boti
         {!isBot && online !== null && seat && (
           <span aria-label={online ? "connected" : "disconnected"} title={online ? "Connected" : "Disconnected"} className={`inline-block h-2 w-2 rounded-full ${online ? "bg-[#9be07a]" : "bg-[#ff8a80]"}`} data-testid={`presence-${p.id}`} />
         )}
-        <HandCards count={stats.cards} />
+        {cp && <TriTrack cp={cp} id={p.id} />}
         {thinking !== null && (
           <span className="hud-progress" style={{ animationDuration: `${thinking}ms` }} aria-label={`${p.name} is thinking`} data-testid={`thinking-${p.id}`} />
         )}
@@ -288,7 +278,7 @@ export function PlayerBanner({ p, view, me, seat, acting, thinking, online, boti
         {stats.columns.map((col) => (
           <span key={col.key} className={`hud-stat ${glint && col.title ? "badge-glint" : ""}`} data-title={col.title ? "true" : "false"} data-zero={col.value === 0 && !col.title ? "true" : "false"} data-stat={col.key} title={HUD_COPY.stats[col.key === "army" ? "army" : col.key]} data-testid={col.key === "knights" ? `knights-${p.id}` : col.key === "defense" ? `defense-${p.id}` : undefined}>
             <Numeral value={col.value} label={col.label} />
-            {col.key === "improvements" && cp ? <TriTrack cp={cp} id={p.id} /> : <Icon name={col.icon} />}
+            <Icon name={col.icon} />
           </span>
         ))}
       </div>

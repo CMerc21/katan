@@ -3,8 +3,14 @@
  * its terrain and a density, returns where each prop stands so no two forest
  * tiles look alike and every client draws the same scene. Props keep clear
  * of the centre recess and a 0.06 R margin at the slab edge; the counts are
- * the High defaults, scaled by the quality density with the hero prop of
- * every terrain always present.
+ * the High defaults, scaled by the quality density.
+ *
+ * A terrain's landmark (the cabin, the hut, the windmill, the kiln, the mine,
+ * the sluice) is not on every tile: each tile rolls for it once, on its own
+ * seeded stream, so which tiles carry one never changes with the quality
+ * density. A board where every forest has a cabin and every field a windmill
+ * reads as a village on every hex, and the buildings crowd the pieces that
+ * matter — a settlement should be the biggest house on its corner.
  */
 
 import { createRng, type HexId, type Terrain } from "@katan/engine";
@@ -53,6 +59,13 @@ export interface PropInstance {
   readonly seed: number;
 }
 
+/**
+ * Every terrain prop is drawn at this share of its modelled size, so the
+ * tallest of them (a cabin's ridge, a windmill's cap, a peak) stays under the
+ * settlement and the pieces stand out from the scenery (docs/props.md §3).
+ */
+export const PROP_SCALE = 0.72;
+
 /** Props drawn with one instanced mesh per kind (static primitives). Windmills and gulls animate on their own. */
 export const INSTANCED_KINDS: readonly PropKind[] = [
   "pine",
@@ -91,18 +104,21 @@ interface Recipe {
   readonly scale: [number, number];
   /** Radial band from the tile centre (absolute, in R). */
   readonly band?: [number, number];
-  /** The terrain's hero prop: always at least one, whatever the density. */
+  /** The terrain's landmark: laid out on the share of tiles given by `chance`, whatever the density. */
   readonly hero?: boolean;
+  /** Landmarks only: the seeded chance that a tile carries one. */
+  readonly chance?: number;
   /** Evenly spaced around the recess, rotated tangentially (wheat rows). */
   readonly arrange?: "ring";
   /** Only laid out at this density or above (the gull at Medium+). */
   readonly minDensity?: number;
 }
 
-/** Heroes first so they always find room. */
+/** Landmarks first so they always find room. */
 const RECIPES: Record<PropTerrain, readonly Recipe[]> = {
   forest: [
-    { kind: "cabin", min: 1, max: 1, scale: [1, 1], band: [0.5, 0.7], hero: true },
+    // Rare: a house on a forest hex is what a settlement looks like, so most forests are just woods.
+    { kind: "cabin", min: 1, max: 1, scale: [1, 1], band: [0.5, 0.7], hero: true, chance: 0.15 },
     { kind: "pine", min: 6, max: 8, scale: [0.85, 1.15] },
     { kind: "oak", min: 2, max: 3, scale: [0.9, 1.1] },
     { kind: "logPile", min: 2, max: 2, scale: [0.9, 1.1] },
@@ -110,24 +126,24 @@ const RECIPES: Record<PropTerrain, readonly Recipe[]> = {
     { kind: "fallenLog", min: 1, max: 1, scale: [1, 1] },
   ],
   meadow: [
-    { kind: "shepherdHut", min: 1, max: 1, scale: [1, 1], band: [0.52, 0.7], hero: true },
+    { kind: "shepherdHut", min: 1, max: 1, scale: [1, 1], band: [0.52, 0.7], hero: true, chance: 0.4 },
     { kind: "sheep", min: 5, max: 6, scale: [0.9, 1.1] },
     { kind: "fence", min: 2, max: 2, scale: [0.9, 1.1], band: [0.52, 0.68] },
     { kind: "rope", min: 0, max: 1, scale: [1, 1] },
     { kind: "crook", min: 0, max: 1, scale: [1, 1] },
   ],
   farmland: [
-    { kind: "windmill", min: 1, max: 1, scale: [1, 1], band: [0.66, 0.74], hero: true },
+    { kind: "windmill", min: 1, max: 1, scale: [1, 1], band: [0.66, 0.74], hero: true, chance: 0.4 },
     { kind: "wheat", min: 4, max: 4, scale: [1, 1], band: [0.5, 0.54], arrange: "ring" },
   ],
   claypit: [
-    { kind: "kiln", min: 1, max: 1, scale: [1, 1], band: [0.52, 0.68], hero: true },
+    { kind: "kiln", min: 1, max: 1, scale: [1, 1], band: [0.52, 0.68], hero: true, chance: 0.4 },
     { kind: "mound", min: 3, max: 3, scale: [0.8, 1.1] },
     { kind: "brickStack", min: 1, max: 1, scale: [0.9, 1.1] },
-    { kind: "cart", min: 1, max: 1, scale: [1, 1] },
+    { kind: "cart", min: 0, max: 1, scale: [1, 1] },
   ],
   mountain: [
-    { kind: "mine", min: 1, max: 1, scale: [1, 1], band: [0.52, 0.68], hero: true },
+    { kind: "mine", min: 1, max: 1, scale: [1, 1], band: [0.52, 0.68], hero: true, chance: 0.4 },
     { kind: "peak", min: 3, max: 3, scale: [0.8, 1.1] },
     { kind: "goldNugget", min: 2, max: 2, scale: [0.7, 1.2] },
     { kind: "silverNugget", min: 2, max: 3, scale: [0.7, 1.2] },
@@ -139,7 +155,7 @@ const RECIPES: Record<PropTerrain, readonly Recipe[]> = {
     { kind: "coin", min: 0, max: 2, scale: [1, 1] },
   ],
   gold: [
-    { kind: "sluice", min: 1, max: 1, scale: [1, 1], band: [0.52, 0.68], hero: true },
+    { kind: "sluice", min: 1, max: 1, scale: [1, 1], band: [0.52, 0.68], hero: true, chance: 0.5 },
     { kind: "peak", min: 2, max: 2, scale: [0.75, 1] },
     { kind: "goldNugget", min: 6, max: 6, scale: [0.7, 1.2] },
   ],
@@ -150,13 +166,28 @@ const RECIPES: Record<PropTerrain, readonly Recipe[]> = {
   ],
 };
 
-/** The hero prop of each terrain (docs/props.md §3). */
+/** The landmark prop of each terrain (docs/props.md §3). */
 export const HERO_PROP: Partial<Record<PropTerrain, PropKind>> = Object.fromEntries(
   Object.entries(RECIPES).flatMap(([t, rs]) => {
     const hero = rs.find((r) => r.hero);
     return hero ? [[t, hero.kind]] : [];
   }),
 );
+
+/** The share of tiles that carry the terrain's landmark. */
+export const LANDMARK_CHANCE: Partial<Record<PropTerrain, number>> = Object.fromEntries(
+  Object.entries(RECIPES).flatMap(([t, rs]) => {
+    const hero = rs.find((r) => r.hero);
+    return hero ? [[t, hero.chance ?? 1]] : [];
+  }),
+);
+
+/** Whether this tile carries its terrain's landmark: one seeded roll per tile, independent of the density. */
+export function hasLandmark(hex: HexId, terrain: PropTerrain): boolean {
+  const chance = LANDMARK_CHANCE[terrain];
+  if (chance === undefined) return false;
+  return createRng(hex, "landmark").next() < chance;
+}
 
 /** Approximate footprint radius per kind: keeps props off each other, the recess and the edge margin. */
 export const FOOTPRINT: Record<PropKind, number> = {
@@ -202,11 +233,12 @@ export function propsForHex(hex: HexId, terrain: PropTerrain, density = 1): Prop
   const rng = createRng(hex, "props");
   const out: PropInstance[] = [];
   const inner = innerLimit(terrain);
+  const landmark = hasLandmark(hex, terrain);
   for (const r of RECIPES[terrain] ?? []) {
     const wanted = r.min + rng.int(r.max - r.min + 1);
     let count = Math.round(wanted * density);
     if (r.minDensity !== undefined && density < r.minDensity) count = 0;
-    if (r.hero) count = Math.max(1, count);
+    if (r.hero) count = landmark ? 1 : 0;
     const foot = FOOTPRINT[r.kind];
     if (r.arrange === "ring") {
       const [lo, hi] = r.band ?? [0.5, 0.56];

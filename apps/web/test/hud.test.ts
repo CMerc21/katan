@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { builtInScenario, createGame, legalActions, redact, type Action } from "@katan/engine";
-import { boardBounds } from "@/board3d/layout3d";
+import { builtInScenario, createGame, legalActions, redact, type Action, type HexId } from "@katan/engine";
+import { boardBounds, hexWorld } from "@/board3d/layout3d";
 import type { RedactedState } from "@/driver/types";
-import { BOOK_GAP, TRACK_MIN_STEP, bankLayout, barbarianTrackLayout, booksLayout, pileLayout, pileSlot } from "@/board/props/layout";
+import { TRACK_TILES, bankLayout, barbarianTrackLayout, cardLayout, pileLayout, pileSlot, seatFrom } from "@/board/props/layout";
 import { HUD_COPY } from "@/hud/hudCopy";
 import { bannerStats, costRows, handSize, onlyEndTurnLeft, pushRoll, rollHistogram, waitingText } from "@/hud/model";
 
@@ -13,11 +13,11 @@ const PLAYERS = [
 ];
 
 describe("docs/phase12.md §1 banner statistics", () => {
-  it("base game: four columns, army and longest road pills, hand size for others is the hidden count", () => {
+  it("base game: five columns ending with the hand, army and longest road pills, hand size for others is the hidden count", () => {
     const state = createGame({ seed: "hud-1", players: PLAYERS, board: "beginner" });
     const view = redact(state, "a");
     const mine = bannerStats(view, view.players[0]!);
-    expect(mine.columns.map((c) => c.key)).toEqual(["roads", "army", "knights", "dev"]);
+    expect(mine.columns.map((c) => c.key)).toEqual(["roads", "army", "knights", "dev", "hand"]);
     expect(mine.pills[0].icon).toBe("army");
     expect(mine.vp).toBe(0);
     const other = view.players[1]!;
@@ -25,11 +25,11 @@ describe("docs/phase12.md §1 banner statistics", () => {
     expect(bannerStats(view, other).columns.every((c) => c.value === 0)).toBe(true);
   });
 
-  it("Crown & Castle: five columns with defence, knights, progress and improvements", () => {
+  it("Crown & Castle: five columns with defence, knights, progress and the hand (the tracks ride the ribbon)", () => {
     const state = createGame({ seed: "hud-2", players: PLAYERS, scenario: builtInScenario("crownStandard") });
     const view = redact(state, "a");
     const stats = bannerStats(view, view.players[0]!);
-    expect(stats.columns.map((c) => c.key)).toEqual(["roads", "defense", "knights", "progress", "improvements"]);
+    expect(stats.columns.map((c) => c.key)).toEqual(["roads", "defense", "knights", "progress", "hand"]);
     expect(stats.pills.map((p) => p.icon)).toEqual(["knight", "shield"]);
     expect(stats.columns.every((c) => c.title === false)).toBe(true);
   });
@@ -126,36 +126,51 @@ describe("docs/phase12.md §7 on-table prop layout", () => {
     expect(b.centre.z).toBeCloseTo(b.origin.z + 2 * b.step);
   });
 
-  it("the barbarian lane runs along the bottom-left edge, seven evenly spaced markers ending left of the dice tray", () => {
-    const t = barbarianTrackLayout(bounds);
+  it("the barbarian track is a chain of sea hexes hooked onto the board's top-left corner, the fleet sailing in toward the board", () => {
+    const hexes = [...Object.keys(state.board.hexes), ...state.board.sea, ...state.board.frame] as HexId[];
+    const t = barbarianTrackLayout(hexes);
+    expect(t.tiles).toHaveLength(TRACK_TILES);
     expect(t.dots).toHaveLength(7);
-    // Past the near (bottom) edge, in a straight line.
-    expect(t.start.z).toBeGreaterThan(bounds.maxZ);
-    for (const d of t.dots) expect(d.z).toBe(t.start.z);
-    // From the open sea (left) toward the landing (right), clear of the dice tray at cx - 1.1 ± 0.8.
-    for (let i = 1; i < t.dots.length; i++) expect(t.dots[i]!.x - t.dots[i - 1]!.x).toBeCloseTo(t.step);
-    expect(t.dots[0]!.x - t.start.x).toBeCloseTo(t.step);
+    // Every track hex lies beyond the board's top-left-most hex (the smallest x + z), so none overlaps the board.
+    const edge = Math.min(...hexes.map((h) => hexWorld(h).x + hexWorld(h).z));
+    for (const tile of t.tiles) expect(tile.x + tile.z).toBeLessThan(edge - 1e-9);
+    // The chain is contiguous: consecutive hexes are grid neighbours (√3 apart).
+    for (let i = 1; i < t.tiles.length; i++) expect(Math.hypot(t.tiles[i]!.x - t.tiles[i - 1]!.x, t.tiles[i]!.z - t.tiles[i - 1]!.z)).toBeCloseTo(Math.sqrt(3));
+    // The near hex touches the corner hex; the far end is the open sea.
+    const corner = hexes.reduce((best, h) => (hexWorld(h).x + hexWorld(h).z < hexWorld(best).x + hexWorld(best).z ? h : best));
+    const near = t.tiles[t.tiles.length - 1]!;
+    expect(Math.hypot(near.x - hexWorld(corner).x, near.z - hexWorld(corner).z)).toBeCloseTo(Math.sqrt(3));
+    expect(t.start).toEqual(t.tiles[0]);
+    // The landing is the near hex's centre and the markers close in on it in order.
     expect(t.end).toEqual(t.dots[6]);
-    expect(t.end.x).toBeLessThan(bounds.cx - 1.9);
-    expect(t.step).toBeGreaterThanOrEqual(TRACK_MIN_STEP);
+    expect(t.end.x).toBeCloseTo(near.x);
+    expect(t.end.z).toBeCloseTo(near.z);
+    const toEnd = (p: { x: number; z: number }) => Math.hypot(p.x - t.end.x, p.z - t.end.z);
+    for (let i = 1; i < t.dots.length; i++) expect(toEnd(t.dots[i]!)).toBeLessThan(toEnd(t.dots[i - 1]!));
+    // Every marker stands on a track hex.
+    for (const d of t.dots) expect(t.tiles.some((tile) => Math.hypot(d.x - tile.x, d.z - tile.z) < 1)).toBe(true);
   });
 
-  it("a narrow board keeps the markers at the minimum spacing by extending the lane leftward", () => {
-    const narrow = { ...bounds, minX: bounds.cx - 1, maxX: bounds.cx + 1 };
-    const t = barbarianTrackLayout(narrow);
-    expect(t.step).toBe(TRACK_MIN_STEP);
-    expect(t.start.x).toBeLessThan(narrow.minX);
+  it("seats are counted from the viewer, so every player's own props take the near edge", () => {
+    expect(seatFrom(["a", "b", "c"], "a", "a")).toBe(0);
+    expect(seatFrom(["a", "b", "c"], "b", "b")).toBe(0);
+    expect(seatFrom(["a", "b", "c"], "b", "c")).toBe(1);
+    expect(seatFrom(["a", "b", "c"], "b", "a")).toBe(2);
+    // An unknown viewer (a spectator) sees the table from seat a.
+    expect(seatFrom(["a", "b", "c"], "zz", "c")).toBe(2);
   });
 
-  it("each seat's improvement books lie just before its pile, stepping across it", () => {
+  it("each seat's improvement card lies just before its pile and beside it, outside the board, every seat distinct", () => {
+    const spots = new Set<string>();
     for (const seat of [0, 1, 2, 3]) {
       const pile = pileLayout(bounds, seat);
-      const books = booksLayout(bounds, seat);
+      const card = cardLayout(bounds, seat);
       // Behind the pile's origin along its row direction.
-      expect((books.origin.x - pile.origin.x) * pile.along.x + (books.origin.z - pile.origin.z) * pile.along.z).toBeLessThan(0);
-      expect(books.across).toEqual(pile.across);
-      expect(BOOK_GAP).toBeGreaterThan(0.3);
+      expect((card.x - pile.origin.x) * pile.along.x + (card.z - pile.origin.z) * pile.along.z).toBeLessThan(0);
+      expect(card.x < bounds.minX || card.x > bounds.maxX || card.z < bounds.minZ || card.z > bounds.maxZ).toBe(true);
+      spots.add(`${card.x.toFixed(2)},${card.z.toFixed(2)}`);
     }
+    expect(spots.size).toBe(4);
   });
 
   it("piles are outside the board and every seat gets a distinct spot", () => {

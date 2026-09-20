@@ -15,7 +15,7 @@ import type { HexId } from "@katan/engine";
 import { box, cone, cyl, dodeca, facetedCone, halfSphere, ico, merge, octa, part, prism, sphere, torus } from "./geo";
 import { SEA_HEIGHT, SLAB_HEIGHT, hexWorld } from "./layout3d";
 import * as P from "./palette";
-import { INSTANCED_KINDS, propsForHex, type PropInstance, type PropKind, type PropTerrain } from "./props";
+import { INSTANCED_KINDS, PROP_SCALE, propsForHex, type PropInstance, type PropKind, type PropTerrain } from "./props";
 import { reliefField } from "./slab";
 
 /** Build the merged geometry for one prop kind. Base sits at y = 0. */
@@ -201,7 +201,8 @@ export function layoutProps(hexes: readonly PropHex[], density: number): Map<Pro
       const list = out.get(p.kind) ?? [];
       // Sea crests ride the ripple; land props sit a hair into the facet so no gap shows on a slope.
       const wy = (sea ? SEA_HEIGHT : SLAB_HEIGHT) + relief(p.x, p.z) - (sea ? 0 : 0.006);
-      list.push({ ...p, hex: h.id, wx: c.x + p.x, wy, wz: c.z + p.z });
+      // The world scale folds in `PROP_SCALE`: every prop is drawn smaller than modelled so the pieces stand out.
+      list.push({ ...p, scale: p.scale * PROP_SCALE, hex: h.id, wx: c.x + p.x, wy, wz: c.z + p.z });
       out.set(p.kind, list);
     }
   }
@@ -269,13 +270,13 @@ function PropKindMesh({ kind, items, idle, shadows }: { kind: PropKind; items: P
 }
 
 /** A stone-based windmill with four lattice sails turning at 0.15 rad/s (docs/props.md §3). */
-function Windmill({ x, y, z, rot, idle, shadows }: { x: number; y: number; z: number; rot: number; idle: boolean; shadows: boolean }) {
+function Windmill({ x, y, z, rot, scale, idle, shadows }: { x: number; y: number; z: number; rot: number; scale: number; idle: boolean; shadows: boolean }) {
   const sails = useRef<THREE.Group>(null);
   useFrame((_, dt) => {
     if (sails.current && idle) sails.current.rotation.z -= dt * 0.15;
   });
   return (
-    <group position={[x, y, z]} rotation={[0, rot, 0]} name="windmill">
+    <group position={[x, y, z]} rotation={[0, rot, 0]} scale={scale} name="windmill">
       <mesh position={[0, 0.06, 0]} castShadow={shadows}>
         <cylinderGeometry args={[0.09, 0.1, 0.12, 8]} />
         <meshStandardMaterial color={P.STONE_WALL} flatShading />
@@ -456,7 +457,7 @@ export function Props({ hexes, density, idle, shadows }: { hexes: readonly PropH
         return items && items.length > 0 ? <PropKindMesh key={kind} kind={kind} items={items} idle={idle} shadows={shadows} /> : null;
       })}
       {windmills.map((w) => (
-        <Windmill key={w.hex} x={w.wx} y={w.wy} z={w.wz} rot={w.rot} idle={idle} shadows={shadows} />
+        <Windmill key={w.hex} x={w.wx} y={w.wy} z={w.wz} rot={w.rot} scale={w.scale} idle={idle} shadows={shadows} />
       ))}
       {idle && kilns.map((k) => <Smoke key={k.hex} x={k.wx} y={k.wy} z={k.wz} rot={k.rot} scale={k.scale} seed={k.seed} />)}
       {gulls.map((g) => (

@@ -50,18 +50,20 @@ describe("piece config (world units, hex edge = 1)", () => {
       const f = PIECES[n].fit;
       return "width" in f ? [f.width, f.height, f.length] : [f.height];
     };
-    expect(dims("metropolis")).toEqual([0.5, 0.65, 0.5]);
-    expect(dims("metropolis_walled")).toEqual([WALL_FOOTPRINT, 0.7, WALL_FOOTPRINT]);
-    expect(dims("city_walled")).toEqual([WALL_FOOTPRINT, 0.56, WALL_FOOTPRINT]);
-    expect(dims("ship")).toEqual([0.22, 0.26, 0.7]);
+    expect(dims("metropolis")).toEqual([0.62, 0.78, 0.62]);
+    expect(dims("metropolis_walled")).toEqual([WALL_FOOTPRINT, 0.84, WALL_FOOTPRINT]);
+    expect(dims("city_walled")).toEqual([WALL_FOOTPRINT, 0.68, WALL_FOOTPRINT]);
+    expect(dims("ship")).toEqual([0.26, 0.32, 0.76]);
     expect(dims("barbarian_ship")).toEqual([0.3, 0.28, 0.65]);
-    expect(dims("pirate")).toEqual([0.36, 0.32, 0.32]);
-    expect(dims("merchant")).toEqual([0.3, 0.3, 0.3]);
-    expect(dims("knight_1")).toEqual([0.18, 0.26, 0.18]);
-    expect(dims("knight_2")).toEqual([0.2, 0.28, 0.2]);
-    expect(dims("knight_3")).toEqual([0.23, 0.3, 0.23]);
-    expect(dims("port_sign")).toEqual([0.26, 0.3, 0.24]);
-    expect(dims("road")).toEqual([0.18, 0.08, 0.8]);
+    expect(dims("pirate")).toEqual([0.42, 0.38, 0.38]);
+    expect(dims("merchant")).toEqual([0.36, 0.36, 0.36]);
+    expect(dims("knight_1")).toEqual([0.28, 0.4, 0.28]);
+    expect(dims("knight_2")).toEqual([0.31, 0.44, 0.31]);
+    expect(dims("knight_3")).toEqual([0.35, 0.48, 0.35]);
+    // A knight is never shorter than a settlement: at 0.26 it was the smallest thing on the land.
+    expect(PIECES.knight_1.fit.height).toBeGreaterThanOrEqual(PIECES.settlement.fit.height);
+    expect(dims("port_sign")).toEqual([0.3, 0.36, 0.28]);
+    expect(dims("road")).toEqual([0.22, 0.1, 0.8]);
   });
 
   it("pins the zone thresholds and which pieces turn their length axis", () => {
@@ -184,27 +186,27 @@ describe("fit and lift", () => {
     group.updateMatrixWorld(true);
     const world = new THREE.Box3().setFromObject(group);
     expect(world.min.y).toBeCloseTo(0, 6);
-    expect(world.max.y).toBeCloseTo(0.3, 6);
-    expect(world.max.x - world.min.x).toBeCloseTo(0.3, 6);
-    expect(world.max.z - world.min.z).toBeCloseTo(0.3, 6);
+    expect(world.max.y).toBeCloseTo(0.36, 6);
+    expect(world.max.x - world.min.x).toBeCloseTo(0.36, 6);
+    expect(world.max.z - world.min.z).toBeCloseTo(0.36, 6);
     disposePiece(group);
   });
 
-  it("an axis-x model is turned so its raw X length presents on Z, then fitted per axis (ship 0.22 × 0.26 × 0.70)", () => {
+  it("an axis-x model is turned so its raw X length presents on Z, then fitted per axis (ship 0.26 × 0.32 × 0.76)", () => {
     // Raw: long on X (1.0), 0.9 tall with the hull bottom at -0.455, 0.3 wide on Z.
     const g = prepareGeometry(meshyBox(1, 0.9, 0.3, -0.455), PIECES.ship);
     expect(axisRotationY(PIECES.ship)).toBeCloseTo(-Math.PI / 2, 9);
     const { scale, lift } = pieceFit(PIECES.ship, g);
     expect(lift).toBeCloseTo(0.455, 6);
-    expect(scale.z).toBeCloseTo(0.7 / 1, 6);
-    expect(scale.x).toBeCloseTo(0.22 / 0.3, 6);
-    expect(scale.y).toBeCloseTo(0.26 / 0.9, 6);
+    expect(scale.z).toBeCloseTo(0.76 / 1, 6);
+    expect(scale.x).toBeCloseTo(0.26 / 0.3, 6);
+    expect(scale.y).toBeCloseTo(0.32 / 0.9, 6);
     const group = assemblePiece("ship", g, { color: "#3060c0", neutral: PIECE_COLORS.wood });
     group.updateMatrixWorld(true);
     const world = new THREE.Box3().setFromObject(group);
-    expect(world.max.z - world.min.z).toBeCloseTo(0.7, 5);
-    expect(world.max.x - world.min.x).toBeCloseTo(0.22, 5);
-    expect(world.max.y - world.min.y).toBeCloseTo(0.26, 5);
+    expect(world.max.z - world.min.z).toBeCloseTo(0.76, 5);
+    expect(world.max.x - world.min.x).toBeCloseTo(0.26, 5);
+    expect(world.max.y - world.min.y).toBeCloseTo(0.32, 5);
     expect(world.min.y).toBeCloseTo(0, 5);
     disposePiece(group);
   });
@@ -227,8 +229,8 @@ describe("fit and lift", () => {
     }
   });
 
-  it("height-only pieces scale uniformly to world height (settlement 0.27, city 0.51, robber 0.48)", () => {
-    const expected = { settlement: 0.18 * 1.5, city: 0.34 * 1.5, robber: 0.32 * 1.5 } as const;
+  it("height-only pieces scale uniformly to world height (settlement 0.36, city 0.62, robber 0.56)", () => {
+    const expected = { settlement: 0.18 * 2, city: 0.31 * 2, robber: 0.28 * 2 } as const;
     for (const name of Object.keys(expected) as (keyof typeof expected)[]) {
       const g = prepareGeometry(meshyBox(0.9, 1, 0.9), PIECES[name]);
       const { scale } = pieceFit(PIECES[name], g);

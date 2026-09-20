@@ -15,6 +15,7 @@ import { hexWorld, tileJitter } from "./layout3d";
 import { TOKEN_CLAY, TOKEN_HOT } from "./palette";
 import { LAND_HEIGHT, RECESS_DEPTH, SEA_SLAB_HEIGHT, SEA_VARIANTS, TERRAIN_LIFT, buildSlab, seaVariant, type SlabSpec } from "./slab";
 import { tokenTexture } from "./textures";
+import { LABEL_TURN } from "./Camera";
 
 export interface TileInfo {
   readonly id: HexId;
@@ -144,7 +145,7 @@ function Token({ n, x, z, y, bounceKey, dim }: { n: number; x: number; z: number
     materials.top.opacity += ((dim ? 0.35 : 1) - materials.top.opacity) * 0.2;
   });
   return (
-    <group ref={group} position={[x, y, z]} name={`token:${n}`}>
+    <group ref={group} position={[x, y, z]} rotation={[0, LABEL_TURN, 0]} name={`token:${n}`}>
       <mesh material={materials.body} position={[0, TOKEN_HEIGHT * 0.375, 0]} castShadow>
         <cylinderGeometry args={[TOKEN_RADIUS, TOKEN_RADIUS, TOKEN_HEIGHT * 0.75, 24]} />
       </mesh>
