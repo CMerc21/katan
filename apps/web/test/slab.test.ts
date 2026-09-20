@@ -20,7 +20,7 @@ describe("docs/props.md §1 slab", () => {
     }
   });
 
-  it("a land slab is 0.22 R tall with a 0.03 R recess and ±0.02 R relief, and every top face points up", () => {
+  it("a land slab is 0.22 R tall with a 0.03 R recess and ±0.05 R relief, and every top face points up", () => {
     const { geometry, height } = buildSlab({ kind: "land", terrain: "forest", seed: "0,0" });
     expect(height).toBeCloseTo(LAND_HEIGHT, 9);
     const pos = geometry.attributes.position!;
@@ -56,6 +56,31 @@ describe("docs/props.md §1 slab", () => {
         expect(nrm.getX(i) * cx + nrm.getZ(i) * cz).toBeGreaterThan(0);
       }
     }
+  });
+
+  it("docs/props.md §1 shades each face separately, so a tile is not one flat colour", () => {
+    const { geometry } = buildSlab({ kind: "land", terrain: "meadow", seed: "0,0" });
+    const colors = geometry.attributes.color!;
+    // One colour per triangle: the buffer is non-indexed and `tri` writes the
+    // same value three times, so sample the first vertex of each face.
+    const shades: number[] = [];
+    for (let i = 0; i < colors.count; i += 3) shades.push(colors.getX(i) + colors.getY(i) + colors.getZ(i));
+    const min = Math.min(...shades);
+    const max = Math.max(...shades);
+    // Every face used to carry the identical `topColor`, which is what made the
+    // tiles read as flat card however much relief the mesh had.
+    expect(max - min).toBeGreaterThan(0.05);
+    const distinct = new Set(shades.map((v) => v.toFixed(4)));
+    expect(distinct.size).toBeGreaterThan(shades.length / 4);
+  });
+
+  it("shades faces deterministically, so two tiles of one terrain still differ", () => {
+    const read = (seed: string) => {
+      const c = buildSlab({ kind: "land", terrain: "meadow", seed }).geometry.attributes.color!;
+      return Array.from({ length: c.count }, (_, i) => c.getX(i));
+    };
+    expect(read("0,0")).toEqual(read("0,0"));
+    expect(read("0,0")).not.toEqual(read("1,0"));
   });
 
   it("relief is seeded per tile and differs between tiles", () => {

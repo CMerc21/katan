@@ -33,10 +33,10 @@ export interface QualityPreset {
 export const MAX_DPR = 2;
 
 export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
-  high: { shadows: true, postfx: true, propDensity: 1, dpr: MAX_DPR, idleMotion: true, shadowMap: 2048, envIntensity: 0.4, contactShadows: true },
+  high: { shadows: true, postfx: true, propDensity: 1, dpr: MAX_DPR, idleMotion: true, shadowMap: 2048, envIntensity: 0.22, contactShadows: true },
   // Post-FX moved to Medium: the vignette and tilt-shift are most of what makes
   // the board read as a miniature, and they are cheap next to the shadow pass.
-  medium: { shadows: true, postfx: true, propDensity: 0.7, dpr: MAX_DPR, idleMotion: true, shadowMap: 1024, envIntensity: 0.4, contactShadows: false },
+  medium: { shadows: true, postfx: true, propDensity: 0.7, dpr: MAX_DPR, idleMotion: true, shadowMap: 1024, envIntensity: 0.22, contactShadows: false },
   // No environment on Low: it is the preset auto-detection picks for software
   // renderers and weak mobile, which is exactly where the per-fragment cost
   // hurts. `Lights` raises the hemisphere fill to make up the ambient.

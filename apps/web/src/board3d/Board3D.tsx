@@ -85,11 +85,18 @@ export const KEY_ELEVATION = (42 * Math.PI) / 180;
 export const RIM_AZIMUTH = KEY_AZIMUTH + Math.PI;
 export const RIM_ELEVATION = (26 * Math.PI) / 180;
 
-export const KEY_INTENSITY = 1.35;
+/*
+ * The key/ambient ratio is the "washed" dial. At key 1.35 with ambient 0.52
+ * (env 0.4 + hemisphere 0.12) a lit top face came out at 1.42 against 0.52 in
+ * shadow -- 2.7:1, which compresses every form into the same mid band. The
+ * stylised low-poly look this board is after runs nearer 4.5:1, so the key
+ * goes up and the ambient comes down; the lit value barely moves.
+ */
+export const KEY_INTENSITY = 1.55;
 export const RIM_INTENSITY = 0.3;
-export const HEMI_INTENSITY = 0.12;
+export const HEMI_INTENSITY = 0.08;
 /** Low has no environment map, so the hemisphere carries the ambient instead. */
-export const HEMI_INTENSITY_NO_ENV = 0.55;
+export const HEMI_INTENSITY_NO_ENV = 0.34;
 
 /** The shadow frustum reaches this far past the land's radius, so piers and coastal ships still cast. */
 export const SHADOW_MARGIN = 1.5;
@@ -100,7 +107,7 @@ export const SHADOW_MARGIN = 1.5;
  * this palette is made of — it was turning the terrain colours in `palette.ts`
  * to mud. Neutral keeps them and only rolls off the highlights.
  */
-export const EXPOSURE = 1.18;
+export const EXPOSURE = 1.28;
 /** The contact-shadow plane clears the land tops' relief (±`LAND_RELIEF`). */
 export const CONTACT_LIFT = 0.03;
 

@@ -6,10 +6,20 @@ Companion to `docs/phase7-5.md` §1; implemented in `apps/web/src/board3d` (`sla
 
 - Extruded hexagon, crisp edges (no bevel), corner radius 0.03 R.
 - **Land:** total height 0.22 R in two layers: top layer 0.12 R in the terrain color, lower layer 0.10 R in earth brown `#8A5A3C` (mountains may use a mid band `#C9976A` between grey and brown).
-- **Sea:** total height 0.15 R, single color `#3FA8C4` sides, top face a lighter faceted surface (§3).
+- **Sea:** total height 0.15 R, single color `#2A6E80` sides, top face a lighter faceted surface (§3).
 - Per-tile jitter: rotation ±0.4°, height ±1.5%, applied by seed.
 - **Center recess (land only):** circular depression radius 0.32 R, depth 0.03 R, floor color earth tan `#B8865A`. The number token sits in it; the robber stands in it on the desert.
 - Top face has a gentle low-poly relief: displace vertices ±0.02 R by seeded noise, flat-shaded, so the surface shows facets like the references.
+
+**Facet shading.** Each triangle of a slab is shaded separately: a coherent
+value-noise patch (frequency 4.5) plus a per-face step, ±14% of the face's
+colour. The slab buffer is non-indexed and `tri` already wrote one colour per
+triangle, so this costs nothing at run time — it is a build-time change to the
+colour attribute. Relief went from ±0.02 R to ±0.05 R at the same time: at
+0.02 across facets spaced ~0.13 apart the faces tilt about 9°, which flat
+shading renders as almost no value change, so the polygons were there but
+invisible. Without both, every tile reads as one flat colour whatever the
+lighting does. `test/slab.test.ts` pins the separation.
 
 ## 2. Terrain colors
 
@@ -86,11 +96,12 @@ Props avoid the center recess and a 0.06 R margin at the slab edge. Layout posit
 
 ## 6. Lighting and post
 
-- Key: directional, warm `#FFE7C2`, intensity 1.35, from azimuth −40°, elevation 42°, casting soft shadows (PCF, map 2048 on High, 1024 on Medium). Its shadow camera is fitted to the **land** bounds plus 1.5 R, not the whole board, and it aims at the land centre.
+- Key: directional, warm `#FFE7C2`, intensity 1.55, from azimuth −40°, elevation 42°, casting soft shadows (PCF, map 2048 on High, 1024 on Medium). Its shadow camera is fitted to the **land** bounds plus 1.5 R, not the whole board, and it aims at the land centre.
 - Rim: directional, cool `#A8C8E4`, intensity 0.3, from the key's azimuth + 180° at elevation 26°, no shadows. It draws a lit edge on the figurines; it is not a fill.
-- Fill: hemisphere sky `#CFE3F0` ground `#6B4A33`, intensity 0.12 — small, because most of the ambient now comes from the environment.
-- Environment (`environment.ts`): a procedural equirectangular sky pre-filtered with `PMREMGenerator` and hung on `scene.environment` — zenith `#6E96B8`, horizon `#EFDCBC`, ground bounce `#6B4A33`, nadir `#2B2A2E`, with a warm blob at the key's direction and a dimmer cool one opposite. `scene.environmentIntensity` is 0.4 on High and Medium. **Low has no environment at all** (intensity 0 skips building it): sampling it costs a lookup per fragment on every standard material, and Low is the preset auto-detection picks for software renderers and weak mobile — on SwiftShader it measured 330 ms a frame against 139 ms without. `Lights` raises the hemisphere fill from 0.12 to 0.55 there to make up the ambient. Drawn on a canvas at runtime; nothing is fetched.
-- Tone mapping: `NeutralToneMapping` (Khronos PBR Neutral) at exposure 1.18. Not ACES — it is built for filmed footage and desaturates exactly the saturated mid-tones §2 is made of.
+- Fill: hemisphere sky `#CFE3F0` ground `#4A5060`, intensity 0.08 — small, because most of the ambient comes from the environment. The ground colour is a cool slate rather than the table's warm brown: the key is warm, so a warm ambient put warm light on both sides of every form and the shadows went brown-on-brown.
+- **Contrast ratio.** A lit top face lands near 1.34 against 0.30 in shadow, about 4.5:1. At the earlier 2.7:1 (key 1.35, ambient 0.52) every form sat in the same mid band, which is what read as "washed" however saturated the palette was. The ratio, not the palette, is the dial for that.
+- Environment (`environment.ts`): a procedural equirectangular sky pre-filtered with `PMREMGenerator` and hung on `scene.environment` — zenith `#6E96B8`, horizon `#EFDCBC`, ground bounce `#6B4A33`, nadir `#2B2A2E`, with a warm blob at the key's direction and a dimmer cool one opposite. `scene.environmentIntensity` is 0.22 on High and Medium. **Low has no environment at all** (intensity 0 skips building it): sampling it costs a lookup per fragment on every standard material, and Low is the preset auto-detection picks for software renderers and weak mobile — on SwiftShader it measured 330 ms a frame against 139 ms without. `Lights` raises the hemisphere fill from 0.12 to 0.55 there to make up the ambient. Drawn on a canvas at runtime; nothing is fetched.
+- Tone mapping: `NeutralToneMapping` (Khronos PBR Neutral) at exposure 1.28. Not ACES — it is built for filmed footage and desaturates exactly the saturated mid-tones §2 is made of.
 - Table: plane with a subtle procedural wood-grain shader or a single tiling texture, walnut `#5B3A24`, receives shadows.
 - Post (High and Medium): vignette offset 0.55 darkness 0.22, tilt-shift blur 0.35 with a 0.8 taper.
 - Contact shadows (High only): a grounding pass under the pieces and props, on a plane 0.03 R above the land tops so the slabs' own relief never darkens it.

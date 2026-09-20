@@ -21,8 +21,21 @@ export const LAND_UPPER = 0.12;
 export const LAND_HEIGHT = LAND_LOWER + LAND_UPPER;
 export const SEA_SLAB_HEIGHT = 0.15;
 export const FRAME_SLAB_HEIGHT = 0.15;
-export const LAND_RELIEF = 0.02;
-export const SEA_RELIEF = 0.03;
+/*
+ * Relief was 0.02 R across facets spaced ~0.13 apart -- a 9 degree tilt, which
+ * flat shading renders as barely any value change, so every tile read as one
+ * flat colour. 0.05 gives the facets a slope worth lighting.
+ */
+export const LAND_RELIEF = 0.05;
+export const SEA_RELIEF = 0.05;
+/**
+ * Per-face lightness variation on the slab faces. The slab geometry is
+ * non-indexed and already carries one colour per triangle, so this is what
+ * turns a flat top face into readable low-poly facets: coherent patches from
+ * the value noise, plus a small per-face step so neighbouring facets never
+ * blend into a smooth gradient.
+ */
+export const FACET_SHADE = 0.14;
 export const RECESS_RADIUS = 0.32;
 export const LAKE_RADIUS = 0.6;
 export const RECESS_DEPTH = 0.03;
@@ -170,6 +183,15 @@ function ring(count: number, rho: (theta: number) => number, y: (x: number, z: n
   return out;
 }
 
+/** Per-face shade multiplier offset in [-1, 1] for the face at a centroid. */
+function facetShade(x: number, z: number, seed: number, index: number): number {
+  const patch = valueNoise(x * 4.5 + 3.1, z * 4.5 + 7.9, seed);
+  let n = Math.imul(seed ^ (index + 0x9e3779b9), 0x85ebca6b);
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  const step = (((n ^ (n >>> 16)) >>> 0) / 4294967296) * 2 - 1;
+  return patch * 0.55 + step * 0.45;
+}
+
 export interface SlabBuild {
   readonly geometry: THREE.BufferGeometry;
   /** Total height (base at y = 0, nominal top at y = height). */
@@ -264,11 +286,17 @@ export function buildSlab(spec: SlabSpec): SlabBuild {
   const positions: number[] = [];
   const colors: number[] = [];
   const push = (p: Pt) => positions.push(p.x, p.y + height, p.z);
+  const facetSeed = hashString(`${spec.seed}:facet`);
+  let face = 0;
   const tri = (a: Pt, b: Pt, c: Pt, color: THREE.Color) => {
     push(a);
     push(b);
     push(c);
-    for (let i = 0; i < 3; i++) colors.push(color.r, color.g, color.b);
+    const shade = 1 + facetShade((a.x + b.x + c.x) / 3, (a.z + b.z + c.z) / 3, facetSeed, face++) * FACET_SHADE;
+    const r = color.r * shade;
+    const g = color.g * shade;
+    const bl = color.b * shade;
+    for (let i = 0; i < 3; i++) colors.push(r, g, bl);
   };
   for (let i = 0; i + 1 < rings.length; i++) ringWalk(rings[i]!, rings[i + 1]!, tri);
 
