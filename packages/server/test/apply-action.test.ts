@@ -175,6 +175,53 @@ describe("§3.1 bot loop (docs/phase5.md §6.2)", () => {
     await expect(asUser(sql, alice, (tx) => tx`select * from game_events where game_id = ${gameId}`)).rejects.toMatchObject({ code: "42501" });
   });
 
+  it("docs/rules.md §9.1: an offer, a counter from another seat and the offerer's acceptance all go through apply-action, and every view carries `counters`", async () => {
+    const gameId = await humansGame("trade-counters");
+    // Jump to Alice's action phase with cards on both sides (the engine's phase guards are what matter here, not setup).
+    const { state } = await stateOf(gameId);
+    const next = JSON.parse(JSON.stringify(state)) as GameState;
+    next.phase = { kind: "action" };
+    next.currentPlayer = 0;
+    next.players[0]!.hand.wood = 2;
+    next.players[1]!.hand.ore = 2;
+    next.bank.wood -= 2;
+    next.bank.ore -= 2;
+    await sql`update games set state = ${sql.json(next as never)} where id = ${gameId}`;
+    const give = { wood: 1, clay: 0, wool: 0, grain: 0, ore: 0 };
+    const receive = { wood: 0, clay: 0, wool: 0, grain: 0, ore: 1 };
+    await applyActionForUser(sql, { gameId, userId: alice, action: { type: "OFFER_TRADE", playerId: "seat-0", give, receive }, expectedVersion: 0 });
+    const views = async () => sql<{ player_id: string; view: { pendingTrade: { from: string; counters: { from: string }[] } | null } }[]>`select player_id, view from game_views where game_id = ${gameId} order by player_id`;
+    for (const v of await views()) expect(v.view.pendingTrade).toMatchObject({ from: "seat-0", counters: [] });
+    // Bob counters (not his turn: allowed for responses), Alice accepts the counter.
+    await applyActionForUser(sql, { gameId, userId: bob, action: { type: "COUNTER_TRADE", playerId: "seat-1", give: { ...receive, ore: 2 }, receive: { ...give, wood: 2 } }, expectedVersion: 1 });
+    for (const v of await views()) expect(v.view.pendingTrade!.counters).toEqual([{ from: "seat-1", give: { ...receive, ore: 2 }, receive: { ...give, wood: 2 } }]);
+    await applyActionForUser(sql, { gameId, userId: alice, action: { type: "ACCEPT_COUNTER", playerId: "seat-0", from: "seat-1" }, expectedVersion: 2 });
+    const after = await stateOf(gameId);
+    expect(after.state.pendingTrade).toBeNull();
+    expect(after.state.players[0]!.hand).toMatchObject({ wood: 0, ore: 2 });
+    expect(after.state.players[1]!.hand).toMatchObject({ wood: 2, ore: 0 });
+  });
+
+  it("a game stored by an engine older than counter-offers (pendingTrade without `counters`) still takes a counter and an accept", async () => {
+    const gameId = await humansGame("trade-legacy");
+    const { state } = await stateOf(gameId);
+    const next = JSON.parse(JSON.stringify(state)) as GameState;
+    next.phase = { kind: "action" };
+    next.currentPlayer = 0;
+    next.players[0]!.hand.wood = 1;
+    next.players[1]!.hand.ore = 1;
+    next.bank.wood -= 1;
+    next.bank.ore -= 1;
+    const give = { wood: 1, clay: 0, wool: 0, grain: 0, ore: 0 };
+    const receive = { wood: 0, clay: 0, wool: 0, grain: 0, ore: 1 };
+    (next as { pendingTrade: unknown }).pendingTrade = { from: "seat-0", give, receive, rejectedBy: [] };
+    await sql`update games set state = ${sql.json(next as never)} where id = ${gameId}`;
+    await applyActionForUser(sql, { gameId, userId: bob, action: { type: "COUNTER_TRADE", playerId: "seat-1", give: receive, receive: give }, expectedVersion: 0 });
+    expect((await stateOf(gameId)).state.pendingTrade!.counters).toHaveLength(1);
+    await applyActionForUser(sql, { gameId, userId: alice, action: { type: "ACCEPT_COUNTER", playerId: "seat-0", from: "seat-1" }, expectedVersion: 1 });
+    expect((await stateOf(gameId)).state.pendingTrade).toBeNull();
+  });
+
   it("the loop is capped and reports it", () => {
     const seats: SeatRow[] = ["seat-0", "seat-1", "seat-2", "seat-3"].map((id, seat) => ({
       game_id: "g",

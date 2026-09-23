@@ -79,11 +79,11 @@ test("Crown & Castle — Standard hotseat: setup, a roll with the event die, the
   // No development cards in this module: the deck prop on the table counts progress cards instead.
   await expect(page.getByTestId("deck-count")).toHaveText("53");
 
-  // Setup: 3 players × 2 placements, each a settlement then a road, through the overlay buttons.
+  // Setup: 3 players × 2 placements, a settlement then a road in round 1 and a city then a road in round 2 (docs/rules.md §16.9).
   const order = ["Ada", "Bo", "Cy", "Cy", "Bo", "Ada"];
-  for (const name of order) {
+  for (const [i, name] of order.entries()) {
     await acknowledgeHandoff(page);
-    await expect(page.getByTestId("banner")).toHaveText(`${name}: place a settlement`);
+    await expect(page.getByTestId("banner")).toHaveText(`${name}: place a ${i < 3 ? "settlement" : "city"}`);
     const vertices = page.locator('[data-testid^="target-vertex-"]');
     await expect(vertices.first()).toBeAttached({ timeout: 15_000 });
     // A vertex clear of the cost card (docs/phase12.md §4), which covers the table's bottom-left corner.
@@ -93,7 +93,8 @@ test("Crown & Castle — Standard hotseat: setup, a roll with the event die, the
     await expect(edges.first()).toBeAttached();
     await edges.first().click({ force: true });
   }
-  await expect(page.locator('[data-testid="board"] [data-piece="settlement"]')).toHaveCount(6);
+  await expect(page.locator('[data-testid="board"] [data-piece="settlement"]')).toHaveCount(3);
+  await expect(page.locator('[data-testid="board"] [data-piece="city"]')).toHaveCount(3);
   await expect(page.getByTestId("log")).toContainText("setup complete");
   await expect(page.locator('[data-testid="board"] [data-piece="knight"]')).toHaveCount(0);
 

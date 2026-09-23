@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PROGRESS_DECKS, TRACKS, builtInScenario, createGame, redact, type Action, type ProgressCard } from "@katan/engine";
 import { NO_PICK, computeTargets, soloCardAction, targetLabel, targetName } from "@/board3d/Interaction";
 import { PROGRESS_CARD_HELP, PROGRESS_CARD_LABEL, actionLabel, bannerText, progressTiming } from "@/game/labels";
+import { waitingText } from "@/hud/model";
 import { progressReason } from "@/components/crown/ProgressSheet";
 
 const PLAYERS = [
@@ -113,6 +114,18 @@ describe("docs/phase11.md §11 Crown & Castle copy", () => {
     expect(progressTiming("crane")).toBe("after the roll");
     expect(actionLabel({ type: "BUILD_IMPROVEMENT", playerId: "a", track: "science" })).toBe("Improve science");
     expect(actionLabel({ type: "RETREAT_KNIGHT", playerId: "a", vertex: null })).toBe("Lose the knight");
+  });
+
+  it("docs/rules.md §16.9: the second setup placement is announced as a city, the first as a settlement", () => {
+    const state = createGame({ seed: "crown-setup-ui", players: PLAYERS, scenario: builtInScenario("crownStandard") });
+    const view = redact(state, "a");
+    expect(bannerText(view, "a")).toBe("Ada: place a settlement");
+    const round2 = { ...view, phase: { kind: "setup" as const, round: 2 as const, step: "settlement" as const, lastSettlement: null } };
+    expect(bannerText(round2, "a")).toBe("Ada: place a city");
+    expect(waitingText(round2, "b", "a", undefined)).toBe("Waiting for Ada to place a city");
+    // The base game never says city.
+    const plain = redact(createGame({ seed: "crown-setup-ui", players: PLAYERS, board: "beginner" }), "a");
+    expect(bannerText({ ...plain, phase: round2.phase }, "a")).toBe("Ada: place a settlement");
   });
 
   it("the prompts have banners and the progress reasons explain a card that cannot be played", () => {
