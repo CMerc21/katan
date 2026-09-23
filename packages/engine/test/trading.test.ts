@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyAction } from "../src/actions";
 import { legalActions } from "../src/legal";
-import { bestRatio, getPlayer, hand } from "../src/state";
+import { bestRatio, getPlayer, hand, nextActor } from "../src/state";
 import { ACTION_PHASE, expectRule, give, inPhase, mut, newGame } from "./helpers";
 
 function ready() {
@@ -120,6 +120,20 @@ describe("§9 trading", () => {
     expect(declined.pendingTrade!.counters).toEqual([]);
     expect(declined.pendingTrade!.rejectedBy).toEqual(["b"]);
     expect(applyAction(countered, { type: "CANCEL_TRADE", playerId: "a" }).pendingTrade).toBeNull();
+  });
+
+  it("§9.1 an offer stored before counter-offers existed (no `counters`) still resolves: next actor, legal list, counter, decline, accept", () => {
+    const offered = applyAction(ready(), { type: "OFFER_TRADE", playerId: "a", give: hand({ wood: 1 }), receive: hand({ ore: 1 }) });
+    const legacy = mut(offered, (x) => void delete (x.pendingTrade as unknown as Record<string, unknown>).counters);
+    expect(legacy.pendingTrade).not.toHaveProperty("counters");
+    expect(nextActor(legacy)).toBe("b");
+    expect(legalActions(legacy, "a").some((a) => a.type === "CANCEL_TRADE")).toBe(true);
+    expect(legalActions(legacy, "b").map((a) => a.type)).toContain("ACCEPT_TRADE");
+    const countered = applyAction(legacy, { type: "COUNTER_TRADE", playerId: "b", give: hand({ ore: 1 }), receive: hand({ wood: 1 }) });
+    expect(countered.pendingTrade!.counters).toEqual([{ from: "b", give: hand({ ore: 1 }), receive: hand({ wood: 1 }) }]);
+    expect(applyAction(legacy, { type: "REJECT_TRADE", playerId: "b" }).pendingTrade!.counters).toEqual([]);
+    expect(applyAction(legacy, { type: "ACCEPT_TRADE", playerId: "b" }).pendingTrade).toBeNull();
+    expectRule(() => applyAction(legacy, { type: "ACCEPT_COUNTER", playerId: "a", from: "b" }), "NO_PENDING_TRADE");
   });
 
   it("§9.1 trading is only possible in the action phase", () => {

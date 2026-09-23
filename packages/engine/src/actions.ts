@@ -636,7 +636,7 @@ function applyRejectTrade(state: GameState, playerId: PlayerId): void {
   if (!trade || trade.rejectedBy.includes(playerId)) throw new RuleError("NO_PENDING_TRADE", "no trade to reject");
   if (trade.from === playerId) throw new RuleError("INVALID_TRADE", "cancel your own offer instead");
   trade.rejectedBy.push(playerId);
-  trade.counters = trade.counters.filter((c) => c.from !== playerId);
+  trade.counters = (trade.counters ?? []).filter((c) => c.from !== playerId);
   void player;
   emit(state, { kind: "tradeDeclined", playerId, from: trade.from });
   if (trade.rejectedBy.length >= state.players.length - 1) {
@@ -658,7 +658,7 @@ function applyCounterTrade(state: GameState, action: CounterTradeAction): void {
   if (RESOURCES.some((r) => give[r] > 0 && receive[r] > 0)) throw new RuleError("INVALID_TRADE", "a resource cannot be on both sides");
   if (!hasResources(responder.hand, give)) throw new RuleError("INSUFFICIENT_RESOURCES", "you do not hold those cards");
   // Whether the offerer can pay is their business: it is checked when they accept, since their hand is hidden from the responder.
-  trade.counters = [...trade.counters.filter((c) => c.from !== action.playerId), { from: action.playerId, give, receive }];
+  trade.counters = [...(trade.counters ?? []).filter((c) => c.from !== action.playerId), { from: action.playerId, give, receive }];
   emit(state, { kind: "tradeCountered", playerId: action.playerId, from: trade.from, give, receive });
 }
 
@@ -667,7 +667,7 @@ function applyAcceptCounter(state: GameState, playerId: PlayerId, from: PlayerId
   requirePhase(state, "action");
   const offerer = requireCurrent(state, playerId);
   const trade = state.pendingTrade;
-  const counter = trade && trade.from === playerId ? trade.counters.find((c) => c.from === from) : undefined;
+  const counter = trade && trade.from === playerId ? (trade.counters ?? []).find((c) => c.from === from) : undefined;
   if (!trade || !counter) throw new RuleError("NO_PENDING_TRADE", "no such counter to accept");
   const responder = getPlayer(state, from);
   if (!hasResources(responder.hand, counter.give)) throw new RuleError("INSUFFICIENT_RESOURCES", "they can no longer pay");

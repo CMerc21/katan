@@ -383,7 +383,7 @@ export function HudLayer(props: HudLayerProps) {
                 </div>
               </div>
             )}
-            {interactive && phase.kind === "action" && view.pendingTrade?.from === me && view.pendingTrade.counters.length > 0 && (
+            {interactive && phase.kind === "action" && view.pendingTrade?.from === me && (view.pendingTrade.counters ?? []).length > 0 && (
               <div className="hud-above-tray left-1/2 -translate-x-1/2">
                 <div className="hud-panel hud-dark hud-interactive p-2">
                   <CounterOffers view={view} me={me} legal={legal} onDispatch={onDispatch} />
@@ -420,9 +420,9 @@ export function HudLayer(props: HudLayerProps) {
               Declined: {view.pendingTrade.rejectedBy.map((id) => playerName(view, id)).join(", ")}
             </span>
           )}
-          {view.pendingTrade?.from === me && view.pendingTrade.counters.length > 0 && (
+          {view.pendingTrade?.from === me && (view.pendingTrade.counters ?? []).length > 0 && (
             <span className="hud-dim text-xs" data-testid="countered">
-              Countered: {view.pendingTrade.counters.map((c) => playerName(view, c.from)).join(", ")}
+              Countered: {(view.pendingTrade.counters ?? []).map((c) => playerName(view, c.from)).join(", ")}
             </span>
           )}
           {error && (

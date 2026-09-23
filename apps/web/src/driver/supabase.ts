@@ -48,6 +48,17 @@ export interface GameApi {
 
 const HEARTBEAT_MS = 60_000;
 
+/**
+ * Fill in fields a server running an older engine bundle leaves out, so a
+ * stale deploy degrades to "feature missing" instead of a crash. Today that is
+ * `pendingTrade.counters` (docs/rules.md §9.1), which predates counter-offers.
+ */
+export function compatibleView(view: RedactedState): RedactedState {
+  const trade = view.pendingTrade;
+  if (trade && !Array.isArray(trade.counters)) return { ...view, pendingTrade: { ...trade, counters: [] } };
+  return view;
+}
+
 export class SupabaseDriver implements GameDriver {
   private view: RedactedState | null = null;
   private serverLegal: Action[] | null = null;
@@ -114,9 +125,10 @@ export class SupabaseDriver implements GameDriver {
     }
   }
 
-  private accept(row: ViewRow): void {
+  private accept(raw: ViewRow): void {
     // Views only ever move forward; a late event for an older version is dropped.
-    if (row.version < this.version) return;
+    if (raw.version < this.version) return;
+    const row = { ...raw, view: compatibleView(raw.view) };
     this.version = row.version;
     this.view = row.view;
     this.serverLegal = row.legal ?? null;

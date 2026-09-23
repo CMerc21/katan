@@ -435,7 +435,7 @@ export function TradeResponse({
   const from = view.players.find((p) => p.id === trade.from)!;
   const canAccept = legal.some((a) => a.type === "ACCEPT_TRADE");
   const canCounter = hand !== null && hand !== undefined && legal.some((a) => a.type === "COUNTER_TRADE");
-  const mine = trade.counters.find((c) => c.from === me) ?? null;
+  const mine = (trade.counters ?? []).find((c) => c.from === me) ?? null;
   const counterOk = total(give) > 0 && total(want) > 0 && !RESOURCES.some((r) => give[r] > 0 && want[r] > 0);
   return (
     <div className="flex flex-col gap-2" data-testid="trade-response">
@@ -511,10 +511,11 @@ export function TradeResponse({
 /** §9.1: the offerer's view of the counters to their open offer, each with an accept button when both sides can pay. */
 export function CounterOffers({ view, me, legal, onDispatch }: { view: RedactedState; me: string; legal: Action[]; onDispatch: (action: Action) => void }) {
   const trade = view.pendingTrade;
-  if (!trade || trade.from !== me || trade.counters.length === 0) return null;
+  const counters = trade?.counters ?? [];
+  if (!trade || trade.from !== me || counters.length === 0) return null;
   return (
     <div className="flex flex-col gap-1.5" role="group" aria-label="Counter-offers" data-testid="counter-offers">
-      {trade.counters.map((c) => {
+      {counters.map((c) => {
         const from = view.players.find((p) => p.id === c.from)!;
         const ok = legal.some((a) => a.type === "ACCEPT_COUNTER" && a.from === c.from);
         return (

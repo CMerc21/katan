@@ -991,7 +991,7 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
       next = { ...next, pendingTrade: { from: event.playerId, give: event.give, receive: event.receive, rejectedBy: [], counters: [] } };
       break;
     case "tradeCountered":
-      if (next.pendingTrade) next = { ...next, pendingTrade: { ...next.pendingTrade, counters: [...next.pendingTrade.counters.filter((c) => c.from !== event.playerId), { from: event.playerId, give: event.give, receive: event.receive }] } };
+      if (next.pendingTrade) next = { ...next, pendingTrade: { ...next.pendingTrade, counters: [...(next.pendingTrade.counters ?? []).filter((c) => c.from !== event.playerId), { from: event.playerId, give: event.give, receive: event.receive }] } };
       break;
     case "tradeAccepted":
       next = withPlayer(next, event.from, (p) => ({ ...p, hand: adjustHandBy(adjustHandBy(p.hand, event.give, -1), event.receive, 1) }));
@@ -999,7 +999,7 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
       next = { ...next, pendingTrade: null };
       break;
     case "tradeDeclined":
-      if (next.pendingTrade) next = { ...next, pendingTrade: { ...next.pendingTrade, rejectedBy: [...next.pendingTrade.rejectedBy, event.playerId], counters: next.pendingTrade.counters.filter((c) => c.from !== event.playerId) } };
+      if (next.pendingTrade) next = { ...next, pendingTrade: { ...next.pendingTrade, rejectedBy: [...next.pendingTrade.rejectedBy, event.playerId], counters: (next.pendingTrade.counters ?? []).filter((c) => c.from !== event.playerId) } };
       break;
     case "tradeCancelled":
       next = { ...next, pendingTrade: null };

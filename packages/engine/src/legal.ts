@@ -516,7 +516,7 @@ export function legalActions(state: GameState, playerId: PlayerId): Action[] {
         if (trade.from === playerId) {
           out.push({ type: "CANCEL_TRADE", playerId });
           // The responder's side is checked when the counter is accepted (their hand is hidden from the offerer's view).
-          for (const c of trade.counters) if (hasResources(player.hand, c.receive)) out.push({ type: "ACCEPT_COUNTER", playerId, from: c.from });
+          for (const c of trade.counters ?? []) if (hasResources(player.hand, c.receive)) out.push({ type: "ACCEPT_COUNTER", playerId, from: c.from });
         }
       } else {
         // Representative 1:1 offers.

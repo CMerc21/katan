@@ -378,7 +378,7 @@ export function nextActor(state: GameState): PlayerId {
     const n = state.players.length;
     for (let step = 1; step < n; step++) {
       const p = state.players[(state.currentPlayer + step) % n] as Player;
-      if (p.id !== trade.from && !trade.rejectedBy.includes(p.id) && !trade.counters.some((c) => c.from === p.id)) return p.id;
+      if (p.id !== trade.from && !trade.rejectedBy.includes(p.id) && !(trade.counters ?? []).some((c) => c.from === p.id)) return p.id;
     }
   }
   return current;

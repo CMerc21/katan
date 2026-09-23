@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyAction, createGame, legalActions, redact, type Action, type GameState } from "@katan/engine";
-import { SupabaseDriver, type GameApi, type Reply, type ViewRow } from "@/driver/supabase";
+import { SupabaseDriver, compatibleView, type GameApi, type Reply, type ViewRow } from "@/driver/supabase";
 import type { ConnectionState, GameDriver, SeatInfo } from "@/driver/types";
 
 const PLAYERS = [
@@ -155,6 +155,21 @@ describe("SupabaseDriver", () => {
     // Stale events (older version) are ignored.
     f.handlers()!.onView({ view: redact(createGame({ seed: "driver", players: PLAYERS, board: "beginner" }), "seat-0"), version: 0 });
     expect(d.currentVersion()).toBe(1);
+    d.close();
+  });
+
+  it("a view from a server bundle older than counter-offers (no `counters`) is filled in instead of crashing the client", async () => {
+    const f = fakeApi();
+    const d = await SupabaseDriver.connect(f.api, "g1", "user-0");
+    const base = redact(createGame({ seed: "driver", players: PLAYERS, board: "beginner" }), "seat-0");
+    const legacy = { ...base, phase: { kind: "action" as const }, pendingTrade: { from: "seat-0", give: { wood: 1, clay: 0, wool: 0, grain: 0, ore: 0 }, receive: { wood: 0, clay: 0, wool: 0, grain: 0, ore: 1 }, rejectedBy: [] } };
+    delete (legacy.pendingTrade as Record<string, unknown>).counters;
+    let seen: unknown = null;
+    d.subscribe((v) => (seen = v));
+    f.handlers()!.onView({ view: legacy as never, version: 5 });
+    expect(d.currentVersion()).toBe(5);
+    expect((seen as { pendingTrade: { counters: unknown[] } }).pendingTrade.counters).toEqual([]);
+    expect(compatibleView(base)).toBe(base);
     d.close();
   });
 
