@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { BUILT_IN_BOARD_IDS, BUILT_IN_SCENARIO_IDS, builtInBoard, builtInScenario, resolveBoard, rng, scenarioSummary } from "@katan/engine";
 import { BoardThumbnail } from "@/board2d/Thumbnail";
 import { Button } from "@/components/ui";
-import { deleteBoardRemote, deleteDraft, deleteScenarioDraft, deleteScenarioRemote, forkBoardRemote, forkScenarioRemote, loadDrafts, loadSavedBoards, loadSavedScenarios, loadScenarioDrafts, type StoredBoard, type StoredScenario } from "@/editor/storage";
+import { deleteBoardRemote, deleteDraft, deleteScenarioDraft, deleteScenarioRemote, forkBoardRemote, forkScenarioRemote, loadDrafts, loadSavedBoards, loadSavedScenarios, loadScenarioDrafts, saveBoardRemote, saveScenarioRemote, type StoredBoard, type StoredScenario } from "@/editor/storage";
 import { errorText } from "@/game/labels";
 import { useSession } from "@/hooks/useSession";
 
@@ -51,6 +51,22 @@ export default function BoardsPage() {
     void refresh();
   }, [configured, session]);
 
+  /** Move a device draft into the signed-in player's library (docs/phase8.md §4.3). */
+  const uploadDraft = async (b: StoredBoard) => {
+    const r = await saveBoardRemote(b.definition, { isPublic: false });
+    if (!r.ok) return setToast(errorText(r.code));
+    deleteDraft(b.id);
+    setToast(`"${b.name}" is in your library`);
+    await refresh();
+  };
+  const uploadScenarioDraft = async (sc: StoredScenario) => {
+    const r = await saveScenarioRemote(sc.scenario, { isPublic: false });
+    if (!r.ok) return setToast(errorText(r.code));
+    deleteScenarioDraft(sc.id);
+    setToast(`"${sc.name}" is in your library`);
+    await refresh();
+  };
+
   const mine = saved.filter((b) => b.ownerId === session?.user.id);
   const publicBoards = saved.filter((b) => b.isPublic && b.ownerId !== session?.user.id);
   const myScenarios = savedScenarios.filter((b) => b.ownerId === session?.user.id);
@@ -77,7 +93,16 @@ export default function BoardsPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="font-display text-3xl font-semibold">Boards</h1>
-            <p className="text-sm text-ink-soft">Build a board of any shape, save it, and pick it in the lobby or for hotseat.</p>
+            <p className="text-sm text-ink-soft">Build a board of any shape, save it, and pick it when you create an online game or a hotseat game.</p>
+            {configured && !session && (
+              <p className="mt-1 text-xs text-ink-soft">
+                You are not signed in: boards save to this device only.{" "}
+                <Link className="underline" href="/login?next=/boards">
+                  Sign in
+                </Link>{" "}
+                to keep them in a library you can use online.
+              </p>
+            )}
           </div>
           <div className="flex gap-2">
             <Button variant="primary" onClick={() => router.push("/boards/editor")} data-testid="new-board">
@@ -150,13 +175,18 @@ export default function BoardsPage() {
                 key={sc.id}
                 testId={`scenario-draft-${sc.id}`}
                 name={sc.name}
-                meta={scenarioMeta(sc, " · not synced")}
+                meta={scenarioMeta(sc, session ? " · only on this device" : " · not synced")}
                 thumb={scenarioThumb(sc)}
                 actions={
                   <>
                     <Button size="sm" onClick={() => router.push(`/boards/editor/${sc.id}`)}>
                       Edit
                     </Button>
+                    {session && (
+                      <Button size="sm" variant="primary" onClick={() => void uploadScenarioDraft(sc)} data-testid={`upload-scenario-${sc.id}`}>
+                        Save to my library
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="quiet"
@@ -233,13 +263,18 @@ export default function BoardsPage() {
                 key={b.id}
                 testId={`draft-${b.id}`}
                 name={b.name}
-                meta={`${b.definition.hexes.filter((h) => h.kind === "land").length} land · up to ${b.definition.seats.max} seats · not synced`}
+                meta={`${b.definition.hexes.filter((h) => h.kind === "land").length} land · up to ${b.definition.seats.max} seats · ${session ? "only on this device" : "not synced"}`}
                 thumb={thumb(b)}
                 actions={
                   <>
                     <Button size="sm" onClick={() => router.push(`/boards/editor/${b.id}`)}>
                       Edit
                     </Button>
+                    {session && (
+                      <Button size="sm" variant="primary" onClick={() => void uploadDraft(b)} data-testid={`upload-${b.id}`}>
+                        Save to my library
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="quiet"

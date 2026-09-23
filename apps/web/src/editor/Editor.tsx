@@ -12,7 +12,7 @@
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { BUILT_IN_BOARD_IDS, RESOURCES, TERRAINS, builtInBoard, hasErrors, landComponents, validateBoard, type BoardDefinition, type EdgeId, type HexCoord, type Terrain } from "@katan/engine";
+import { BUILT_IN_BOARD_IDS, RESOURCES, TERRAINS, builtInBoard, hasErrors, landComponents, validateBoard, type BoardDefinition, type EdgeId, type HexCoord, type HexKind, type Terrain } from "@katan/engine";
 import { Button } from "@/components/ui";
 import { errorText } from "@/game/labels";
 import { VARIANT_LABEL, VARIANT_NAMES, scenarioSummary, validateScenario, type Scenario, type VariantName } from "@katan/engine";
@@ -71,7 +71,7 @@ function RuleBlurb({ id, text, open }: { id: string; text: string; open: boolean
 
 export function Editor({ initial, initialId, initialScenario = null }: { initial: BoardDefinition; initialId: string | null; initialScenario?: ScenarioSettings | null }) {
   const router = useRouter();
-  const { session } = useSession();
+  const { session, loading: sessionLoading, configured } = useSession();
   const [settings] = useSettings();
   const [history, dispatchRaw] = useReducer(historyReduce, null, (): History => ({ past: [], present: initialEditorState(initial, initialId, initialScenario), future: [] }));
   const state = history.present;
@@ -84,7 +84,8 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
   const quality = settings.quality === "auto" ? "medium" : settings.quality;
 
   const scenario = useMemo(() => toScenario(state), [state]);
-  const issues = useMemo(() => (scenario ? validateScenario(scenario) : validateBoard(state.def, { allowIslands: true })), [scenario, state.def]);
+  // A plain board is validated the way the game and the lobby validate it (islands need Tides); a scenario validates itself.
+  const issues = useMemo(() => (scenario ? validateScenario(scenario) : validateBoard(state.def)), [scenario, state.def]);
   const islandList = useMemo(() => islandsOf(state.def), [state.def]);
   const errors = issues.filter((i) => i.severity === "error");
   const warnings = issues.filter((i) => i.severity === "warning");
@@ -114,8 +115,7 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
       const erase = button === 2;
       switch (state.tool) {
         case "frame":
-          if (erase) dispatch({ type: "setCell", at, kind: null });
-          else dispatch({ type: "cycleCell", at });
+          dispatch({ type: "setCell", at, kind: erase ? null : state.frameKind });
           break;
         case "terrain":
           dispatch({ type: "paintTerrain", at, terrain: erase ? null : state.terrain });
@@ -146,7 +146,7 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
         }
       }
     },
-    [dispatch, state.tool, state.terrain, state.def],
+    [dispatch, state.tool, state.frameKind, state.terrain, state.def],
   );
   const onCellDown = useCallback(
     (at: HexCoord, shift: boolean, button: number) => {
@@ -160,13 +160,10 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
     (at: HexCoord) => {
       const d = dragStart.current;
       if (!d || d.shift) return;
-      if (state.tool === "frame") {
-        // Dragging paints the kind of the first cell rather than cycling each one.
-        const first = state.def.hexes.find((h) => h.at.q === d.at.q && h.at.r === d.at.r)?.kind ?? null;
-        dispatch({ type: "setCell", at, kind: d.button === 2 ? null : first });
-      } else if (state.tool === "terrain") dispatch({ type: "paintTerrain", at, terrain: d.button === 2 ? null : state.terrain });
+      if (state.tool === "frame") dispatch({ type: "setCell", at, kind: d.button === 2 ? null : state.frameKind });
+      else if (state.tool === "terrain") dispatch({ type: "paintTerrain", at, terrain: d.button === 2 ? null : state.terrain });
     },
-    [dispatch, state.def.hexes, state.terrain, state.tool],
+    [dispatch, state.frameKind, state.terrain, state.tool],
   );
   const onCellUp = useCallback(
     (at: HexCoord | null) => {
@@ -174,10 +171,10 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
       dragStart.current = null;
       if (!d || !d.shift || !at) return;
       const cells = rectangleCells(d.at, at);
-      if (state.tool === "frame") dispatch({ type: "setCells", cells, kind: d.button === 2 ? null : "land" });
+      if (state.tool === "frame") dispatch({ type: "setCells", cells, kind: d.button === 2 ? null : state.frameKind });
       else if (state.tool === "terrain") for (const c of cells) dispatch({ type: "paintTerrain", at: c, terrain: d.button === 2 ? null : state.terrain });
     },
-    [dispatch, state.terrain, state.tool],
+    [dispatch, state.frameKind, state.terrain, state.tool],
   );
   const onEdge = useCallback(
     (edge: EdgeId) => {
@@ -207,6 +204,8 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
       if (idx >= 1 && idx <= TERRAINS.length) dispatch({ type: "setTerrain", terrain: TERRAINS[idx - 1] as Terrain });
       else if (e.key.toLowerCase() === "h") dispatch({ type: "setTool", tool: "harbor" });
       else if (e.key.toLowerCase() === "f") dispatch({ type: "setTool", tool: "frame" });
+      else if (e.key.toLowerCase() === "l") dispatch({ type: "setFrameKind", kind: "land" });
+      else if (e.key.toLowerCase() === "s") dispatch({ type: "setFrameKind", kind: "sea" });
       else if (e.key.toLowerCase() === "t") dispatch({ type: "setTool", tool: "token" });
       else if (e.key.toLowerCase() === "r") dispatch({ type: "setTool", tool: "river" });
       else if (e.key.toLowerCase() === "g") dispatch({ type: "setTool", tool: "fishing" });
@@ -228,8 +227,13 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
     return () => window.removeEventListener("keydown", onKey);
   }, [dispatch, selectedHex, selectedEdge, state.def, state.tool]);
 
+  /** Where a save goes: the library when signed in, otherwise this device (with a nudge to sign in when an account is possible). */
+  const deviceToast = (what: string) => (configured ? `${what} on this device only. Sign in to keep it in your library.` : `${what} on this device`);
+
   const save = async (asCopy: boolean) => {
     if (hasErrors(issues)) return setToast("Fix the errors before saving");
+    // The session is looked up after the page loads; saving before that would silently make a device draft for a signed-in player.
+    if (sessionLoading) return setToast("Checking your sign-in, try again in a moment");
     if (scenario) return saveScenario(asCopy, scenario);
     if (session) {
       const keepId = !asCopy && state.boardId && !isDraftId(state.boardId) ? state.boardId : undefined;
@@ -237,13 +241,13 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
       if (!r.ok) return setToast(errorText(r.code));
       if (state.boardId && isDraftId(state.boardId)) deleteDraft(state.boardId);
       dispatch({ type: "markSaved", boardId: r.boardId });
-      setToast("Saved");
+      setToast("Saved to your library");
       router.replace(`/boards/editor/${r.boardId}`);
       return;
     }
     const draft: StoredBoard = saveDraft(state.def, asCopy ? undefined : (state.boardId ?? undefined));
     dispatch({ type: "markSaved", boardId: draft.id });
-    setToast("Saved on this device");
+    setToast(deviceToast("Saved"));
     router.replace(`/boards/editor/${draft.id}`);
   };
 
@@ -254,13 +258,13 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
       if (!r.ok) return setToast(errorText(r.code));
       if (state.boardId && isScenarioDraftId(state.boardId)) deleteScenarioDraft(state.boardId);
       dispatch({ type: "markSaved", boardId: r.scenarioId });
-      setToast("Scenario saved");
+      setToast("Scenario saved to your library");
       router.replace(`/boards/editor/${r.scenarioId}`);
       return;
     }
     const draft: StoredScenario = saveScenarioDraft(sc, asCopy ? undefined : (state.boardId ?? undefined));
     dispatch({ type: "markSaved", boardId: draft.id });
-    setToast("Scenario saved on this device");
+    setToast(deviceToast("Scenario saved"));
     router.replace(`/boards/editor/${draft.id}`);
   };
 
@@ -370,9 +374,24 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
                 </Button>
               ))}
             </div>
+            {state.tool === "frame" && (
+              <div className="mt-1 flex gap-1" role="radiogroup" aria-label="Frame brush">
+                {(
+                  [
+                    ["land", "Land (L)"],
+                    ["sea", "Sea (S)"],
+                    ["frame", "Frame"],
+                  ] as [HexKind, string][]
+                ).map(([k, label]) => (
+                  <Button key={k} size="sm" role="radio" aria-checked={state.frameKind === k} variant={state.frameKind === k ? "primary" : "secondary"} onClick={() => dispatch({ type: "setFrameKind", kind: k })} data-testid={`brush-${k}`}>
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            )}
             <p className="mt-1 text-xs text-ink-soft">
-              {state.tool === "frame" && "Click: empty → land → sea → frame. Right-click clears. Shift-drag: rectangle."}
-              {state.tool === "terrain" && "Paint land hexes. Right-click clears to unassigned."}
+              {state.tool === "frame" && `Click or drag to paint ${state.frameKind === "land" ? "land" : state.frameKind === "sea" ? "sea" : "frame (the border)"}. Right-click or right-drag clears. Shift-drag: a rectangle.`}
+              {state.tool === "terrain" && "Click or drag to paint a terrain; empty and sea cells become land. Right-click clears the terrain."}
               {state.tool === "token" && "Click a hex, then type its number in the inspector."}
               {state.tool === "harbor" && "Click a coastal edge to cycle 3:1 → 2:1 …"}
               {state.tool === "island" && "Click a hex to make its island the starting island."}

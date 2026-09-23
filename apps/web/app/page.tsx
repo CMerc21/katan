@@ -56,6 +56,12 @@ export default function HomePage() {
     <main className="parchment mx-auto my-8 max-w-lg rounded-lg px-6 py-8">
       <h1 className="font-display text-4xl font-semibold">Katan</h1>
       <p className="mt-1 text-ink-soft">A hex settlement game for friends.</p>
+      <p className="mt-1 text-sm">
+        <Link className="underline" href="/boards" data-testid="home-boards">
+          Boards &amp; scenarios
+        </Link>
+        <span className="text-ink-soft"> · build your own maps and play them online or hotseat</span>
+      </p>
 
       {configured && (
         <section className="ink-rule mt-8 pb-6" aria-label="Play online">

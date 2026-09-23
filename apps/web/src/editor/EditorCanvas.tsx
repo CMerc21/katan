@@ -164,6 +164,9 @@ export function EditorCanvas(props: CanvasProps) {
   const bumpCamera = useCallback(() => setCamVersion((v) => v + 1), []);
   const [resetToken, setResetToken] = useState(0);
   const dragging = useRef(false);
+  // While a paint drag is running the camera must not orbit or pan with it, so the brush lands where the pointer is.
+  const [painting, setPainting] = useState(false);
+  const [hover, setHover] = useState<string | null>(null);
 
   const cells = useMemo(() => gridCells(gridRadius), [gridRadius]);
   const byId = useMemo(() => new Map(def.hexes.map((h) => [hexId(h.at), h])), [def]);
@@ -207,6 +210,7 @@ export function EditorCanvas(props: CanvasProps) {
 
   useEffect(() => {
     const up = () => {
+      setPainting(false);
       if (dragging.current) {
         dragging.current = false;
         onCellUp(null);
@@ -225,9 +229,9 @@ export function EditorCanvas(props: CanvasProps) {
 
   return (
     <div className="relative h-full w-full" data-testid="editor-canvas" data-view={topDown ? "top" : "diorama"}>
-      <Canvas shadows={preset.shadows ? { type: THREE.PCFSoftShadowMap } : false} dpr={[1, preset.dpr]} raycaster={{ layers }} gl={{ antialias: quality !== "low" }} style={{ touchAction: "none" }} onPointerMissed={() => onSelect(null)}>
+      <Canvas shadows={preset.shadows ? { type: THREE.PCFSoftShadowMap } : false} dpr={[1, preset.dpr]} raycaster={{ layers }} gl={{ antialias: quality !== "low" }} style={{ touchAction: "none", cursor: tool === "frame" || tool === "terrain" ? "crosshair" : "pointer" }} onPointerMissed={() => onSelect(null)}>
         <color attach="background" args={["#2a1c13"]} />
-        <CameraRig bounds={bounds} resetToken={resetToken} focus={null} hero={null} topDown={topDown} />
+        <CameraRig bounds={bounds} resetToken={resetToken} focus={null} hero={null} topDown={topDown} enabled={!painting} />
         <hemisphereLight args={["#cfe3f0", "#4a3a2a", 0.6]} />
         <directionalLight position={[bounds.cx - light * 0.9, light * 1.1, bounds.cz - light * 0.6]} intensity={2} color="#fff1d6" castShadow={preset.shadows} shadow-mapSize={[2048, 2048]} shadow-camera-left={-light} shadow-camera-right={light} shadow-camera-top={light} shadow-camera-bottom={-light} shadow-camera-far={light * 4} />
         <Table bounds={bounds} onTap={() => onSelect(null)} />
@@ -276,15 +280,19 @@ export function EditorCanvas(props: CanvasProps) {
                   onPointerDown={(e) => {
                     e.stopPropagation();
                     dragging.current = true;
+                    setPainting(true);
                     onCellDown(at, e.nativeEvent.shiftKey, e.nativeEvent.button);
                   }}
                   onPointerOver={(e) => {
+                    setHover(id);
                     if (dragging.current) {
                       e.stopPropagation();
                       onCellDrag(at);
                     }
                   }}
+                  onPointerOut={() => setHover((h) => (h === id ? null : h))}
                   onPointerUp={(e) => {
+                    setPainting(false);
                     if (dragging.current) {
                       e.stopPropagation();
                       dragging.current = false;
@@ -306,6 +314,12 @@ export function EditorCanvas(props: CanvasProps) {
                   <mesh position={[0, SLAB_HEIGHT + 0.03, 0]} rotation={[-Math.PI / 2, Math.PI / 6, 0]}>
                     <ringGeometry args={[0.86, 0.98, 6]} />
                     <meshBasicMaterial color={GILT} transparent opacity={0.95} />
+                  </mesh>
+                )}
+                {hover === id && !isSel && (
+                  <mesh position={[0, (occupied ? SLAB_HEIGHT : 0) + 0.025, 0]} rotation={[-Math.PI / 2, Math.PI / 6, 0]}>
+                    <ringGeometry args={[0.8, 0.92, 6]} />
+                    <meshBasicMaterial color="#efe8d8" transparent opacity={0.55} depthWrite={false} />
                   </mesh>
                 )}
               </group>

@@ -70,6 +70,8 @@ export type Symmetry = "none" | "mirror" | "rotate";
 export interface EditorState {
   readonly def: BoardDefinition;
   readonly tool: Tool;
+  /** The frame tool's brush: what a click or drag paints (right-click always clears). */
+  readonly frameKind: HexKind;
   readonly terrain: Terrain;
   readonly symmetry: Symmetry;
   readonly selected: HexId | EdgeId | null;
@@ -83,6 +85,7 @@ export interface EditorState {
 
 export type EditorAction =
   | { type: "setTool"; tool: Tool }
+  | { type: "setFrameKind"; kind: HexKind }
   | { type: "setTerrain"; terrain: Terrain }
   | { type: "setSymmetry"; symmetry: Symmetry }
   | { type: "select"; id: HexId | EdgeId | null }
@@ -117,7 +120,7 @@ export function emptyDefinition(name = "New board"): BoardDefinition {
 }
 
 export function initialEditorState(def: BoardDefinition = builtInBoard("random"), boardId: string | null = null, scenario: ScenarioSettings | null = null): EditorState {
-  return { def: { ...def, name: def.name }, tool: "frame", terrain: "forest", symmetry: "none", selected: null, gridRadius: gridRadiusFor(def), dirty: false, boardId, scenario };
+  return { def: { ...def, name: def.name }, tool: "frame", frameKind: "land", terrain: "forest", symmetry: "none", selected: null, gridRadius: gridRadiusFor(def), dirty: false, boardId, scenario };
 }
 
 /** Editor settings from a stored scenario. */
@@ -254,6 +257,8 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
     case "setTool":
       return { ...state, tool: action.tool };
+    case "setFrameKind":
+      return { ...state, frameKind: action.kind, tool: "frame" };
     case "setTerrain":
       return { ...state, terrain: action.terrain, tool: "terrain" };
     case "setSymmetry":
@@ -289,13 +294,15 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
     case "paintTerrain": {
       let out = def;
       for (const c of symmetricCells(action.at, state.symmetry)) {
-        const h = hexAt(out, c);
-        if (!h || h.kind !== "land") continue;
+        const existing = hexAt(out, c);
+        // Painting a terrain on an empty, sea or frame cell makes it land, so a board can be built with the terrain brush alone.
+        if ((!existing || existing.kind !== "land") && action.terrain === null) continue;
+        const h: HexDef = existing?.kind === "land" ? existing : { at: c, kind: "land" };
         const next: HexDef = action.terrain === null ? stripKeys(h, ["terrain", "token"]) : { ...h, terrain: action.terrain };
         // A wasteland or a lake never carries a token.
         out = withHex(out, c, action.terrain !== null && !producesOnToken(action.terrain) ? stripKeys(next, ["token"]) : next);
       }
-      return touch(out);
+      return out === def ? state : touch(out);
     }
     case "setToken": {
       const h = hexAt(def, action.at);
@@ -445,7 +452,7 @@ export function oasisCount(def: BoardDefinition): number {
 
 /** Actions that change the definition are recorded in history; view state is not. */
 export function isUndoable(action: EditorAction): boolean {
-  return !["setTool", "setTerrain", "setSymmetry", "select", "load", "markSaved", "setScenario"].includes(action.type);
+  return !["setTool", "setFrameKind", "setTerrain", "setSymmetry", "select", "load", "markSaved", "setScenario"].includes(action.type);
 }
 
 export interface History {

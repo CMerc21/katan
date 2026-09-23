@@ -64,9 +64,11 @@ export interface CameraRigProps {
   onMoved?: () => void;
   /** Editor mode (docs/phase7-5.md §8): straight down, elevation locked, orbit disabled. */
   topDown?: boolean;
+  /** False while a pointer drag belongs to something else (the editor's paint brush), so the camera does not move with it. */
+  enabled?: boolean;
 }
 
-export function CameraRig({ bounds, resetToken, focus, hero, onMoved, topDown = false }: CameraRigProps) {
+export function CameraRig({ bounds, resetToken, focus, hero, onMoved, topDown = false, enabled = true }: CameraRigProps) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
   const { camera, size } = useThree();
   const move = useRef<Move | null>(null);
@@ -148,6 +150,7 @@ export function CameraRig({ bounds, resetToken, focus, hero, onMoved, topDown = 
       <OrbitControls
         ref={controls}
         makeDefault
+        enabled={enabled}
         enableDamping
         dampingFactor={0.08}
         minPolarAngle={topDown ? 0 : Math.PI / 2 - MAX_ELEVATION}

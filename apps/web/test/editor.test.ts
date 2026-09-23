@@ -35,7 +35,7 @@ describe("docs/phase8.md §4 editor model", () => {
     s = reduce(s, { type: "setCell", at: { q: 0, r: 1 }, kind: "sea" });
     s = reduce(s, { type: "paintTerrain", at: { q: 0, r: 0 }, terrain: "forest" });
     s = reduce(s, { type: "setToken", at: { q: 0, r: 0 }, token: 8 });
-    s = reduce(s, { type: "paintTerrain", at: { q: 0, r: 1 }, terrain: "forest" }); // sea: ignored
+    expect(reduce(s, { type: "paintTerrain", at: { q: 0, r: 1 }, terrain: null })).toBe(s); // clearing a sea cell: nothing to do
     expect(s.def.hexes.find((h) => h.at.q === 0 && h.at.r === 0)).toEqual({ at: { q: 0, r: 0 }, kind: "land", terrain: "forest", token: 8 });
     expect(s.def.hexes.find((h) => h.at.r === 1)).toEqual({ at: { q: 0, r: 1 }, kind: "sea" });
     s = reduce(s, { type: "paintTerrain", at: { q: 0, r: 0 }, terrain: "wasteland" });
@@ -43,6 +43,32 @@ describe("docs/phase8.md §4 editor model", () => {
     expect(reduce(s, { type: "setToken", at: { q: 0, r: 0 }, token: 6 })).toBe(s);
     s = reduce(s, { type: "paintTerrain", at: { q: 0, r: 0 }, terrain: null });
     expect(s.def.hexes.find((h) => h.at.q === 0 && h.at.r === 0)).toEqual({ at: { q: 0, r: 0 }, kind: "land" });
+  });
+
+  it("the frame brush paints one kind (land by default) and the terrain brush makes empty, sea or frame cells land", () => {
+    let s = initialEditorState(emptyDefinition());
+    expect(s.frameKind).toBe("land");
+    s = reduce(s, { type: "setTool", tool: "terrain" });
+    s = reduce(s, { type: "setFrameKind", kind: "sea" });
+    expect(s.tool).toBe("frame");
+    expect(s.frameKind).toBe("sea");
+    s = reduce(s, { type: "setCell", at: { q: 0, r: 0 }, kind: s.frameKind });
+    expect(s.def.hexes).toEqual([{ at: { q: 0, r: 0 }, kind: "sea" }]);
+    // Terrain on a sea cell turns it into land; on an empty cell it creates the land.
+    s = reduce(s, { type: "paintTerrain", at: { q: 0, r: 0 }, terrain: "meadow" });
+    s = reduce(s, { type: "paintTerrain", at: { q: 1, r: 0 }, terrain: "forest" });
+    s = reduce(s, { type: "setCell", at: { q: 2, r: 0 }, kind: "frame" });
+    s = reduce(s, { type: "paintTerrain", at: { q: 2, r: 0 }, terrain: "mountain" });
+    expect(s.def.hexes).toEqual([
+      { at: { q: 0, r: 0 }, kind: "land", terrain: "meadow" },
+      { at: { q: 1, r: 0 }, kind: "land", terrain: "forest" },
+      { at: { q: 2, r: 0 }, kind: "land", terrain: "mountain" },
+    ]);
+    // Clearing terrain on an empty cell is a no-op and not recorded in history.
+    expect(reduce(s, { type: "paintTerrain", at: { q: 5, r: 5 }, terrain: null })).toBe(s);
+    let h: History = { past: [], present: s, future: [] };
+    h = historyReduce(h, { type: "setFrameKind", kind: "land" });
+    expect(h.past).toHaveLength(0);
   });
 
   it("a 12-hex island: auto-fill tokens is balanced and fixed, auto-place harbours covers the coast, and the board validates", () => {
