@@ -127,14 +127,17 @@ test("Crown & Castle — Standard hotseat: setup, a roll with the event die, the
   // The module's rows are on the cost card. Hiring a knight needs wool + ore: the row says so when Ada lacks them.
   await expect(page.getByTestId("end-turn")).toBeEnabled();
   for (const id of ["knight", "knight-promote", "improve", "wall"]) await expect(page.getByTestId(id)).toBeAttached();
+  // Every player starts with a city (docs/rules.md §16.9) and no commodities, so improving waits on commodities and a wall only on clay.
   await expect(page.getByTestId("improve")).toBeDisabled();
-  await expect(page.getByTestId("improve")).toHaveAttribute("title", "You need a city first");
-  await expect(page.getByTestId("wall")).toBeDisabled();
-  await expect(page.getByTestId("wall")).toHaveAttribute("title", "Walls go on cities");
-  await expect(page.getByTestId("knight-promote")).toBeDisabled();
-  await expect(page.getByTestId("knight-promote")).toHaveAttribute("title", "You have no knights");
+  await expect(page.getByTestId("improve")).toHaveAttribute("title", "Not enough commodities for the next level");
   const hand = page.getByTestId("hand");
   const count = async (resource: string) => Number(((await hand.locator(`[data-resource="${resource}"]`).getAttribute("aria-label")) ?? "0").split(" ")[0]);
+  if ((await count("clay")) < 2) {
+    await expect(page.getByTestId("wall")).toBeDisabled();
+    await expect(page.getByTestId("wall")).toHaveAttribute("title", /^Needs /);
+  } else await expect(page.getByTestId("wall")).toBeEnabled();
+  await expect(page.getByTestId("knight-promote")).toBeDisabled();
+  await expect(page.getByTestId("knight-promote")).toHaveAttribute("title", "You have no knights");
   const wool = await count("wool");
   const ore = await count("ore");
   const grain = await count("grain");
