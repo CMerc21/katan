@@ -82,7 +82,7 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 ### Phase 11 — Crown & Castle (cities module) (done)
 
-* `scenario.modules.crown` (`docs/rules.md` §16): commodities, the event die, improvement tracks, progress cards, knights as board pieces, the barbarian fleet, walls and metropolises, 13 VP. Engine in `packages/engine/src/modules/crown/`; no development cards in this module. Built-in: Crown & Castle — Standard. Details in `docs/phase11.md`.
+* `scenario.modules.crown` (`docs/rules.md` §16): commodities, the event die, improvement tracks, progress cards, knights as board pieces, the barbarian fleet, walls and metropolises, 13 VP, the second setup placement is a city (§16.9). Engine in `packages/engine/src/modules/crown/`; no development cards in this module. Built-in: Crown & Castle — Standard. Details in `docs/phase11.md`.
 
 ### Phase 12 — HUD rework (done)
 
