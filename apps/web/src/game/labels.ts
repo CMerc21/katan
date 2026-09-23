@@ -203,6 +203,11 @@ export function currentPlayerId(view: RedactedState): string {
   return view.players[view.currentPlayer]!.id;
 }
 
+/** docs/rules.md §16.9: under Crown & Castle the second setup placement is a city. */
+export function setupPiece(view: RedactedState): "settlement" | "city" {
+  return view.phase.kind === "setup" && view.phase.round === 2 && view.scenario?.crown ? "city" : "settlement";
+}
+
 /** The one-line prompt for the acting player (docs/phase3.md §5). */
 export function bannerText(view: RedactedState, me: string): string {
   const phase = view.phase;
@@ -211,7 +216,7 @@ export function bannerText(view: RedactedState, me: string): string {
   const mine = current === me;
   switch (phase.kind) {
     case "setup":
-      return phase.step === "settlement" ? `${name}: place a settlement` : view.scenario?.tides ? `${name}: place a road or a ship` : `${name}: place a road`;
+      return phase.step === "settlement" ? `${name}: place a ${setupPiece(view)}` : view.scenario?.tides ? `${name}: place a road or a ship` : `${name}: place a road`;
     case "roll":
       return mine ? "Roll the dice" : `Waiting for ${name} to roll`;
     case "discard": {

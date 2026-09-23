@@ -7,7 +7,7 @@
 import { COSTS, KNIGHTS_PER_LEVEL, MAX_WALLS, RESOURCES, isHiddenCount, isHiddenProgress, type Action, type EventDie, type Hand, type Resource } from "@katan/engine";
 import type { RedactedState } from "@/driver/types";
 import type { TargetMode } from "@/board3d/Interaction";
-import { COST_TEXT, KNIGHT_COST_TEXT, WALL_COST_TEXT, currentPlayerId } from "@/game/labels";
+import { COST_TEXT, KNIGHT_COST_TEXT, WALL_COST_TEXT, currentPlayerId, setupPiece } from "@/game/labels";
 import type { IconName } from "./icons";
 
 export type RedactedPlayer = RedactedState["players"][number];
@@ -247,7 +247,7 @@ export function waitingText(view: RedactedState, me: string, waitingOn: string |
   const who = `${name}${bot}`;
   switch (view.phase.kind) {
     case "setup":
-      return `Waiting for ${who} to place a ${view.phase.step}`;
+      return `Waiting for ${who} to place a ${view.phase.step === "settlement" ? setupPiece(view) : view.phase.step}`;
     case "roll":
       return `Waiting for ${who} to roll`;
     case "discard":

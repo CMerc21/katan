@@ -365,3 +365,7 @@ A wall costs two clay and goes on one of the player's cities (one per city, thre
 ### §16.8 Victory
 
 Settlements 1, cities 2, each metropolis 2 more, Longest Road 2, each Defender chip 1, each revealed victory point progress card 1, the merchant 1 while held. The first player to reach the scenario's target on their own turn wins (§11).
+
+### §16.9 Setup
+
+Setup follows §4 with one change: each player's **second** placement is a city rather than a settlement (it is placed as a settlement and upgraded at once, so the settlement piece returns to supply and a city piece is used). The city still receives the §4.3 starting resources: one resource per adjacent producing hex, no commodities; beside a gold field it is owed one resource (§14.3). Every player therefore begins with one settlement and one city on the board.

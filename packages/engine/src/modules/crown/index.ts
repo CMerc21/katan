@@ -6,6 +6,7 @@
  */
 
 import { registerModule, type RollOutcome } from "../hooks";
+import { upgradeToCity } from "../../turnHelpers";
 import { crownOn, getPlayer } from "../../state";
 import type { Action, GameState, Player, PlayerId } from "../../types";
 import type { Rng } from "../../rng";
@@ -204,6 +205,11 @@ registerModule({
   discardExtra,
   discardThreshold,
   onTurnStart,
+  // docs/rules.md §16.9: the second setup placement is a city. The core has
+  // already paid the starting resources (one per hex, no commodities).
+  onSetupSettlement: (state, player, vertex, round) => {
+    if (round === 2) upgradeToCity(state, player, vertex);
+  },
   blockedVertices,
   unbuildableVertices: (state) => unbuildableVertices(state),
   maritime,
