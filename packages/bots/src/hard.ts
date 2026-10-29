@@ -193,7 +193,11 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
   const early = wayfarersBeforeBuild(view, legal, rng);
   if (early) return early;
   // Crown & Castle (docs/phase11.md §10): urgent defence, free progress cards, chases and road-breaking knights
-  // are rule-based (their payoffs are hidden or not in positionScore); the crown builds join the lookahead below.
+  // are rule-based (their payoffs are hidden or not in positionScore); improvements and walls join the lookahead below.
+  // Knights (build, activate, promote) stay with the shared rules in crownBeforeBuild / crownBuild, which build one
+  // only below the fair share of defence: since every player starts with a city (docs/rules.md §16.9) the fleet is
+  // strong from the first turn, and scoring knights by positionScore's defence term sank ore, wool and grain into
+  // them ahead of improvements and metropolises (hard fell from 55 % to 51 % of wins against medium; docs/phase11.md §4).
   const crownEarly = crownBeforeBuild(view, legal, rng);
   if (crownEarly) return crownEarly;
 
@@ -210,9 +214,6 @@ function chooseByLookahead(view: RedactedState, legal: Action[], rng: Rng): Acti
       a.type === "PLAY_INVENTION" ||
       a.type === "PLAY_KNIGHT" ||
       a.type === "BUILD_IMPROVEMENT" ||
-      a.type === "BUILD_KNIGHT" ||
-      a.type === "ACTIVATE_KNIGHT" ||
-      a.type === "PROMOTE_KNIGHT" ||
       a.type === "BUILD_WALL",
   );
 
