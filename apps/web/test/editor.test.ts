@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BUILT_IN_SCENARIO_IDS, hasErrors, isBoardDefinition, isScenario, standardFrame, validateBoard } from "@katan/engine";
 import { builtInScenario, validateScenario } from "@katan/engine";
-import { DEFAULT_FISHING_TOKEN, DEFAULT_SCENARIO, emptyDefinition, fishingGroundAt, harborEdges, historyReduce, initialEditorState, islandIndexOf, landEdges, oasisCount, rectangleCells, reduce, riverEdgesOf, settingsOf, symmetricCells, toScenario, tokenTray, type History } from "@/editor/model";
+import { DEFAULT_FISHING_TOKEN, DEFAULT_SCENARIO, discoverCount, discoverOf, emptyDefinition, fishingGroundAt, harborEdges, historyReduce, initialEditorState, islandIndexOf, landEdges, oasisCount, rectangleCells, reduce, riverEdgesOf, settingsOf, symmetricCells, toScenario, tokenTray, type History } from "@/editor/model";
 import { loadScenarioDrafts, saveScenarioDraft } from "@/editor/storage";
 
 describe("docs/phase8.md §4 editor model", () => {
@@ -359,5 +359,57 @@ describe("docs/phase10.md §8 storage: drafts with markers round-trip", () => {
     // Saving again under the same id replaces rather than duplicates.
     saveScenarioDraft({ ...sc, name: "Renamed" }, draft.id);
     expect(loadScenarioDrafts().map((d) => d.name)).toEqual(["Renamed"]);
+  });
+});
+
+describe("docs/rules.md §17 editor: face-down tiles and the discovery pool", () => {
+  const beginner = () => initialEditorState(builtInBoardFor("beginner"));
+  function builtInBoardFor(id: "beginner") {
+    return reduce(initialEditorState(emptyDefinition()), { type: "loadTemplate", id }).def;
+  }
+  const at = { q: 1, r: -1 };
+
+  it("§17.1 the brush marks a tile face down with its kind, and a second click clears it", () => {
+    let s = reduce(beginner(), { type: "setDiscoverKind", kind: "tile" });
+    expect(s.tool).toBe("discover");
+    s = reduce(s, { type: "toggleDiscover", at });
+    const h = () => s.def.hexes.find((x) => x.at.q === at.q && x.at.r === at.r);
+    expect(discoverOf(h())).toBe("tile");
+    expect(h()!.terrain).toBeDefined();
+    expect(hasErrors(validateBoard(s.def))).toBe(false);
+    s = reduce(s, { type: "toggleDiscover", at });
+    expect(discoverOf(h())).toBeNull();
+    expect(h()!.extras).toBeUndefined();
+  });
+
+  it("§17.1 a pool tile drops its own terrain and token; painting it again makes it a 'this tile' tile", () => {
+    let s = reduce(reduce(beginner(), { type: "setDiscoverKind", kind: "pool" }), { type: "toggleDiscover", at });
+    const h = () => s.def.hexes.find((x) => x.at.q === at.q && x.at.r === at.r)!;
+    expect(discoverOf(h())).toBe("pool");
+    expect(h().terrain).toBeUndefined();
+    expect(h().token).toBeUndefined();
+    expect(validateBoard(s.def).filter((i) => i.severity === "error")).toEqual([]);
+    s = reduce(s, { type: "paintTerrain", at, terrain: "forest" });
+    expect(discoverOf(h())).toBe("tile");
+    expect(h().terrain).toBe("forest");
+  });
+
+  it("§17.1 the pool can be set and reset, symmetry applies, and Clear removes every marker", () => {
+    let s = reduce(reduce(beginner(), { type: "setSymmetry", symmetry: "rotate" }), { type: "setDiscoverKind", kind: "pool" });
+    s = reduce(s, { type: "toggleDiscover", at });
+    expect(discoverCount(s.def, "pool")).toBeGreaterThan(1);
+    s = reduce(s, { type: "setDiscoveryPool", terrains: ["gold", "forest", "volcano" as never] });
+    expect(s.def.discovery).toEqual({ terrains: ["gold", "forest"] });
+    s = reduce(s, { type: "setDiscoveryPool", terrains: null });
+    expect(s.def.discovery).toBeUndefined();
+    s = reduce(s, { type: "clearLayer", layer: "discovery" });
+    expect(discoverCount(s.def)).toBe(0);
+    expect(isBoardDefinition(s.def)).toBe(true);
+  });
+
+  it("§17.1 a face-down tile turned into sea loses the marker", () => {
+    let s = reduce(reduce(beginner(), { type: "setDiscoverKind", kind: "tile" }), { type: "toggleDiscover", at });
+    s = reduce(s, { type: "setCell", at, kind: "sea" });
+    expect(discoverCount(s.def)).toBe(0);
   });
 });

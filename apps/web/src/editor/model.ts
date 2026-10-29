@@ -36,14 +36,15 @@ import {
   variantFlags,
   noVariants,
   VARIANT_NAMES,
+  type DiscoverKind,
   type EdgeDef,
   type Scenario,
   type ScenarioSetup,
   type VariantName,
 } from "@katan/engine";
 
-/** `river`, `fishing` and `oasis` are the Wayfarers markers (docs/phase10.md §8). */
-export type Tool = "frame" | "terrain" | "token" | "harbor" | "island" | "river" | "fishing" | "oasis";
+/** `river`, `fishing` and `oasis` are the Wayfarers markers (docs/phase10.md §8); `discover` marks face-down tiles (docs/rules.md §17). */
+export type Tool = "frame" | "terrain" | "token" | "harbor" | "island" | "river" | "fishing" | "oasis" | "discover";
 
 /** The token a new fishing ground gets before the designer types another. */
 export const DEFAULT_FISHING_TOKEN = 5;
@@ -73,6 +74,8 @@ export interface EditorState {
   /** The frame tool's brush: what a click or drag paints (right-click always clears). */
   readonly frameKind: HexKind;
   readonly terrain: Terrain;
+  /** The discover tool's brush: hide this tile's own terrain, or draw it from the pool (docs/rules.md §17.1). */
+  readonly discoverKind: DiscoverKind;
   readonly symmetry: Symmetry;
   readonly selected: HexId | EdgeId | null;
   /** Radius of the extended grid drawn around the board (empty cells). */
@@ -106,9 +109,17 @@ export type EditorAction =
   | { type: "setFishingGround"; edge: EdgeId; token: number | null }
   /** Oasis tool: toggle the marker on a land hex. */
   | { type: "toggleOasis"; at: HexCoord }
+  | { type: "setDiscoverKind"; kind: DiscoverKind }
+  /**
+   * Discover tool (docs/rules.md §17): mark a land hex face down with the brush's kind, or clear it when it
+   * already has that kind. A pool tile drops its own terrain and token (the pool supplies them).
+   */
+  | { type: "toggleDiscover"; at: HexCoord }
+  /** The discovery pool's terrains; null goes back to the automatic pool. */
+  | { type: "setDiscoveryPool"; terrains: Terrain[] | null }
   | { type: "autoFillTokens"; seed: string }
   | { type: "autoPlaceHarbors"; seed: string }
-  | { type: "clearLayer"; layer: "terrain" | "tokens" | "harbors" | "edges" | "oases" }
+  | { type: "clearLayer"; layer: "terrain" | "tokens" | "harbors" | "edges" | "oases" | "discovery" }
   | { type: "loadTemplate"; id: BuiltInBoardId }
   | { type: "load"; def: BoardDefinition; boardId: string | null; scenario?: ScenarioSettings | null }
   | { type: "markSaved"; boardId: string | null }
@@ -120,7 +131,7 @@ export function emptyDefinition(name = "New board"): BoardDefinition {
 }
 
 export function initialEditorState(def: BoardDefinition = builtInBoard("random"), boardId: string | null = null, scenario: ScenarioSettings | null = null): EditorState {
-  return { def: { ...def, name: def.name }, tool: "frame", frameKind: "land", terrain: "forest", symmetry: "none", selected: null, gridRadius: gridRadiusFor(def), dirty: false, boardId, scenario };
+  return { def: { ...def, name: def.name }, tool: "frame", frameKind: "land", terrain: "forest", discoverKind: "tile", symmetry: "none", selected: null, gridRadius: gridRadiusFor(def), dirty: false, boardId, scenario };
 }
 
 /** Editor settings from a stored scenario. */
@@ -297,7 +308,9 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
         const existing = hexAt(out, c);
         // Painting a terrain on an empty, sea or frame cell makes it land, so a board can be built with the terrain brush alone.
         if ((!existing || existing.kind !== "land") && action.terrain === null) continue;
-        const h: HexDef = existing?.kind === "land" ? existing : { at: c, kind: "land" };
+        const land: HexDef = existing?.kind === "land" ? existing : { at: c, kind: "land" };
+        // A pool tile takes nothing of its own; painting one makes it a face-down tile of this terrain.
+        const h = action.terrain !== null && discoverOf(land) === "pool" ? withDiscover(land, "tile") : land;
         const next: HexDef = action.terrain === null ? stripKeys(h, ["terrain", "token"]) : { ...h, terrain: action.terrain };
         // A wasteland or a lake never carries a token.
         out = withHex(out, c, action.terrain !== null && !producesOnToken(action.terrain) ? stripKeys(next, ["token"]) : next);
@@ -307,7 +320,8 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
     case "setToken": {
       const h = hexAt(def, action.at);
       if (!h || h.kind !== "land" || (h.terrain !== undefined && !producesOnToken(h.terrain))) return state;
-      const next: HexDef = action.token === null ? stripKeys(h, ["token"]) : { ...h, token: action.token };
+      const base = action.token !== null && discoverOf(h) === "pool" ? withDiscover(h, "tile") : h;
+      const next: HexDef = action.token === null ? stripKeys(base, ["token"]) : { ...base, token: action.token };
       return touch(withHex(def, action.at, next));
     }
     case "cycleHarbor": {
@@ -337,6 +351,29 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
       const h = hexAt(def, action.at);
       if (!h || h.kind !== "land") return state;
       return touch(withHex(def, action.at, withOasis(h, !isOasis(h))));
+    }
+    case "setDiscoverKind":
+      return { ...state, discoverKind: action.kind, tool: "discover" };
+    case "toggleDiscover": {
+      const first = hexAt(def, action.at);
+      if (!first || first.kind !== "land") return state;
+      // Symmetric cells follow the clicked one: all on with the brush's kind, or all off.
+      const next: DiscoverKind | null = discoverOf(first) === state.discoverKind ? null : state.discoverKind;
+      let out = def;
+      for (const c of symmetricCells(action.at, state.symmetry)) {
+        const h = hexAt(out, c);
+        if (h?.kind === "land") out = withHex(out, c, withDiscover(h, next));
+      }
+      return out === def ? state : touch(out);
+    }
+    case "setDiscoveryPool": {
+      if (action.terrains === null) {
+        if (!def.discovery) return state;
+        const { discovery: _drop, ...rest } = def;
+        void _drop;
+        return touch(rest);
+      }
+      return touch({ ...def, discovery: { terrains: action.terrains.filter((t) => TERRAINS.includes(t)) } });
     }
     case "autoFillTokens": {
       // Resolve tokens with the engine's balanced generator, then write them back as fixed tokens.
@@ -370,6 +407,7 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
       if (action.layer === "harbors") return touch({ ...def, harbors: [] });
       if (action.layer === "edges") return def.edges === undefined ? state : touch(withEdges(def, []));
       if (action.layer === "oases") return oasisCount(def) === 0 ? state : touch({ ...def, hexes: def.hexes.map((h) => withOasis(h, false)) });
+      if (action.layer === "discovery") return discoverCount(def) === 0 ? state : touch({ ...def, hexes: def.hexes.map((h) => withDiscover(h, null)) });
       const hexes = def.hexes.map((h) => (h.kind === "land" ? stripKeys(h, action.layer === "terrain" ? ["terrain", "token"] : ["token"]) : h));
       return touch({ ...def, hexes });
     }
@@ -446,13 +484,33 @@ export function fishingGroundsOf(def: BoardDefinition): { edge: EdgeId; token: n
   return (def.edges ?? []).flatMap((e) => (e.kind === "fishingGround" ? [{ edge: e.edge, token: e.token }] : []));
 }
 
+export function discoverOf(h: HexDef | undefined): DiscoverKind | null {
+  return h?.kind === "land" ? (h.extras?.discover ?? null) : null;
+}
+
+/** Set or clear a face-down marker; `pool` also drops the hex's own terrain and token. */
+function withDiscover(h: HexDef, kind: DiscoverKind | null): HexDef {
+  if (h.kind !== "land") return h;
+  const base = kind === "pool" ? stripKeys(h, ["terrain", "token"]) : h;
+  const { extras: _drop, ...rest } = base;
+  void _drop;
+  const extras = { ...(base.extras ?? {}) } as { oasis?: boolean; discover?: DiscoverKind };
+  if (kind) extras.discover = kind;
+  else delete extras.discover;
+  return Object.keys(extras).length > 0 ? { ...rest, extras } : rest;
+}
+
+export function discoverCount(def: BoardDefinition, kind?: DiscoverKind): number {
+  return def.hexes.filter((h) => discoverOf(h) !== null && (kind === undefined || discoverOf(h) === kind)).length;
+}
+
 export function oasisCount(def: BoardDefinition): number {
   return def.hexes.filter((h) => h.kind === "land" && isOasis(h)).length;
 }
 
 /** Actions that change the definition are recorded in history; view state is not. */
 export function isUndoable(action: EditorAction): boolean {
-  return !["setTool", "setFrameKind", "setTerrain", "setSymmetry", "select", "load", "markSaved", "setScenario"].includes(action.type);
+  return !["setTool", "setFrameKind", "setTerrain", "setDiscoverKind", "setSymmetry", "select", "load", "markSaved", "setScenario"].includes(action.type);
 }
 
 export interface History {

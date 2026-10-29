@@ -136,6 +136,11 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
           if (!erase || isOasis(state.def.hexes.find((h) => h.at.q === at.q && h.at.r === at.r))) dispatch({ type: "toggleOasis", at });
           dispatch({ type: "select", id: `${at.q},${at.r}` });
           break;
+        case "discover": {
+          const h = state.def.hexes.find((x) => x.at.q === at.q && x.at.r === at.r);
+          if (!erase || h?.extras?.discover) dispatch({ type: "toggleDiscover", at });
+          break;
+        }
         case "river":
         case "fishing":
           dispatch({ type: "select", id: `${at.q},${at.r}` });

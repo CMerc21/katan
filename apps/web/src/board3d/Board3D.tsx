@@ -35,6 +35,7 @@ import { Icon } from "@/hud/icons";
 import { cardLabel, portLabel } from "@/game/labels";
 import { PLAYER_FILL } from "@/game/theme";
 import { Tiles, type TileInfo } from "./Tiles";
+import { FaceDownTiles } from "./Discovery3d";
 import { WayfarersBoard, wayfarersPieceList } from "./Wayfarers3d";
 import { CrownBoard, CrownCityFigure, crownCityUpgrades, crownPieceList } from "./Crown3d";
 
@@ -270,16 +271,18 @@ export function Board3D(props: Board3DProps) {
   const bumpCamera = useCallback(() => setCamVersion((v) => v + 1), []);
 
   const hexIds = useMemo(() => Object.keys(view.board.hexes) as HexId[], [view.board]);
+  // docs/rules.md §17: face-down tiles show their back, no terrain relief and no props.
+  const hidden = useMemo(() => view.discovery?.hidden ?? [], [view.discovery]);
   const tiles: TileInfo[] = useMemo(
     () => [
       ...hexIds.map((id) => {
         const t = view.board.hexes[id]!;
-        return { id, kind: "land" as const, terrain: t.terrain as Terrain, token: t.token };
+        return hidden.includes(id) ? { id, kind: "land" as const, terrain: null, token: null } : { id, kind: "land" as const, terrain: t.terrain as Terrain, token: t.token };
       }),
       ...view.board.sea.map((id) => ({ id, kind: "sea" as const, terrain: null, token: null })),
       ...view.board.frame.map((id) => ({ id, kind: "frame" as const, terrain: null, token: null })),
     ],
-    [hexIds, view.board],
+    [hexIds, view.board, hidden],
   );
   const propHexes = useMemo<PropHex[]>(() => tiles.filter((t) => (t.kind === "land" && t.terrain) || t.kind === "sea").map((t) => ({ id: t.id, terrain: t.kind === "sea" ? "sea" : (t.terrain as Terrain) })), [tiles]);
   const robberCentred = view.board.hexes[view.robberHex]?.token === null;
@@ -419,6 +422,7 @@ export function Board3D(props: Board3DProps) {
         <Table bounds={bounds} shadows={preset.shadows} onTap={() => (onSkip ? onSkip() : onCancelMode?.())} onDoubleTap={() => setResetToken((t) => t + 1)} />
         <group name="board">
           <Tiles tiles={tiles} robberHex={view.robberHex} rolled={rolled} rollKey={rollKey} blockedHex={blockedHex} shadows={preset.shadows} idle={preset.idleMotion} />
+          {(hidden.length > 0 || view.board.hidden) && <FaceDownTiles hidden={hidden} shadows={preset.shadows} />}
           {preset.contactShadows && (
             /* Grounding for the pieces and props: the plane sits just clear of the
                tops' relief, so the slabs themselves never darken it. */

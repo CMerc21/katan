@@ -226,6 +226,52 @@ export function woodTexture(): THREE.Texture {
   return t;
 }
 
+/**
+ * The back of a face-down tile (docs/rules.md §17): dark walnut, a gilt hex
+ * rim and a question mark, the same for every tile so nothing about the
+ * terrain underneath shows.
+ */
+export function faceDownTexture(): THREE.Texture {
+  const key = "faceDown";
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const { c, ctx } = canvas(256, 256);
+  const g = ctx.createRadialGradient(128, 118, 20, 128, 128, 150);
+  g.addColorStop(0, "#5a4030");
+  g.addColorStop(1, "#2a1c13");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  // A woven diamond pattern, like a card back.
+  ctx.strokeStyle = "rgba(201,162,39,0.18)";
+  ctx.lineWidth = 2;
+  for (let i = -256; i < 512; i += 28) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i + 256, 256);
+    ctx.moveTo(i, 256);
+    ctx.lineTo(i + 256, 0);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "#c9a227";
+  ctx.lineWidth = 7;
+  ctx.beginPath();
+  for (let k = 0; k < 6; k++) {
+    const a = ((30 + 60 * k) * Math.PI) / 180;
+    const x = 128 + 104 * Math.cos(a);
+    const y = 128 + 104 * Math.sin(a);
+    if (k === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+  ctx.fillStyle = "#e9c66a";
+  ctx.font = "bold 120px Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("?", 128, 136);
+  return finish(key, c);
+}
+
 /** The event die's fleet face (docs/props.md §5): black with a small ship glyph. */
 export function fleetFaceTexture(): THREE.Texture {
   const key = "eventDie:fleet";

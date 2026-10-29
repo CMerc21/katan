@@ -14,6 +14,8 @@ const R = 50;
 
 export function BoardThumbnail({ board, size = 240, showTokens = true }: { board: Board; size?: number; showTokens?: boolean }) {
   const hexes = Object.keys(board.hexes);
+  // docs/rules.md §17: a thumbnail never gives away a face-down tile.
+  const hidden = new Set(board.hidden ?? []);
   const layout = createLayout(R, [...hexes, ...board.sea, ...board.frame]);
   return (
     <svg viewBox={layout.viewBox} width={size} height={size} role="img" aria-label="Board thumbnail" className="rounded-md">
@@ -30,9 +32,18 @@ export function BoardThumbnail({ board, size = 240, showTokens = true }: { board
         const o = layout.outward(port.edge);
         return <HarborMarker key={port.edge} x={m.x + o.x * R * 0.78} y={m.y + o.y * R * 0.78} ends={layout.edge(port.edge)} kind={port.kind} R={R} owned={false} />;
       })}
-      {hexes.map((hex) => (
-        <polygon key={hex} points={hexPoints(layout, hex, 1.5)} fill={`url(#pat-${board.hexes[hex]!.terrain})`} stroke={SAND} strokeWidth={3} strokeLinejoin="round" />
-      ))}
+      {hexes.map((hex) =>
+        hidden.has(hex) ? (
+          <g key={hex} data-face-down={hex}>
+            <polygon points={hexPoints(layout, hex, 1.5)} fill="#3b2a1e" stroke="#c9a227" strokeWidth={3} strokeLinejoin="round" />
+            <text x={layout.hex(hex).x} y={layout.hex(hex).y} textAnchor="middle" dominantBaseline="central" fontSize={R * 0.9} fontWeight={700} fill="#e9c66a" fontFamily="Georgia, serif">
+              ?
+            </text>
+          </g>
+        ) : (
+          <polygon key={hex} points={hexPoints(layout, hex, 1.5)} fill={`url(#pat-${board.hexes[hex]!.terrain})`} stroke={SAND} strokeWidth={3} strokeLinejoin="round" />
+        ),
+      )}
       {/* Wayfarers (docs/phase10.md): river segments, oasis marks and fishing ground tokens. */}
       {board.rivers.map((edge) => {
         const [a, b] = layout.edge(edge);
@@ -65,7 +76,7 @@ export function BoardThumbnail({ board, size = 240, showTokens = true }: { board
         hexes.map((hex) => {
           const t = board.hexes[hex]!;
           const c = layout.hex(hex);
-          return t.token === null ? null : <NumberToken key={hex} x={c.x} y={c.y} n={t.token} R={R} />;
+          return t.token === null || hidden.has(hex) ? null : <NumberToken key={hex} x={c.x} y={c.y} n={t.token} R={R} />;
         })}
     </svg>
   );
