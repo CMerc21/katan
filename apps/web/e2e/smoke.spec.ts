@@ -92,5 +92,7 @@ test("3-player hotseat: setup by clicking, roll, end turn twice", async ({ page 
 test("/play without a game redirects to /", async ({ page }) => {
   await page.goto("/play");
   await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByTestId("home-lobby")).toBeVisible();
+  await page.getByTestId("lobby-play").click();
   await expect(page.getByTestId("start")).toBeVisible();
 });

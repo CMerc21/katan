@@ -83,7 +83,9 @@ test("panels: friends explains sign-in without an account, settings and play ope
   await page.getByTestId("mode-online").click();
   await page.getByTestId("lobby-play").click();
   await expect(page.getByTestId("play-sheet")).toContainText("Play online");
-  await page.getByTestId("mode-solo").click();
+  // Keyboard, not a click: in `next dev` the framework's dev-tools badge sits over the bottom-left corner.
+  await page.getByTestId("mode-solo").focus();
+  await page.keyboard.press("Enter");
   await expect(page.getByTestId("play-sheet")).toContainText("Hotseat on this device");
   await page.getByTestId("play-sheet-close").click();
   await expect(page.getByTestId("play-sheet")).toHaveCount(0);
