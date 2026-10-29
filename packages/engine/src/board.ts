@@ -101,6 +101,8 @@ export interface Board {
   readonly fishingGrounds: readonly FishingGround[];
   /** Oases (docs/phase10.md §6): land hexes that produce spice instead of their resource. */
   readonly oases: readonly HexId[];
+  /** docs/rules.md §17: the tiles that start face down (absent when there are none). Which are still hidden lives in `GameState.discovery`. */
+  readonly hidden?: readonly HexId[];
 }
 
 export type BoardKind = "beginner" | "random";
@@ -199,13 +201,15 @@ export function makeBoard(kind: BoardKind, seed: string): Board {
 
 /** The hex holding the wasteland (where the robber starts, §4.4), else the lake (docs/phase10.md §2), else the first land hex. */
 export function wastelandHex(board: Board): HexId {
-  for (const h of Object.keys(board.hexes)) {
+  // Never a face-down tile (docs/rules.md §17.1): the robber's start would give its terrain away.
+  const open = Object.keys(board.hexes).filter((h) => !board.hidden?.includes(h));
+  for (const h of open) {
     if (board.hexes[h]?.terrain === "wasteland") return h;
   }
-  for (const h of Object.keys(board.hexes)) {
+  for (const h of open) {
     if (board.hexes[h]?.terrain === "lake") return h;
   }
-  const first = Object.keys(board.hexes).sort()[0];
+  const first = (open.length > 0 ? open : Object.keys(board.hexes)).sort()[0];
   if (!first) throw new Error("board has no land");
   return first;
 }

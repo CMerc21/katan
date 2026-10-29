@@ -117,8 +117,24 @@ export function validateBoard(def: BoardDefinition, options: ValidateOptions = {
     if (h.kind !== "land" && (h.terrain !== undefined || h.token !== undefined)) error("SEA_CONTENT", `${h.kind} hex ${hexId(h.at)} cannot have terrain or a token`, hexId(h.at));
   }
 
-  // Terrain.
-  const unassigned = land.filter((h) => h.terrain === undefined);
+  // docs/rules.md §17.1: face-down tiles are land; pool tiles take everything from the pool.
+  for (const h of def.hexes) {
+    if (h.extras?.discover === undefined) continue;
+    if (h.kind !== "land") error("DISCOVER_NOT_LAND", `${h.kind} hex ${hexId(h.at)} cannot be face down; only land is discoverable`, hexId(h.at));
+    else if (h.extras.discover === "pool" && (h.terrain !== undefined || h.token !== undefined)) error("DISCOVER_POOL_CONTENT", `pool tile ${hexId(h.at)} takes its terrain and token from the discovery pool; clear them`, hexId(h.at));
+    else if (h.extras.discover !== "tile" && h.extras.discover !== "pool") error("BAD_DISCOVER", `unknown discover kind on ${hexId(h.at)}`, hexId(h.at));
+  }
+  const poolTiles = land.filter((h) => h.extras?.discover === "pool").length;
+  if (def.discovery?.terrains) {
+    for (const t of def.discovery.terrains) if (!TERRAINS.includes(t)) error("BAD_TERRAIN", `unknown terrain ${String(t)} in the discovery pool`);
+    if (def.discovery.terrains.length < poolTiles) error("DISCOVER_POOL_SHORT", `the discovery pool has ${def.discovery.terrains.length} terrain(s) for ${poolTiles} pool tile(s)`);
+  }
+  for (const t of def.discovery?.tokens ?? []) if (!VALID_TOKENS.has(t)) error("BAD_TOKEN", `token ${t} in the discovery pool is not 2–12 (and never 7)`);
+  if ((def.discovery?.terrains?.length ?? 0) > 0 && poolTiles === 0) warn("DISCOVER_POOL_UNUSED", "the discovery pool is set but no tile draws from it");
+
+  // Terrain (pool tiles are filled from the discovery pool, not here).
+  const resolved = land.filter((h) => h.extras?.discover !== "pool");
+  const unassigned = resolved.filter((h) => h.terrain === undefined);
   if (def.generation.terrain === "fixed" && unassigned.length > 0) {
     error("UNASSIGNED_TERRAIN", `${unassigned.length} land hex(es) have no terrain and terrain is fixed`, hexId(unassigned[0]!.at));
   }
@@ -134,7 +150,7 @@ export function validateBoard(def: BoardDefinition, options: ValidateOptions = {
   }
 
   // Tokens.
-  const producing = land.filter((h) => h.terrain === undefined || producesOnToken(h.terrain));
+  const producing = resolved.filter((h) => h.terrain === undefined || producesOnToken(h.terrain));
   for (const h of land) {
     if (h.token === undefined) continue;
     if (!VALID_TOKENS.has(h.token)) error("BAD_TOKEN", `token ${h.token} on ${hexId(h.at)} is not 2–12 (and never 7)`, hexId(h.at));

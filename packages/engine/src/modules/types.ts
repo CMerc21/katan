@@ -124,6 +124,15 @@ export const WAGON_FREE_STEPS = 2;
 export const WAGON_CAPACITY = 2;
 export const CITY_STOCK_CAP = 2;
 
+/** docs/rules.md §17: face-down tiles still hidden, and the gold choice a build earned (settled after the build). */
+export interface DiscoveryState {
+  hidden: HexId[];
+  /** Gold fields revealed by the action in progress, per player; turned into a `chooseGold` phase once the build is done. */
+  owedGold: Record<PlayerId, number>;
+  /** Set when the action in progress revealed a tile, so the build cannot be taken back (§5.6). */
+  revealedThisAction: boolean;
+}
+
 export interface WayfarersState {
   eventDeck: EventDeckState | null;
   fishing: FishingState | null;

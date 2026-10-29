@@ -12,7 +12,7 @@ import type { Action, GameState, Hand, Player, PlayerId } from "../types";
 import type { Rng } from "../rng";
 import type { EventCardKind, EventDie, ModulePrompt } from "./types";
 
-export type ModuleId = "eventDeck" | "fishing" | "rivers" | "harbormaster" | "raiders" | "caravans" | "wagons" | "crown";
+export type ModuleId = "eventDeck" | "fishing" | "rivers" | "harbormaster" | "raiders" | "caravans" | "wagons" | "crown" | "discovery";
 
 export interface RollOutcome {
   readonly dice: [number, number];
@@ -67,6 +67,16 @@ export interface ModuleHooks {
   onTurnEnd?(state: GameState, player: Player): void;
   /** A road, ship, settlement or city was placed (setup included). */
   onBuilt?(state: GameState, playerId: PlayerId, piece: "road" | "ship" | "settlement" | "city", at: EdgeId | VertexId): void;
+  /**
+   * True when this module's `onBuilt` never makes a build irreversible by itself, so §5.6's undo stays on
+   * (discovery: it blocks the undo itself, only for a build that turned a tile over).
+   */
+  readonly buildsUndoable?: boolean;
+  /**
+   * After the action's own handler, before the core closes the undo window and checks the win
+   * (discovery: a gold reward becomes a `chooseGold` phase that wraps whatever the build left).
+   */
+  afterAction?(state: GameState, action: Action): void;
   /** A settlement placed during setup (round 1 or 2). */
   onSetupSettlement?(state: GameState, player: Player, vertex: VertexId, round: 1 | 2): void;
   /** Extra cost for a road on an edge (bridges). */

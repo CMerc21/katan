@@ -73,6 +73,7 @@ export const BASE_DURATION: Record<GameEventKind, number> = {
   pirateMoved: 450,
   goldChosen: 400,
   islandSettled: 700,
+  tileDiscovered: 1100,
   // Wayfarers (docs/phase10.md)
   deckReshuffled: 400,
   neighborlyGave: 400,
@@ -1058,6 +1059,18 @@ export function applyEventToView(view: RedactedState, event: GameEvent): Redacte
     case "islandSettled":
       next = withPlayer(next, event.playerId, (p) => ({ ...p, islandChips: [...p.islandChips, event.island], publicVP: p.publicVP + event.bonus }));
       break;
+    case "tileDiscovered": {
+      // docs/rules.md §17: the tile turns face up for everyone and the discoverer takes their card.
+      const hexes = { ...next.board.hexes, [event.hex]: { terrain: event.terrain, token: event.token } };
+      next = { ...next, board: { ...next.board, hexes } };
+      if (next.discovery) next = { ...next, discovery: { ...next.discovery, hidden: next.discovery.hidden.filter((h) => h !== event.hex) } };
+      const resource = event.resource;
+      if (resource) {
+        next = withPlayer(next, event.playerId, (p) => ({ ...p, hand: adjustHand(p.hand, resource, 1) }));
+        next = { ...next, bank: { ...next.bank, [resource]: Math.max(0, next.bank[resource] - 1) } };
+      }
+      break;
+    }
     case "resourcesTaken":
       next = withPlayer(next, event.playerId, (p) => ({ ...p, hand: adjustHandBy(p.hand, event.cards, 1) }));
       next = { ...next, bank: adjustBank(next.bank, event.cards, -1) };

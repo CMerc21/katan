@@ -6,7 +6,7 @@
  */
 
 import { TERRAIN_RESOURCE, producesOnToken, type Board, type HexTile, type Port, type PortKind, type Terrain } from "./board";
-import { fishingGroundDefs, harborKind, landHexes, oasisHexes, riverEdges, type BoardDefinition, type EdgeDef, type HarborDef, type HexDef } from "./definition";
+import { discoverHexes, fishingGroundDefs, harborKind, landHexes, oasisHexes, poolHexes, resolvedLandHexes, riverEdges, type BoardDefinition, type EdgeDef, type HarborDef, type HexDef } from "./definition";
 import { RuleError } from "./errors";
 import { edgeMidpoint, edgeVerticesOf, geometryFor, hexId, parseEdgeId, type EdgeId, type Geometry, type HexId, type VertexId } from "./geometry";
 import { PIPS, harborCount, harborPool, terrainPool, tokenPool, trimPool } from "./pools";
@@ -28,7 +28,7 @@ function subtract<T>(pool: readonly T[], have: readonly T[]): T[] {
 }
 
 function resolveTerrains(def: BoardDefinition, rng: Rng): Map<HexId, Terrain> {
-  const land = landHexes(def);
+  const land = resolvedLandHexes(def);
   const out = new Map<HexId, Terrain>();
   if (def.generation.terrain === "fixed") {
     for (const h of land) out.set(hexId(h.at), h.terrain as Terrain);
@@ -72,7 +72,7 @@ export function violations(tokens: ReadonlyMap<HexId, number>, geo: Geometry): {
 }
 
 function resolveTokens(def: BoardDefinition, terrains: ReadonlyMap<HexId, Terrain>, rng: Rng): Map<HexId, number> {
-  const land = landHexes(def);
+  const land = resolvedLandHexes(def);
   const producing = land.filter((h) => producesOnToken(terrains.get(hexId(h.at)) as Terrain));
   const out = new Map<HexId, number>();
   if (def.generation.tokens === "fixed") {
@@ -186,6 +186,45 @@ function resolveHarbors(def: BoardDefinition, rng: Rng): Port[] {
   return edges.map((edge, i) => ({ edge, kind: kinds[i] as PortKind, vertices: edgeVerticesOf(edge) }));
 }
 
+/**
+ * docs/rules.md §17.1: the discovery pool for `def`. An explicit pool is used
+ * as given (tokens topped up if short); a missing part scales to the number
+ * of pool tiles like the main pools, without the wasteland the main pool
+ * always carries.
+ */
+export function discoveryPoolFor(def: BoardDefinition): { terrains: Terrain[]; tokens: number[] } {
+  const n = poolHexes(def).length;
+  let terrains: Terrain[];
+  if (def.discovery?.terrains) {
+    terrains = [...def.discovery.terrains];
+  } else {
+    const scaled = terrainPool(n + 1);
+    const desert = scaled.indexOf("wasteland");
+    if (desert >= 0) scaled.splice(desert, 1);
+    terrains = scaled.slice(0, n);
+  }
+  const producing = terrains.slice(0, Math.max(n, terrains.length)).filter(producesOnToken).length;
+  const tokens = def.discovery?.tokens ? [...def.discovery.tokens] : [];
+  if (tokens.length < producing) tokens.push(...tokenPool(producing - tokens.length));
+  return { terrains, tokens };
+}
+
+/** Deal the shuffled pool onto the pool tiles (drawn after everything else, so boards without pool tiles resolve exactly as before). */
+function resolvePool(def: BoardDefinition, rng: Rng): Map<HexId, HexTile> {
+  const tiles = poolHexes(def);
+  const out = new Map<HexId, HexTile>();
+  if (tiles.length === 0) return out;
+  const pool = discoveryPoolFor(def);
+  const drawn = rng.shuffle(pool.terrains).slice(0, tiles.length);
+  const tokens = rng.shuffle(pool.tokens);
+  let t = 0;
+  tiles.forEach((h, i) => {
+    const terrain = drawn[i] ?? "meadow";
+    out.set(hexId(h.at), { terrain, token: producesOnToken(terrain) ? (tokens[t++] ?? null) : null });
+  });
+  return out;
+}
+
 /** Resolve `def` with `rng`; throws `RuleError("INVALID_BOARD")` when validation reports errors. */
 export function resolveBoard(def: BoardDefinition, rng: Rng, options: ValidateOptions = {}): Board {
   const issues = validateBoard(def, options);
@@ -196,12 +235,14 @@ export function resolveBoard(def: BoardDefinition, rng: Rng, options: ValidateOp
   const terrains = resolveTerrains(def, rng);
   const tokens = resolveTokens(def, terrains, rng);
   const hexes: Record<HexId, HexTile> = {};
-  for (const h of landHexes(def)) {
+  for (const h of resolvedLandHexes(def)) {
     const id = hexId(h.at);
     const terrain = terrains.get(id) as Terrain;
     hexes[id] = { terrain, token: !producesOnToken(terrain) ? null : (tokens.get(id) ?? null) };
   }
   const ports = resolveHarbors(def, rng);
+  for (const [id, tile] of resolvePool(def, rng)) hexes[id] = tile;
+  const hidden = discoverHexes(def).map((h) => hexId(h.at));
   return {
     name: def.name,
     hexes,
@@ -214,6 +255,7 @@ export function resolveBoard(def: BoardDefinition, rng: Rng, options: ValidateOp
     rivers: riverEdges(def),
     fishingGrounds: fishingGroundDefs(def),
     oases: oasisHexes(def).map((h) => hexId(h.at)),
+    ...(hidden.length > 0 ? { hidden } : {}),
   };
 }
 
@@ -225,7 +267,9 @@ export function definitionFromBoard(board: Board, name = board.name): BoardDefin
       ...Object.entries(board.hexes).map(([id, t]): HexDef => {
         const [q, r] = id.split(",").map(Number) as [number, number];
         const base: HexDef = t.token === null ? { at: { q, r }, kind: "land" as const, terrain: t.terrain } : { at: { q, r }, kind: "land" as const, terrain: t.terrain, token: t.token };
-        return board.oases.includes(id) ? { ...base, extras: { oasis: true } } : base;
+        // A snapshot pins what was drawn, so every face-down tile becomes a "this tile" one (docs/rules.md §17.1).
+        const extras = { ...(board.oases.includes(id) ? { oasis: true } : {}), ...(board.hidden?.includes(id) ? { discover: "tile" as const } : {}) };
+        return Object.keys(extras).length > 0 ? { ...base, extras } : base;
       }),
       ...board.sea.map((id) => {
         const [q, r] = id.split(",").map(Number) as [number, number];

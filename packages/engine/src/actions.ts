@@ -465,7 +465,7 @@ function applyBuildCity(state: GameState, playerId: PlayerId, vertex: VertexId):
  * builds in ways the undo does not reverse).
  */
 function recordBuild(state: GameState, build: LastBuild): void {
-  state.lastBuild = activeModules(state).some((h) => h.onBuilt !== undefined) ? null : build;
+  state.lastBuild = activeModules(state).some((h) => h.onBuilt !== undefined && h.buildsUndoable !== true) ? null : build;
 }
 
 /** §5.6: take back the last paid build of the turn; the cost returns from the bank and the special cards are as they were. */
@@ -925,6 +925,7 @@ function applyCore(state: GameState, action: Action): GameState {
     }
   }
 
+  for (const h of activeModules(next)) h.afterAction?.(next, action);
   next.actionIndex += 1;
   // §5.6: the undo window is one action wide; anything but the build itself closes it.
   if (action.type !== "BUILD_ROAD" && action.type !== "BUILD_SETTLEMENT" && action.type !== "BUILD_CITY") next.lastBuild = null;

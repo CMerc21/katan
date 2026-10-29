@@ -369,3 +369,35 @@ Settlements 1, cities 2, each metropolis 2 more, Longest Road 2, each Defender c
 ### §16.9 Setup
 
 Setup follows §4 with one change: each player's **second** placement is a city rather than a settlement (it is placed as a settlement and upgraded at once, so the settlement piece returns to supply and a city piece is used). The city still receives the §4.3 starting resources: one resource per adjacent producing hex, no commodities; beside a gold field it is owed one resource (§14.3). Every player therefore begins with one settlement and one city on the board.
+
+## §17 Discovery (face-down tiles)
+
+A board may mark land tiles as **discoverable**. They start the game face down: everyone sees that a tile is there, nobody sees its terrain or number token until it is revealed. Decisions recorded 2026-10-29 (asked and answered).
+
+### §17.1 What is under a tile
+
+Each discoverable tile is one of two kinds, chosen by the board's designer per tile:
+
+- **This tile**: the tile's own terrain and token, resolved like any other land tile (painted, or filled at game start by the board's terrain and token generation), then turned face down.
+- **From the pool**: the tile is drawn from the board's discovery pool (a list of terrains; producing terrains get number tokens). The pool is shuffled from the seed at game start (§12), so the draw order is fixed for the game and hidden. A board without an explicit pool uses one scaled to the number of pool tiles, the way the main terrain and token pools are (§13).
+
+Discoverable tiles are always land; the pool never contains sea. A face-down tile counts as land for every placement rule.
+
+### §17.2 Revealing
+
+A face-down tile is revealed, at once, when anyone builds
+
+- a **settlement** on one of its corners (setup placements included), or
+- a **road** or a **ship** with at least one end on one of its corners (setup placements and Road Building included).
+
+One build may reveal several tiles. Revealed tiles stay face up for the rest of the game and from then on are ordinary tiles. A face-down tile produces nothing (it cannot have a building next to it anyway, since building there reveals it); the robber may be moved onto one, which blocks nothing and reveals nothing.
+
+### §17.3 The discoverer's reward
+
+The player whose build revealed the tile takes one card from the bank for each tile revealed:
+
+- a resource terrain gives one of its resource;
+- a gold field gives one resource of the player's choice (chosen at once, before play continues, as in §14.3);
+- a wasteland or a lake gives nothing.
+
+If the bank has none of that resource left, the player gets nothing for that tile (§6.2). The reward is also given in setup: a second settlement next to a just-revealed tile receives that tile's starting resource (§4.3) as well as the reward.

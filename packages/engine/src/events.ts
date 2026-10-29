@@ -9,7 +9,7 @@
  */
 
 import type { DevCardType } from "./types";
-import type { Resource } from "./board";
+import type { Resource, Terrain } from "./board";
 import type { EdgeId, HexId, VertexId } from "./geometry";
 import type { Hand, PlayerId } from "./types";
 import type { Commodity, CommodityHand, EventCardKind, EventDie, FishOption, KnightLevel, ProgressCard, Track, WagonGood } from "./modules/types";
@@ -58,6 +58,11 @@ export type EventBody =
   | { kind: "pirateMoved"; from: HexId | null; to: HexId; by: PlayerId }
   | { kind: "goldChosen"; playerId: PlayerId; resources: Resource[] }
   | { kind: "islandSettled"; playerId: PlayerId; island: number; bonus: number }
+  /**
+   * docs/rules.md §17: a face-down tile turned over by `playerId`'s build. `resource` is the card they took
+   * (null for a wasteland, a lake, an empty bank, or gold, where `gold` is true and the choice follows).
+   */
+  | { kind: "tileDiscovered"; playerId: PlayerId; hex: HexId; terrain: Terrain; token: number | null; resource: Resource | null; gold: boolean }
   /** Free text from outside the rules (a seat handed to a bot, the host ending the game). */
   | { kind: "note"; playerId: PlayerId | null; text: string }
   // --- Wayfarers (docs/phase10.md) -------------------------------------------
@@ -145,6 +150,7 @@ export function eventPlayer(event: GameEvent): PlayerId | null {
     case "shipMoved":
     case "goldChosen":
     case "islandSettled":
+    case "tileDiscovered":
     case "taxCollected":
     case "fishDrawn":
     case "fishSpent":
@@ -371,6 +377,12 @@ export function describeEvent(event: GameEvent, nameOf: (id: PlayerId) => string
     }
     case "islandSettled":
       return `${nameOf(event.playerId)} settled a new island (+${event.bonus})`;
+    case "tileDiscovered": {
+      const what = event.terrain === "wasteland" ? "a wasteland" : event.terrain === "lake" ? "a lake" : event.terrain === "gold" ? "a gold field" : `${event.terrain === "claypit" ? "a clay pit" : `a ${event.terrain}`}`;
+      const number = event.token === null ? "" : ` (${event.token})`;
+      const gain = event.resource ? ` and took 1 ${event.resource}` : event.gold ? " and picks a resource" : "";
+      return `${nameOf(event.playerId)} discovered ${what}${number}${gain}`;
+    }
     case "note":
       return event.text;
     // Wayfarers

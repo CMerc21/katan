@@ -9,7 +9,7 @@ import type { Board, BoardKind, Resource } from "./board";
 import type { BoardDefinition } from "./definition";
 import type { EdgeId, HexId, VertexId } from "./geometry";
 import type { Scenario, ScenarioRules } from "./scenario";
-import type { Commodity, CommodityHand, CrownState, FishOption, KnightLevel, ModulePrompt, ProgressCard, Track, WagonGood, WayfarersState } from "./modules/types";
+import type { Commodity, CommodityHand, CrownState, DiscoveryState, FishOption, KnightLevel, ModulePrompt, ProgressCard, Track, WagonGood, WayfarersState } from "./modules/types";
 
 export type PlayerId = string;
 
@@ -149,6 +149,11 @@ export interface GameState {
   scenario: ScenarioRules | null;
   /** Wayfarers variant state (docs/phase10.md), or null when no variant is on. */
   wayfarers: WayfarersState | null;
+  /**
+   * docs/rules.md §17: present only on boards with face-down tiles (absent, not null, so a base game's
+   * state is byte-for-byte what it was before discovery existed).
+   */
+  discovery?: DiscoveryState;
   /** Crown & Castle state (docs/phase11.md §9), or null when the module is off. */
   crown: CrownState | null;
   lastRoll: [number, number] | null;

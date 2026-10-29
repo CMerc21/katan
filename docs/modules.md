@@ -19,7 +19,7 @@ Modules import from `state.ts`, `legal.ts`, `guards.ts`, `turnHelpers.ts`, `spec
 
 ## 2. Switches
 
-- `state.scenario.crown` and `state.scenario.variants.<name>` are the only switches. Use `crownOn(state)` / `variantOn(state, "fishing")` from `state.ts` in `enabled`.
+- `state.scenario.crown` and `state.scenario.variants.<name>` are the scenario switches. The one board-driven switch is discovery (`modules/discovery.ts`, `docs/rules.md` §17): it is on when `state.board.hidden` lists face-down tiles, and `state.discovery` is absent (not null) otherwise, so a base game's state is unchanged. Use `crownOn(state)` / `variantOn(state, "fishing")` from `state.ts` in `enabled`.
 - Module state: `state.wayfarers` (null unless a variant is on; each variant owns one nullable sub-object) and `state.crown` (null unless crown). `init(state)` creates it in `createGame` (after the base state exists; `state.seed` is available, use `rng(state.seed, "<module>:init")` style streams via `createRng(seed, label)` for anything random at start).
 - The base game must be byte-for-byte unchanged with every switch off: no module hook may change behaviour when `enabled` is false, and `init` is never called then.
 
@@ -41,7 +41,8 @@ The core calls, in registration order, only the modules whose `enabled(state)` i
 - `cardCount(state, player)` — extra stealable/discardable cards (commodities). `stealExtra(state, thief, victim, i)` moves the i-th such card and returns its name. `discardExtra(state, player, extra, commit)` validates (and on commit moves) the `commodities` part of a `DISCARD`.
 - `discardThreshold(state, player)` — 7 raised by walls.
 - `onTurnStart(state)` / `onTurnEnd(state, player)` — clear per-turn flags, award coins, stock goods.
-- `onBuilt(state, playerId, piece, at)` — after any road/ship/settlement/city (setup included), before Longest Road is re-evaluated.
+- `onBuilt(state, playerId, piece, at)` — after any road/ship/settlement/city (setup included), before Longest Road is re-evaluated. Any module with `onBuilt` turns §5.6's undo off unless it sets `buildsUndoable: true` (then it must clear `state.lastBuild` itself for the builds it makes irreversible, as discovery does in `afterAction`).
+- `afterAction(state, action)` — after the action's handler, before the core bumps `actionIndex`, closes the undo window and checks the win. Discovery turns the gold a build earned into a `chooseGold` phase here, because the build handler sets its own next phase after `onBuilt`.
 - `onSetupSettlement(state, player, vertex, round)`.
 - `roadCost(state, edge)` — extra `Hand` (bridge). `legalActions` already filters roads by `roadCostOf`.
 - `blockedVertices(state, playerId)` — opposing knights: roads cannot connect through them and they break Longest Road. `unbuildableVertices(state, playerId)` — any knight: no settlement there.

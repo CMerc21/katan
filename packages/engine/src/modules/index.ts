@@ -12,6 +12,7 @@ import "./wayfarers/raiders";
 import "./wayfarers/caravans";
 import "./wayfarers/wagons";
 import "./crown";
+import "./discovery";
 
 export * from "./hooks";
 export * from "./prompt";

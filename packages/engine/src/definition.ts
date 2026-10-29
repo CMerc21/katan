@@ -12,9 +12,25 @@ export type Axial = HexCoord;
 /** `frame` is the wooden edge of the table: drawn, never playable. Sea is playable with the Tides module (Phase 9). */
 export type HexKind = "land" | "sea" | "frame";
 
+/**
+ * docs/rules.md §17.1: a face-down tile. `tile` hides this hex's own terrain
+ * and token (resolved as usual); `pool` draws them from the board's
+ * discovery pool and the hex carries no terrain or token of its own.
+ */
+export type DiscoverKind = "tile" | "pool";
+
 export interface HexExtras {
   /** docs/phase10.md §6: an oasis produces spice under the Caravans variant (and nothing otherwise). */
   readonly oasis?: boolean;
+  /** docs/rules.md §17: starts face down until a build touches one of its corners. */
+  readonly discover?: DiscoverKind;
+}
+
+/** docs/rules.md §17.1: what pool tiles are drawn from; missing parts scale to the number of pool tiles. */
+export interface DiscoveryPool {
+  readonly terrains?: readonly Terrain[];
+  /** Tokens for the producing terrains drawn; shuffled with them. */
+  readonly tokens?: readonly number[];
 }
 
 export interface HexDef {
@@ -61,6 +77,8 @@ export interface BoardDefinition {
     readonly tokens: TokenGeneration;
     readonly harbors: HarborGeneration;
   };
+  /** docs/rules.md §17.1: the pool `discover: "pool"` tiles are drawn from. */
+  readonly discovery?: DiscoveryPool;
   readonly presets?: {
     readonly terrainPool?: readonly Terrain[];
     readonly tokenPool?: readonly number[];
@@ -92,6 +110,21 @@ export function fishingGroundDefs(def: BoardDefinition): { edge: EdgeId; token: 
   return (def.edges ?? []).flatMap((e) => (e.kind === "fishingGround" ? [{ edge: e.edge, token: e.token }] : []));
 }
 
+/** docs/rules.md §17: every face-down land tile, either kind. */
+export function discoverHexes(def: BoardDefinition): HexDef[] {
+  return def.hexes.filter((h) => h.kind === "land" && h.extras?.discover !== undefined);
+}
+
+/** docs/rules.md §17.1: the tiles drawn from the discovery pool. */
+export function poolHexes(def: BoardDefinition): HexDef[] {
+  return def.hexes.filter((h) => h.kind === "land" && h.extras?.discover === "pool");
+}
+
+/** Land whose terrain and token come from the board itself (everything but pool tiles). */
+export function resolvedLandHexes(def: BoardDefinition): HexDef[] {
+  return def.hexes.filter((h) => h.kind === "land" && h.extras?.discover !== "pool");
+}
+
 export function oasisHexes(def: BoardDefinition): HexDef[] {
   return def.hexes.filter((h) => h.kind === "land" && h.extras?.oasis === true);
 }
@@ -105,6 +138,12 @@ export function isBoardDefinition(value: unknown): value is BoardDefinition {
   if (!seats || seats.min !== 3 || ![4, 5, 6].includes(seats.max as number)) return false;
   const g = d.generation as Record<string, unknown> | undefined;
   if (!g || !["fixed", "shuffle"].includes(String(g.terrain)) || !["fixed", "shuffle", "balanced"].includes(String(g.tokens)) || !["fixed", "shuffle"].includes(String(g.harbors))) return false;
+  if (d.discovery !== undefined) {
+    const p = d.discovery as Record<string, unknown> | null;
+    if (typeof p !== "object" || p === null) return false;
+    if (p.terrains !== undefined && !(Array.isArray(p.terrains) && p.terrains.every((t) => typeof t === "string"))) return false;
+    if (p.tokens !== undefined && !(Array.isArray(p.tokens) && p.tokens.every((t) => Number.isInteger(t)))) return false;
+  }
   if (d.edges !== undefined) {
     if (!Array.isArray(d.edges)) return false;
     const ok = d.edges.every((e: unknown) => {

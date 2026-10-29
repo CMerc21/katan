@@ -8,6 +8,7 @@
  * knights, walls, fish, chips and everything else is public.
  */
 
+import type { HexTile } from "./board";
 import { redactEvents, type GameEvent } from "./events";
 import { legalActions } from "./legal";
 import { cloneJson, handSize, victoryPoints } from "./state";
@@ -115,8 +116,12 @@ export function redact(state: GameState, viewer: PlayerId, events: readonly Game
       privateVP: showVP ? vp.hiddenVP : null,
     };
   });
+  // docs/rules.md §17.1: what is under a face-down tile stays hidden until it is turned over (or the game ends).
+  const hidden = revealAll ? [] : (state.discovery?.hidden ?? []);
+  const board = hidden.length === 0 ? rest.board : { ...rest.board, hexes: { ...rest.board.hexes, ...Object.fromEntries(hidden.map((h) => [h, FACE_DOWN])) } };
   return {
     ...rest,
+    board,
     viewer,
     players: redactedPlayers,
     devDeck: { count: devDeck.length },
@@ -125,6 +130,9 @@ export function redact(state: GameState, viewer: PlayerId, events: readonly Game
     events: redactEvents(events, viewer),
   };
 }
+
+/** What a viewer sees under a face-down tile: a tile that produces nothing and carries no token. */
+const FACE_DOWN: HexTile = { terrain: "wasteland", token: null };
 
 const PLACEHOLDER_CARD: EventCard = { total: 7, event: null, reshuffle: false };
 
