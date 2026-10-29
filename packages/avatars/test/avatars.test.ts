@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AVATAR_LAYERS, avatarFromSeed, cycleLayer, isAvatarSpec, normalizeAvatar, randomAvatar, renderAvatar, seededRng } from "../src/index";
+import { AVATAR_LAYERS, FIGURE_VIEWBOX, avatarFromSeed, cycleLayer, isAvatarSpec, normalizeAvatar, randomAvatar, renderAvatar, renderFigure, seededRng } from "../src/index";
 
 describe("docs/phase7.md §4 avatars", () => {
   it("is deterministic: the same seed gives the same spec and the same SVG", () => {
@@ -58,5 +58,36 @@ describe("docs/phase7.md §4 avatars", () => {
     const spec = avatarFromSeed("cycle");
     expect(cycleLayer({ ...spec, hair: 9 }, "hair").hair).toBe(0);
     expect(cycleLayer({ ...spec, hair: 0 }, "hair", -1).hair).toBe(9);
+  });
+});
+
+describe("docs/phase13.md §2 the standing figure", () => {
+  it("draws every outfit and accessory as well-formed SVG in the outfit colour, deterministically", () => {
+    const base = avatarFromSeed("figure");
+    const drawings = new Set<string>();
+    for (let g = 0; g < 5; g++) {
+      for (let a = 0; a < 5; a++) {
+        const svg = renderFigure({ ...base, garment: g, accessory: a }, { color: "#2a4d8f", height: 200 });
+        expect(svg.startsWith("<svg")).toBe(true);
+        expect(svg.endsWith("</svg>")).toBe(true);
+        expect(svg).toContain(`viewBox="${FIGURE_VIEWBOX}"`);
+        expect(svg).toContain('height="200"');
+        expect(svg).toContain("#2a4d8f");
+        expect(svg).not.toMatch(/undefined|NaN/);
+        expect(renderFigure({ ...base, garment: g, accessory: a }, { color: "#2a4d8f", height: 200 })).toBe(svg);
+        drawings.add(svg);
+      }
+    }
+    expect(drawings.size).toBe(25);
+  });
+
+  it("shares the portrait's head, so every head layer changes the figure too", () => {
+    const base = avatarFromSeed("head");
+    for (const l of AVATAR_LAYERS) {
+      const seen = new Set<string>();
+      for (let i = 0; i < l.count; i++) seen.add(renderFigure({ ...base, [l.key]: i }));
+      expect(seen.size, l.key).toBe(l.count);
+    }
+    expect(renderFigure(base, { shadow: false })).not.toContain('opacity="0.28"');
   });
 });

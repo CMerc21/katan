@@ -222,6 +222,26 @@ function accessory(kind: number): string {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * The head of a spec in portrait coordinates (96 box, neck down to y 68),
+ * split into what sits behind the body (`back`: hood, long hair) and the
+ * face with everything on it (`front`). The portrait and the full-body
+ * figure (`figure.ts`) both draw from here.
+ */
+export function headLayers(specIn: AvatarSpec, color: string): { back: string; front: string } {
+  const spec = normalizeAvatar(specIn);
+  const skin = SKIN_TONES[spec.skin] ?? SKIN_TONES[0];
+  const hairColor = HAIR_COLORS[spec.hairColor] ?? HAIR_COLORS[0];
+  const h = hair(spec.hair, hairColor);
+  const w = headwear(spec.headwear, color);
+  return {
+    back: w.back + h.back,
+    front: [face(spec.face, skin), facialHair(spec.facialHair, hairColor), eyes(spec.eyes), brows(spec.brows), mouth(spec.mouth), h.front, w.front].join(""),
+  };
+}
+
+export { darken };
+
 /** Render a spec to a complete `<svg>` element (viewBox 0 0 96 96). */
 export function renderAvatar(specIn: AvatarSpec, options: RenderOptions = {}): string {
   const spec = normalizeAvatar(specIn);
