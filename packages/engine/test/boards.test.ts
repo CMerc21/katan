@@ -301,3 +301,32 @@ describe("docs/phase8.md §8 no 3-4-5-4-3 assumptions", () => {
     expect(b.seats.max).toBe(4);
   });
 });
+
+describe("docs/phase8.md §2 placed tokens stay where they are", () => {
+  it("§13 under shuffle and balanced a hand-placed token keeps its hex; only the empty producing hexes are filled", () => {
+    const frame = standardFrame();
+    const terrains = beginnerDefinition().hexes;
+    const withTerrain = frame.hexes.map((h, i) => ({ ...h, terrain: terrains[i]!.terrain }));
+    const target = withTerrain.find((h) => h.terrain === "forest")!;
+    for (const tokens of ["shuffle", "balanced"] as const) {
+      const def: BoardDefinition = {
+        ...frame,
+        hexes: withTerrain.map((h) => (h === target ? { ...h, token: 6 } : h)),
+        generation: { terrain: "fixed", tokens, harbors: "shuffle" },
+      };
+      for (const seed of ["a", "b", "c", "d"]) {
+        const board = resolveBoard(def, rng(seed, 0));
+        expect(board.hexes[hexId(target.at)]!.token).toBe(6);
+        const all = Object.values(board.hexes).map((t) => t.token).filter((t) => t !== null).sort((x, y) => x! - y!);
+        expect(all).toEqual([...tokenPool(18)].sort((x, y) => x - y));
+      }
+    }
+  });
+
+  it("§13 a board with no placed tokens draws exactly as before (the built-in random board is unchanged)", () => {
+    const a = createGame({ seed: "same", players: [{ id: "a", name: "A" }, { id: "b", name: "B" }, { id: "c", name: "C" }], board: "random" });
+    const snapshot = JSON.stringify(a.board.hexes);
+    expect(snapshot).toBe(JSON.stringify(createGame({ seed: "same", players: [{ id: "a", name: "A" }, { id: "b", name: "B" }, { id: "c", name: "C" }], board: "random" }).board.hexes));
+    expect(snapshot).toMatchInlineSnapshot(`"{"-2,2":{"terrain":"claypit","token":6},"-1,2":{"terrain":"claypit","token":3},"0,2":{"terrain":"forest","token":8},"1,1":{"terrain":"meadow","token":5},"2,0":{"terrain":"farmland","token":11},"2,-1":{"terrain":"mountain","token":6},"2,-2":{"terrain":"mountain","token":4},"1,-2":{"terrain":"farmland","token":9},"0,-2":{"terrain":"mountain","token":3},"-1,-1":{"terrain":"claypit","token":10},"-2,0":{"terrain":"wasteland","token":null},"-2,1":{"terrain":"meadow","token":5},"-1,1":{"terrain":"forest","token":10},"0,1":{"terrain":"forest","token":11},"1,0":{"terrain":"meadow","token":9},"1,-1":{"terrain":"forest","token":12},"0,-1":{"terrain":"farmland","token":2},"-1,0":{"terrain":"farmland","token":8},"0,0":{"terrain":"meadow","token":4}}"`);
+  });
+});

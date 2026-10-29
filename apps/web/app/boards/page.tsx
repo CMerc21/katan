@@ -26,6 +26,11 @@ function Card({ name, meta, thumb, actions, testId }: { name: string; meta: stri
 }
 
 /** `/boards`: built-in frames, my boards, public boards (docs/phase8.md §4.3). */
+/** Deleting cannot be undone, so it asks first. */
+function confirmDelete(name: string): boolean {
+  return window.confirm(`Delete "${name}"? This cannot be undone.`);
+}
+
 export default function BoardsPage() {
   const router = useRouter();
   const { session, configured } = useSession();
@@ -191,6 +196,7 @@ export default function BoardsPage() {
                       size="sm"
                       variant="quiet"
                       onClick={() => {
+                        if (!confirmDelete(sc.name)) return;
                         deleteScenarioDraft(sc.id);
                         void refresh();
                       }}
@@ -221,7 +227,7 @@ export default function BoardsPage() {
                     <Button size="sm" onClick={() => router.push(`/boards/editor/${sc.id}`)}>
                       Edit
                     </Button>
-                    <Button size="sm" variant="quiet" onClick={() => void deleteScenarioRemote(sc.id).then((r) => (r.ok ? refresh() : setToast(errorText(r.code ?? "BAD_REQUEST"))))}>
+                    <Button size="sm" variant="quiet" onClick={() => confirmDelete(sc.name) && void deleteScenarioRemote(sc.id).then((r) => (r.ok ? refresh() : setToast(errorText(r.code ?? "BAD_REQUEST"))))}>
                       Delete
                     </Button>
                   </>
@@ -279,6 +285,7 @@ export default function BoardsPage() {
                       size="sm"
                       variant="quiet"
                       onClick={() => {
+                        if (!confirmDelete(b.name)) return;
                         deleteDraft(b.id);
                         void refresh();
                       }}
@@ -313,7 +320,7 @@ export default function BoardsPage() {
                     <Button
                       size="sm"
                       variant="quiet"
-                      onClick={() => void deleteBoardRemote(b.id).then((r) => (r.ok ? refresh() : setToast(errorText(r.code ?? "BAD_REQUEST"))))}
+                      onClick={() => confirmDelete(b.name) && void deleteBoardRemote(b.id).then((r) => (r.ok ? refresh() : setToast(errorText(r.code ?? "BAD_REQUEST"))))}
                     >
                       Delete
                     </Button>

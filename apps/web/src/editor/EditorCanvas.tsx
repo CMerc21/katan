@@ -25,7 +25,9 @@ import { Tiles, type TileInfo } from "@/board3d/Tiles";
 import { tokenTexture, woodTexture } from "@/board3d/textures";
 import { QUALITY_PRESETS } from "@/board3d/quality";
 import { GILT, WATER, WAX } from "@/game/theme";
-import { fishingGroundsOf, gridCells, harborEdges, harborKindOf, isOasis, landEdges, riverEdgesOf, type Tool } from "./model";
+import { FaceDownTiles } from "@/board3d/Discovery3d";
+import { faceDownTexture } from "@/board3d/textures";
+import { discoverOf, fishingGroundsOf, gridCells, harborEdges, harborKindOf, isOasis, landEdges, riverEdgesOf, type Tool } from "./model";
 
 const RIVER_LIGHT = "#8cc3d4";
 const BUOY = "#b8321f";
@@ -81,6 +83,18 @@ function FishingMarker({ edge, token, centre, land }: { edge: EdgeId; token: num
         <cylinderGeometry args={[0.22, 0.22, 0.04, 24]} />
       </mesh>
     </group>
+  );
+}
+
+/** A face-down tile that keeps its own terrain (docs/rules.md §17.1): a small tile-back badge with a "?" off the centre. */
+function DiscoverBadge({ id }: { id: string }) {
+  const c = hexWorld(id);
+  const material = useMemo(() => new THREE.MeshBasicMaterial({ map: faceDownTexture() }), []);
+  useEffect(() => () => material.dispose(), [material]);
+  return (
+    <mesh position={[c.x - 0.38, SLAB_HEIGHT + 0.06, c.z - 0.3]} rotation={[-Math.PI / 2, 0, 0]} material={material} name={`discover:${id}`}>
+      <circleGeometry args={[0.24, 24]} />
+    </mesh>
   );
 }
 
@@ -189,6 +203,9 @@ export function EditorCanvas(props: CanvasProps) {
   const rivers = useMemo(() => riverEdgesOf(def), [def]);
   const grounds = useMemo(() => fishingGroundsOf(def), [def]);
   const oases = useMemo(() => def.hexes.filter((h) => h.kind === "land" && isOasis(h)).map((h) => hexId(h.at)), [def]);
+  // Face-down tiles (docs/rules.md §17): pool tiles show the tile back (they have no terrain of their own), "this tile" ones a badge.
+  const poolTiles = useMemo(() => def.hexes.filter((h) => discoverOf(h) === "pool").map((h) => hexId(h.at)), [def]);
+  const badgeTiles = useMemo(() => def.hexes.filter((h) => discoverOf(h) === "tile").map((h) => hexId(h.at)), [def]);
   const lakes = useMemo(() => def.hexes.filter((h) => h.kind === "land" && h.terrain === "lake").map((h) => hexId(h.at)), [def]);
   const riverSet = useMemo(() => new Set(rivers), [rivers]);
   const groundByEdge = useMemo(() => new Map(grounds.map((g) => [g.edge, g.token])), [grounds]);
@@ -253,6 +270,10 @@ export function EditorCanvas(props: CanvasProps) {
         {oases.map((id) => (
           <OasisMarker key={id} id={id} />
         ))}
+        <FaceDownTiles hidden={poolTiles} shadows={false} />
+        {badgeTiles.map((id) => (
+          <DiscoverBadge key={id} id={id} />
+        ))}
         {/* Unassigned land: a dashed question ring on top. */}
         {unassigned.map((id) => {
           const c = hexWorld(id);
@@ -275,7 +296,7 @@ export function EditorCanvas(props: CanvasProps) {
                 <mesh
                   layers={INTERACTION_LAYER}
                   position={[0, occupied ? SLAB_HEIGHT + 0.02 : 0.01, 0]}
-                  rotation={[-Math.PI / 2, Math.PI / 6, 0]}
+                  rotation={[-Math.PI / 2, 0, Math.PI / 6]}
                   userData={{ cell: id }}
                   onPointerDown={(e) => {
                     e.stopPropagation();
@@ -299,25 +320,26 @@ export function EditorCanvas(props: CanvasProps) {
                       onCellUp(at);
                     }
                   }}
+                  onClick={(e) => e.stopPropagation()}
                   onContextMenu={(e) => e.nativeEvent.preventDefault()}
                 >
                   <circleGeometry args={[0.92, 6]} />
                   <meshBasicMaterial color={occupied ? "#000000" : "#efe8d8"} transparent opacity={occupied ? 0 : 0.08} depthWrite={false} />
                 </mesh>
                 {!occupied && (
-                  <mesh position={[0, 0.012, 0]} rotation={[-Math.PI / 2, Math.PI / 6, 0]}>
+                  <mesh position={[0, 0.012, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 6]}>
                     <ringGeometry args={[0.84, 0.9, 6]} />
                     <meshBasicMaterial color="#efe8d8" transparent opacity={0.18} />
                   </mesh>
                 )}
                 {isSel && (
-                  <mesh position={[0, SLAB_HEIGHT + 0.03, 0]} rotation={[-Math.PI / 2, Math.PI / 6, 0]}>
+                  <mesh position={[0, SLAB_HEIGHT + 0.03, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 6]}>
                     <ringGeometry args={[0.86, 0.98, 6]} />
                     <meshBasicMaterial color={GILT} transparent opacity={0.95} />
                   </mesh>
                 )}
                 {hover === id && !isSel && (
-                  <mesh position={[0, (occupied ? SLAB_HEIGHT : 0) + 0.025, 0]} rotation={[-Math.PI / 2, Math.PI / 6, 0]}>
+                  <mesh position={[0, (occupied ? SLAB_HEIGHT : 0) + 0.025, 0]} rotation={[-Math.PI / 2, 0, Math.PI / 6]}>
                     <ringGeometry args={[0.8, 0.92, 6]} />
                     <meshBasicMaterial color="#efe8d8" transparent opacity={0.55} depthWrite={false} />
                   </mesh>
@@ -340,6 +362,7 @@ export function EditorCanvas(props: CanvasProps) {
                     e.stopPropagation();
                     onEdge(edge);
                   }}
+                  onClick={(e) => e.stopPropagation()}
                 >
                   <boxGeometry args={[0.8, 0.16, 0.3]} />
                   <meshBasicMaterial transparent opacity={0} depthWrite={false} />
@@ -367,22 +390,42 @@ export function EditorCanvas(props: CanvasProps) {
                 type="button"
                 className="pointer-events-auto absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-gilt"
                 style={{ left: p.x, top: p.y }}
-                aria-label={`Cell ${id}: ${h ? h.kind + (h.terrain ? ` ${h.terrain}` : "") + (h.token !== undefined ? ` ${h.token}` : "") + (isOasis(h) ? " oasis" : "") : "empty"}`}
+                aria-label={`Cell ${id}: ${h ? h.kind + (h.terrain ? ` ${h.terrain}` : "") + (h.token !== undefined ? ` ${h.token}` : "") + (isOasis(h) ? " oasis" : "") + (discoverOf(h) === "tile" ? " face down" : discoverOf(h) === "pool" ? " face down from the pool" : "") : "empty"}`}
                 data-testid={`cell-${id}`}
                 data-kind={h?.kind ?? "empty"}
                 data-terrain={h?.terrain ?? ""}
                 data-token={h?.token ?? ""}
                 data-oasis={isOasis(h) ? "true" : ""}
+                data-discover={discoverOf(h) ?? ""}
+                // The button sits over the cell centre, so it has to paint like the cell does: pointer
+                // events drive the brush (drag start, drag over, rectangle end); a click only counts when it
+                // comes from the keyboard (detail 0), or it would paint twice.
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  dragging.current = true;
+                  setPainting(true);
+                  onCellDown(p.at, e.shiftKey, e.button);
+                }}
+                onPointerEnter={() => {
+                  setHover(id);
+                  if (dragging.current) onCellDrag(p.at);
+                }}
+                onPointerLeave={() => setHover((h) => (h === id ? null : h))}
+                onPointerUp={(e) => {
+                  e.stopPropagation();
+                  setPainting(false);
+                  if (dragging.current) {
+                    dragging.current = false;
+                    onCellUp(p.at);
+                  }
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (e.detail !== 0) return;
                   onCellDown(p.at, e.shiftKey, 0);
                   onCellUp(p.at);
                 }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  onCellDown(p.at, false, 2);
-                  onCellUp(p.at);
-                }}
+                onContextMenu={(e) => e.preventDefault()}
               />
             );
           })}

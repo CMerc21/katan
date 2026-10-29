@@ -95,9 +95,10 @@ export async function loadSavedBoard(id: string): Promise<StoredBoard | null> {
   return { id: r.id, name: r.name, definition: r.definition as BoardDefinition, isPublic: r.is_public, ownerId: r.owner_id, updatedAt: r.updated_at, source: "saved" };
 }
 
-export async function saveBoardRemote(definition: BoardDefinition, options: { boardId?: string; isPublic?: boolean }): Promise<{ ok: true; boardId: string } | { ok: false; code: string }> {
+/** A save that failed carries the server's own sentence too (an invalid board says which rule it broke). */
+export async function saveBoardRemote(definition: BoardDefinition, options: { boardId?: string; isPublic?: boolean }): Promise<{ ok: true; boardId: string } | { ok: false; code: string; message: string }> {
   const reply = await callFunction<{ boardId: string }>("save-board", { definition, boardId: options.boardId, isPublic: options.isPublic ?? false, name: definition.name });
-  return reply.ok ? { ok: true, boardId: reply.boardId } : { ok: false, code: reply.code };
+  return reply.ok ? { ok: true, boardId: reply.boardId } : { ok: false, code: reply.code, message: reply.message };
 }
 
 export async function deleteBoardRemote(boardId: string): Promise<{ ok: boolean; code?: string }> {
@@ -190,9 +191,9 @@ export async function loadSavedScenario(id: string): Promise<StoredScenario | nu
   return data ? rowToScenario(data as ScenarioRow) : null;
 }
 
-export async function saveScenarioRemote(scenario: Scenario, options: { scenarioId?: string; isPublic?: boolean }): Promise<{ ok: true; scenarioId: string } | { ok: false; code: string }> {
+export async function saveScenarioRemote(scenario: Scenario, options: { scenarioId?: string; isPublic?: boolean }): Promise<{ ok: true; scenarioId: string } | { ok: false; code: string; message: string }> {
   const reply = await callFunction<{ scenarioId: string }>("save-scenario", { definition: scenario, scenarioId: options.scenarioId, isPublic: options.isPublic ?? false, name: scenario.name });
-  return reply.ok ? { ok: true, scenarioId: reply.scenarioId } : { ok: false, code: reply.code };
+  return reply.ok ? { ok: true, scenarioId: reply.scenarioId } : { ok: false, code: reply.code, message: reply.message };
 }
 
 export async function deleteScenarioRemote(scenarioId: string): Promise<{ ok: boolean; code?: string }> {

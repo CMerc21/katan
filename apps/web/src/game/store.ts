@@ -17,9 +17,12 @@ export interface HotseatConfig {
   /** A Tides scenario (docs/phase9.md §5) takes precedence over `board`. */
   readonly scenario?: Scenario;
   readonly seed: string;
+  /** Where leaving the game goes (the editor, after a test play); default the home lobby. */
+  readonly returnTo?: string;
 }
 
 let current: GameDriver | null = null;
+let returnTo: string | null = null;
 
 export function startHotseat(config: HotseatConfig): GameDriver {
   const bots: Record<string, BotLevel> = {};
@@ -36,7 +39,13 @@ export function startHotseat(config: HotseatConfig): GameDriver {
     bots,
     avatars,
   });
+  returnTo = config.returnTo ?? null;
   return current;
+}
+
+/** Where to go when the hotseat game is left. */
+export function returnPath(): string {
+  return returnTo ?? "/";
 }
 
 export function currentDriver(): GameDriver | null {

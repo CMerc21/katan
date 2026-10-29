@@ -79,15 +79,18 @@ function resolveTokens(def: BoardDefinition, terrains: ReadonlyMap<HexId, Terrai
     for (const h of producing) if (h.token !== undefined) out.set(hexId(h.at), h.token);
     return out;
   }
-  const given = producing.filter((h) => h.token !== undefined).map((h) => h.token as number);
+  // Placed tokens stay on their hexes (as painted terrain does); only the open producing hexes are dealt.
+  const pinned = new Map<HexId, number>();
+  for (const h of producing) if (h.token !== undefined) pinned.set(hexId(h.at), h.token);
+  const given = [...pinned.values()];
   const pool = def.presets?.tokenPool ? [...def.presets.tokenPool] : tokenPool(producing.length);
-  const fill = trimPool(subtract(pool, given), Math.max(0, producing.length - given.length));
-  const all = [...given, ...fill].slice(0, producing.length);
-  while (all.length < producing.length) all.push(pool[all.length % pool.length] ?? 8);
+  const openCount = producing.length - pinned.size;
+  const all = trimPool(subtract(pool, given), Math.max(0, openCount)).slice(0, openCount);
+  while (all.length < openCount) all.push(pool[all.length % pool.length] ?? 8);
   const geo = geometryFor(land.map((h) => hexId(h.at)));
-  const ids = producing.map((h) => hexId(h.at));
+  const ids = producing.map((h) => hexId(h.at)).filter((id) => !pinned.has(id));
   const assign = (order: number[]): Map<HexId, number> => {
-    const m = new Map<HexId, number>();
+    const m = new Map<HexId, number>(pinned);
     ids.forEach((id, i) => m.set(id, order[i] as number));
     return m;
   };
@@ -96,7 +99,7 @@ function resolveTokens(def: BoardDefinition, terrains: ReadonlyMap<HexId, Terrai
       const m = assign(rng.shuffle(all));
       if (violations(m, geo).hot === 0) return m;
     }
-    // Extremely dense boards may have no 6/8-free layout; fall through to best effort.
+    // Extremely dense boards (or pins that touch) may have no 6/8-free layout; fall through to best effort.
   }
   // Balanced (docs/phase8.md §2): random restarts, then seeded pair swaps that never worsen the score.
   const score = (m: ReadonlyMap<HexId, number>): number => {

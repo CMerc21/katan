@@ -141,7 +141,9 @@ describe("docs/phase8.md §4 editor model", () => {
     s = reduce(s, { type: "setScenario", scenario: { ...DEFAULT_SCENARIO } });
     expect(s.scenario).toEqual(DEFAULT_SCENARIO);
     expect(s.dirty).toBe(true);
-    s = reduce(s, { type: "setScenario", scenario: { victoryPoints: 99, islandBonus: -1 } });
+    // Tides starts off (a Wayfarers-only scenario should not get ships by surprise); islands need it.
+    expect(s.scenario?.tides).toBe(false);
+    s = reduce(s, { type: "setScenario", scenario: { tides: true, victoryPoints: 99, islandBonus: -1 } });
     expect(s.scenario?.victoryPoints).toBe(30);
     expect(s.scenario?.islandBonus).toBe(0);
     // Two islands: the second one picked by clicking one of its hexes.
@@ -411,5 +413,17 @@ describe("docs/rules.md §17 editor: face-down tiles and the discovery pool", ()
     let s = reduce(reduce(beginner(), { type: "setDiscoverKind", kind: "tile" }), { type: "toggleDiscover", at });
     s = reduce(s, { type: "setCell", at, kind: "sea" });
     expect(discoverCount(s.def)).toBe(0);
+  });
+});
+
+describe("docs/phase8.md §4 editor history", () => {
+  it("consecutive name edits are one undo step", () => {
+    let h: History = { past: [], present: initialEditorState(emptyDefinition("")), future: [] };
+    h = historyReduce(h, { type: "setCell", at: { q: 0, r: 0 }, kind: "land" });
+    for (const name of ["I", "Is", "Isl", "Isle"]) h = historyReduce(h, { type: "setName", name });
+    expect(h.past).toHaveLength(2);
+    h = historyReduce(h, { type: "undo" });
+    expect(h.present.def.name).toBe("");
+    expect(h.present.def.hexes).toHaveLength(1);
   });
 });

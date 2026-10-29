@@ -88,6 +88,7 @@ export const TRANSPORT_TEXT: Record<string, string> = {
   USERNAME_INVALID: "Usernames are 3 to 20 letters, digits or _",
   USERNAME_TAKEN: "That username is taken",
   NETWORK: "Couldn't reach the game server. Retrying…",
+  SAVE_OFFLINE: "Couldn't reach the server, so nothing was saved. Check your connection and save again.",
 };
 
 export function errorText(code: string): string {

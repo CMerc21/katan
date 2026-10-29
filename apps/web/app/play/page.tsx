@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { GameScreen } from "@/components/GameScreen";
 import type { GameDriver } from "@/driver/types";
-import { currentDriver } from "@/game/store";
+import { currentDriver, returnPath } from "@/game/store";
 
 /** The game (docs/phase3.md §3.2). Redirects to `/` when no game is in memory. */
 export default function PlayPage() {
@@ -18,5 +18,5 @@ export default function PlayPage() {
   }, [router]);
 
   if (!driver) return null;
-  return <GameScreen driver={driver} />;
+  return <GameScreen driver={driver} onExit={() => router.push(returnPath())} />;
 }

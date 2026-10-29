@@ -141,7 +141,8 @@ export function HarborMarker({
   const text = kind === "any" ? INK : "#fff";
   const mx = (ends[0].x + ends[1].x) / 2;
   const my = (ends[0].y + ends[1].y) / 2;
-  const ang = (Math.atan2(y - my, x - mx) * 180) / Math.PI;
+  // Rounded: the server and the browser disagree in the last bits (119.99999 vs 120), which broke hydration.
+  const ang = Math.round(((Math.atan2(y - my, x - mx) * 180) / Math.PI) * 1000) / 1000;
   return (
     <g aria-label={`harbor ${portLabel(kind)} ${kind}`}>
       {ends.map((e, i) => (

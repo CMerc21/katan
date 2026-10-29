@@ -187,3 +187,117 @@ test.describe("wayfarers-editor", () => {
     expect(errors).toEqual([]);
   });
 });
+
+/**
+ * Editor quality of life (docs/phase14.md §2): a drag that starts on a cell
+ * centre paints, an off-centre click keeps the selection, typing a number
+ * hands the keys back, a save keeps the undo history and the tool, and
+ * coming back from a test play restores unsaved work.
+ */
+test.describe("editor quality of life", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("katan.settings", JSON.stringify({ animation: "off", sound: false, quality: "low", followTurns: false }));
+    });
+  });
+
+  test("painting, selecting, saving and test play keep the designer's work", async ({ page }) => {
+    page.on("dialog", (d) => void d.accept());
+    await page.goto("/boards/editor");
+    const cell = (id: string) => page.getByTestId(`cell-${id}`);
+    await expect(cell("0,0")).toBeAttached({ timeout: 15_000 });
+    await expect(page.getByTestId("editor-empty")).toBeVisible();
+
+    // A drag that starts exactly on a cell centre paints every cell it crosses.
+    const a = (await cell("0,0").boundingBox())!;
+    const b = (await cell("3,0").boundingBox())!;
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    for (let i = 1; i <= 12; i++) await page.mouse.move(a.x + ((b.x - a.x) * i) / 12 + a.width / 2, a.y + a.height / 2);
+    await page.mouse.up();
+    for (const id of ["0,0", "1,0", "2,0", "3,0"]) await expect(cell(id)).toHaveAttribute("data-kind", "land");
+    await expect(page.getByTestId("editor-empty")).toHaveCount(0);
+
+    // Start from a template instead (it asks first, the board is not empty) and name it after the template.
+    await page.getByTestId("section-templates").locator("summary").click();
+    await page.getByTestId("template-random").click();
+    await expect(page.getByTestId("board-name")).toHaveValue("Standard board");
+
+    // An off-centre click selects the hex and the inspector stays open.
+    await page.getByTestId("tool-token").click();
+    const h = (await cell("1,-1").boundingBox())!;
+    await page.mouse.click(h.x + h.width / 2 + 30, h.y + h.height / 2 + 10);
+    await expect(page.getByTestId("inspector-hex")).toBeVisible();
+    await page.getByTestId("token-input").fill("6");
+    await page.keyboard.press("Enter");
+    await expect(cell("1,-1")).toHaveAttribute("data-token", "6");
+    // The shortcut keys work again at once.
+    await page.keyboard.press("h");
+    await expect(page.getByTestId("tool-harbor")).toHaveAttribute("aria-pressed", "true");
+
+    // Save keeps the undo history and the tool.
+    await page.getByTestId("board-name").fill("Kept Isle");
+    await page.getByTestId("save").click();
+    await expect(page).toHaveURL(/\/boards\/editor\/draft-/);
+    await expect(page.getByTestId("undo")).toBeEnabled();
+    await expect(page.getByTestId("tool-harbor")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("save-state")).toHaveText("All changes saved");
+
+    // Unsaved edits survive a test play and the way back.
+    await page.getByTestId("board-name").fill("Kept Isle, edited");
+    await page.getByTestId("test-play").click();
+    await expect(page).toHaveURL(/\/play$/);
+    await page.goBack();
+    await expect(page.getByTestId("board-name")).toHaveValue("Kept Isle, edited");
+    await expect(page.getByTestId("editor-toast")).toHaveText("Restored the board you were testing");
+  });
+
+  test("points to win can be typed; a hand-placed harbour switches harbours to Fixed", async ({ page }) => {
+    await page.goto("/boards/editor/beginner");
+    await expect(page.getByTestId("cell-0,0")).toBeAttached({ timeout: 15_000 });
+    await page.getByTestId("scenario-on").click();
+    await expect(page.getByTestId("scenario-tides")).not.toBeChecked();
+    await page.getByTestId("scenario-vp").fill("12");
+    await page.getByTestId("scenario-vp").press("Enter");
+    await expect(page.getByTestId("scenario-vp")).toHaveValue("12");
+    await page.getByTestId("scenario-off").click();
+    await page.getByTestId("gen-harbors-shuffle").click();
+    await page.getByTestId("tool-harbor").click();
+    const edge = page.locator('[data-testid^="edge-"]').first();
+    await edge.click({ force: true });
+    await expect(page.getByTestId("gen-harbors-fixed")).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+/** Face-down tiles (docs/rules.md §17): mark one in the editor, test play it, settle next to it, see it turn over. */
+test("a face-down tile marked in the editor turns over when the first settlement touches it", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("katan.settings", JSON.stringify({ animation: "off", sound: false, quality: "low", followTurns: false }));
+  });
+  await page.goto("/boards/editor/beginner");
+  await expect(page.getByTestId("cell-1,-1")).toBeAttached({ timeout: 15_000 });
+  await page.keyboard.press("d");
+  await expect(page.getByTestId("tool-discover")).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("cell-1,-1").click();
+  await expect(page.getByTestId("cell-1,-1")).toHaveAttribute("data-discover", "tile");
+  await page.getByTestId("discover-pool").click();
+  await page.getByTestId("cell--1,1").click();
+  await expect(page.getByTestId("cell--1,1")).toHaveAttribute("data-discover", "pool");
+  await expect(page.getByTestId("discovery-pool")).toBeVisible();
+  await expect(page.getByTestId("board-stats")).toContainText("2 face-down");
+
+  await page.getByTestId("test-play").click();
+  await expect(page).toHaveURL(/\/play$/);
+  await page.getByTestId("handoff-ready").click();
+  await expect(page.getByTestId("banner")).toHaveText("Ada: place a settlement");
+  await expect(page.locator('[data-testid^="target-vertex-"]').first()).toBeAttached({ timeout: 15_000 });
+  const id = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-testid^="target-vertex-"]')]
+      .map((e) => e.getAttribute("data-testid")!)
+      .find((t) => t.replace("target-vertex-", "").split("|").includes("1,-1")),
+  );
+  expect(id).toBeTruthy();
+  await page.getByTestId(id!).click({ force: true });
+  await expect(page.getByTestId("log")).toContainText("Ada discovered a mountain (9) and took 1 ore");
+});

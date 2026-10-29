@@ -65,8 +65,19 @@ export interface ScenarioSettings {
   readonly specialRules: string;
 }
 
-export const DEFAULT_SCENARIO: ScenarioSettings = { tides: true, crown: false, variants: noVariants(), pirate: true, islandBonus: 2, setup: "standard", mainIsland: null, victoryPoints: 10, specialRules: "" };
+// Tides starts off: a designer who wants only a Wayfarers variant should not get ships and a pirate by surprise.
+export const DEFAULT_SCENARIO: ScenarioSettings = { tides: false, crown: false, variants: noVariants(), pirate: true, islandBonus: 2, setup: "standard", mainIsland: null, victoryPoints: 10, specialRules: "" };
 export type Symmetry = "none" | "mirror" | "rotate";
+
+/** Display names of the built-in templates (the "random" frame is shown as Standard). */
+export const TEMPLATE_LABEL: Record<string, string> = { beginner: "Beginner", random: "Standard", large: "Large", longStrip: "Long strip", ring: "Ring" };
+
+/** What the editor knows about where the open board was saved: which table, its public flag and its owner. */
+export interface SavedMeta {
+  readonly kind: "board" | "scenario";
+  readonly isPublic: boolean;
+  readonly ownerId: string | null;
+}
 
 export interface EditorState {
   readonly def: BoardDefinition;
@@ -115,6 +126,8 @@ export type EditorAction =
    * already has that kind. A pool tile drops its own terrain and token (the pool supplies them).
    */
   | { type: "toggleDiscover"; at: HexCoord }
+  /** Inspector: set one hex's face-down kind exactly (no symmetry, no brush change). */
+  | { type: "setDiscover"; at: HexCoord; kind: DiscoverKind | null }
   /** The discovery pool's terrains; null goes back to the automatic pool. */
   | { type: "setDiscoveryPool"; terrains: Terrain[] | null }
   | { type: "autoFillTokens"; seed: string }
@@ -366,6 +379,11 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
       }
       return out === def ? state : touch(out);
     }
+    case "setDiscover": {
+      const h = hexAt(def, action.at);
+      if (!h || h.kind !== "land" || discoverOf(h) === action.kind) return state;
+      return touch(withHex(def, action.at, withDiscover(h, action.kind)));
+    }
     case "setDiscoveryPool": {
       if (action.terrains === null) {
         if (!def.discovery) return state;
@@ -413,7 +431,9 @@ export function reduce(state: EditorState, action: EditorAction): EditorState {
     }
     case "loadTemplate": {
       const t = builtInBoard(action.id);
-      return { ...state, def: { ...t, name: state.def.name || t.name }, selected: null, dirty: true, gridRadius: gridRadiusFor(t) };
+      // A board still called the default name takes the template's name.
+      const name = !state.def.name || state.def.name === emptyDefinition().name ? `${TEMPLATE_LABEL[action.id] ?? t.name} board` : state.def.name;
+      return { ...state, def: { ...t, name }, selected: null, dirty: true, gridRadius: gridRadiusFor(t) };
     }
     case "load":
       return { ...state, def: action.def, boardId: action.boardId, selected: null, dirty: false, gridRadius: gridRadiusFor(action.def), scenario: action.scenario === undefined ? state.scenario : action.scenario };
@@ -517,6 +537,8 @@ export interface History {
   readonly past: BoardDefinition[];
   readonly present: EditorState;
   readonly future: BoardDefinition[];
+  /** The last recorded action's type: consecutive name edits share one undo step. */
+  readonly last?: string;
 }
 
 export const HISTORY_LIMIT = 200;
@@ -534,8 +556,10 @@ export function historyReduce(h: History, action: EditorAction | { type: "undo" 
   }
   const present = reduce(h.present, action);
   if (!isUndoable(action) || present.def === h.present.def) return { ...h, present };
+  // Typing a name is one edit, not one per keystroke.
+  if (action.type === "setName" && h.last === "setName" && h.past.length > 0) return { ...h, present, future: [] };
   const past = [...h.past, h.present.def];
-  return { past: past.length > HISTORY_LIMIT ? past.slice(past.length - HISTORY_LIMIT) : past, present, future: [] };
+  return { past: past.length > HISTORY_LIMIT ? past.slice(past.length - HISTORY_LIMIT) : past, present, future: [], last: action.type };
 }
 
 /** Coastal edges of the current definition (where the harbour tool may act). */

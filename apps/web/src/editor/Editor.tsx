@@ -1,18 +1,21 @@
 "use client";
 
 /**
- * The board editor (docs/phase8.md §4): palette on the left, the 3D canvas
- * in the centre, inspector and live validation on the right, name / seats /
- * generation / Save / Save as / Test play on top. Undo/redo and keyboard
- * shortcuts: 1–8 terrains, H harbour, F frame, T token, R river, G fishing
- * ground, O oasis, Del clear, Ctrl+Z/Y. The Scenario section switches on
- * Tides, Crown & Castle and the Wayfarers variants (docs/phase10.md §8).
+ * The board editor (docs/phase8.md §4, docs/phase14.md §2): tools and
+ * collapsible sections on the left (shape, terrain, symmetry, game setup,
+ * tokens and harbours, face-down tiles, markers, templates), the 3D canvas
+ * in the centre, inspector, validation and the Scenario section on the
+ * right, name / undo / view / Save / Save as / Test play on top. Keys: 1–8
+ * terrains, F shape, L land, S sea, T token, H harbour, D face-down, R
+ * river, G fishing ground, O oasis, Del clears the active tool's layer,
+ * Ctrl+Z/Y. Unsaved work is guarded (leaving asks; Test play keeps a
+ * recovery copy that the editor restores on return).
  */
 
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { BUILT_IN_BOARD_IDS, RESOURCES, TERRAINS, builtInBoard, hasErrors, landComponents, validateBoard, type BoardDefinition, type EdgeId, type HexCoord, type HexKind, type Terrain } from "@katan/engine";
+import { BUILT_IN_BOARD_IDS, RESOURCES, TERRAINS, discoveryPoolFor, hasErrors, landComponents, poolHexes, validateBoard, type BoardDefinition, type DiscoverKind, type EdgeId, type HexCoord, type HexKind, type Terrain } from "@katan/engine";
 import { Button } from "@/components/ui";
 import { errorText } from "@/game/labels";
 import { VARIANT_LABEL, VARIANT_NAMES, scenarioSummary, validateScenario, type Scenario, type VariantName } from "@katan/engine";
@@ -20,13 +23,103 @@ import { startHotseat } from "@/game/store";
 import { TERRAIN_FILL } from "@/game/theme";
 import { useSettings } from "@/game/settings";
 import { useSession } from "@/hooks/useSession";
-import { DEFAULT_FISHING_TOKEN, DEFAULT_SCENARIO, fishingGroundAt, fishingGroundsOf, harborEdges, harborKindOf, historyReduce, initialEditorState, isOasis, islandIndexOf, islandsOf, landEdges, oasisCount, rectangleCells, riverEdgesOf, tokenTray, toScenario, type EditorAction, type History, type ScenarioSettings, type Symmetry, type Tool } from "./model";
+import { DEFAULT_FISHING_TOKEN, DEFAULT_SCENARIO, TEMPLATE_LABEL, discoverCount, discoverOf, fishingGroundAt, fishingGroundsOf, harborEdges, harborKindOf, historyReduce, initialEditorState, isOasis, islandIndexOf, islandsOf, landEdges, oasisCount, rectangleCells, riverEdgesOf, tokenTray, toScenario, type EditorAction, type History, type SavedMeta, type ScenarioSettings, type Symmetry, type Tool } from "./model";
 import { deleteDraft, deleteScenarioDraft, isDraftId, isScenarioDraftId, saveBoardRemote, saveDraft, saveScenarioDraft, saveScenarioRemote, type StoredBoard, type StoredScenario } from "./storage";
 
 const EditorCanvas = dynamic(() => import("./EditorCanvas").then((m) => m.EditorCanvas), { ssr: false, loading: () => <div className="grid h-full place-items-center text-parchment/70">Laying out the table…</div> });
 
 const TERRAIN_LABEL: Record<Terrain, string> = { forest: "Forest", claypit: "Clay pit", meadow: "Meadow", farmland: "Farmland", mountain: "Mountain", wasteland: "Wasteland", gold: "Gold", lake: "Lake" };
-const TEMPLATE_LABEL: Record<string, string> = { beginner: "Beginner", random: "Standard", large: "Large", longStrip: "Long strip", ring: "Ring" };
+const TEST_NAMES = ["Ada", "Bo", "Cy", "Di", "Eve", "Fay"];
+/** Test play leaves a copy of the board here so coming back from the game restores unsaved work. */
+const RECOVERY_KEY = "katan.editor.recovery";
+
+interface Recovery {
+  readonly forId: string | null;
+  readonly def: BoardDefinition;
+  readonly scenario: ScenarioSettings | null;
+}
+
+function readRecovery(forId: string | null): Recovery | null {
+  try {
+    const raw = window.sessionStorage.getItem(RECOVERY_KEY);
+    if (!raw) return null;
+    const r = JSON.parse(raw) as Recovery;
+    return r.forId === forId && r.def && Array.isArray(r.def.hexes) ? r : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeRecovery(r: Recovery | null): void {
+  try {
+    if (r) window.sessionStorage.setItem(RECOVERY_KEY, JSON.stringify(r));
+    else window.sessionStorage.removeItem(RECOVERY_KEY);
+  } catch {
+    /* private mode: no recovery */
+  }
+}
+
+/**
+ * A number typed freely and clamped only when it is committed (blur or
+ * Enter): clamping each keystroke turned "12" into 30 on the way.
+ */
+function NumberField({ value, min, max, onCommit, disabled, testId, label }: { value: number; min: number; max: number; onCommit: (n: number) => void; disabled?: boolean; testId: string; label: string }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const n = Number(draft);
+    if (draft.trim() !== "" && Number.isFinite(n)) onCommit(Math.min(max, Math.max(min, Math.round(n))));
+    setDraft(null);
+  };
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      aria-label={label}
+      className="w-14 rounded-md border border-line bg-white/60 px-1 py-0.5"
+      value={draft ?? String(value)}
+      disabled={disabled}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          commit();
+          (e.target as HTMLInputElement).blur();
+        }
+        if (e.key === "Escape") {
+          setDraft(null);
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      data-testid={testId}
+    />
+  );
+}
+
+/** A sidebar section that folds away, so the palette fits a laptop screen. */
+function Section({ title, children, defaultOpen = true, testId, aside }: { title: string; children: React.ReactNode; defaultOpen?: boolean; testId?: string; aside?: React.ReactNode }) {
+  return (
+    <details className="group border-b border-line/70 pb-2 last:border-0" open={defaultOpen} data-testid={testId}>
+      <summary className="flex cursor-pointer select-none list-none items-center justify-between gap-2 py-0.5 font-display text-sm font-semibold text-ink-soft [&::-webkit-details-marker]:hidden">
+        <span>
+          <span aria-hidden className="mr-1 inline-block w-3 text-[10px] transition-transform group-open:rotate-90">
+            ▶
+          </span>
+          {title}
+        </span>
+        {aside}
+      </summary>
+      <div className="mt-1.5">{children}</div>
+    </details>
+  );
+}
+
+const GENERATION_HELP = {
+  terrain: { fixed: "Every land hex needs a painted terrain.", shuffle: "Unpainted land hexes get a random terrain each game." },
+  tokens: { fixed: "Numbers exactly as placed; every producing hex needs one.", shuffle: "Placed numbers stay; the rest are dealt at random (no 6 next to 8).", balanced: "Placed numbers stay; the rest are dealt for a fair spread." },
+  harbors: { fixed: "Harbours exactly as placed.", shuffle: "Harbour spots stay; their types are drawn each game." },
+} as const;
 
 /** Plain-language rule summaries for the Scenario section (docs/phase10.md §1–§7, docs/phase11.md). */
 const VARIANT_SUMMARY: Record<VariantName, string> = {
@@ -69,7 +162,20 @@ function RuleBlurb({ id, text, open }: { id: string; text: string; open: boolean
   );
 }
 
-export function Editor({ initial, initialId, initialScenario = null }: { initial: BoardDefinition; initialId: string | null; initialScenario?: ScenarioSettings | null }) {
+export function Editor({
+  initial,
+  initialId,
+  initialScenario = null,
+  initialMeta = null,
+  onSaved,
+}: {
+  initial: BoardDefinition;
+  initialId: string | null;
+  initialScenario?: ScenarioSettings | null;
+  initialMeta?: SavedMeta | null;
+  /** Told the id a save moved the URL to, so the page does not reload the board the editor already holds. */
+  onSaved?: (id: string) => void;
+}) {
   const router = useRouter();
   const { session, loading: sessionLoading, configured } = useSession();
   const [settings] = useSettings();
@@ -78,7 +184,12 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
   const dispatch = useCallback((a: EditorAction | { type: "undo" } | { type: "redo" }) => dispatchRaw(a), []);
   const [topDown, setTopDown] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
-  const [isPublic, setIsPublic] = useState(false);
+  const [isPublic, setIsPublic] = useState(initialMeta?.isPublic ?? false);
+  // Which table the open board was saved in (a board saved as a scenario must not send its board id, and back).
+  const [savedKind, setSavedKind] = useState<SavedMeta["kind"] | null>(initialMeta?.kind ?? null);
+  const [ownerId, setOwnerId] = useState<string | null>(initialMeta?.ownerId ?? null);
+  const [saving, setSaving] = useState(false);
+  const validationRef = useRef<HTMLDivElement>(null);
   const [tokenDraft, setTokenDraft] = useState("");
   const dragStart = useRef<{ at: HexCoord; shift: boolean; button: number } | null>(null);
   const quality = settings.quality === "auto" ? "medium" : settings.quality;
@@ -102,6 +213,27 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
   const selectedIsLand = useMemo(() => (selectedEdge ? landEdges(state.def).includes(selectedEdge) : false), [selectedEdge, state.def]);
   const selectedGround = selectedEdge ? fishingGroundAt(state.def, selectedEdge) : null;
   const scenarioSummaryText = scenario ? scenarioSummary(scenario) : null;
+
+  // Back from a test play: put the unsaved board back.
+  useEffect(() => {
+    const r = readRecovery(initialId);
+    if (!r) return;
+    writeRecovery(null);
+    dispatch({ type: "load", def: r.def, boardId: initialId, scenario: r.scenario });
+    dispatch({ type: "setName", name: r.def.name });
+    setToast("Restored the board you were testing");
+  }, []);
+
+  // Leaving with unsaved changes asks first (reload, closing the tab, typing another URL).
+  useEffect(() => {
+    if (!state.dirty) return;
+    const guard = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [state.dirty]);
 
   useEffect(() => {
     if (!toast) return;
@@ -132,10 +264,17 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
           if (island !== null) dispatch({ type: "setScenario", scenario: { setup: "mainIslandOnly", mainIsland: island } });
           break;
         }
-        case "oasis":
-          if (!erase || isOasis(state.def.hexes.find((h) => h.at.q === at.q && h.at.r === at.r))) dispatch({ type: "toggleOasis", at });
+        case "oasis": {
+          const h = state.def.hexes.find((x) => x.at.q === at.q && x.at.r === at.r);
+          // An oasis needs a producing terrain (validation would refuse a wasteland or a lake).
+          if (!erase && !isOasis(h) && (h?.terrain === "wasteland" || h?.terrain === "lake")) {
+            setToast(`An oasis needs a producing terrain, not a ${h.terrain}`);
+            break;
+          }
+          if (!erase || isOasis(h)) dispatch({ type: "toggleOasis", at });
           dispatch({ type: "select", id: `${at.q},${at.r}` });
           break;
+        }
         case "discover": {
           const h = state.def.hexes.find((x) => x.at.q === at.q && x.at.r === at.r);
           if (!erase || h?.extras?.discover) dispatch({ type: "toggleDiscover", at });
@@ -185,7 +324,14 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
     (edge: EdgeId) => {
       if (state.tool === "river") dispatch({ type: "toggleRiver", edge });
       else if (state.tool === "fishing") dispatch({ type: "setFishingGround", edge, token: fishingGroundAt(state.def, edge) ? null : DEFAULT_FISHING_TOKEN });
-      else dispatch({ type: "cycleHarbor", edge });
+      else {
+        // A harbour placed by hand keeps its type only when harbours are Fixed.
+        if (state.def.generation.harbors !== "fixed") {
+          dispatch({ type: "setGeneration", harbors: "fixed" });
+          setToast("Harbours set to Fixed so the types you pick are kept");
+        }
+        dispatch({ type: "cycleHarbor", edge });
+      }
       dispatch({ type: "select", id: edge });
     },
     [dispatch, state.def, state.tool],
@@ -215,12 +361,17 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
       else if (e.key.toLowerCase() === "r") dispatch({ type: "setTool", tool: "river" });
       else if (e.key.toLowerCase() === "g") dispatch({ type: "setTool", tool: "fishing" });
       else if (e.key.toLowerCase() === "o") dispatch({ type: "setTool", tool: "oasis" });
+      else if (e.key.toLowerCase() === "d") dispatch({ type: "setTool", tool: "discover" });
       else if ((e.key === "Delete" || e.key === "Backspace") && selectedHex) {
+        // Only the active tool's layer: the harbour or river tool must not wipe a hex's terrain.
         if (state.tool === "frame") dispatch({ type: "setCell", at: selectedHex.at, kind: null });
         else if (state.tool === "token") dispatch({ type: "setToken", at: selectedHex.at, token: null });
+        else if (state.tool === "terrain") dispatch({ type: "paintTerrain", at: selectedHex.at, terrain: null });
         else if (state.tool === "oasis") {
           if (isOasis(selectedHex)) dispatch({ type: "toggleOasis", at: selectedHex.at });
-        } else dispatch({ type: "paintTerrain", at: selectedHex.at, terrain: null });
+        } else if (state.tool === "discover") {
+          if (discoverOf(selectedHex)) dispatch({ type: "toggleDiscover", at: selectedHex.at });
+        }
       } else if ((e.key === "Delete" || e.key === "Backspace") && selectedEdge) {
         if (state.tool === "river") {
           if (riverEdgesOf(state.def).includes(selectedEdge)) dispatch({ type: "toggleRiver", edge: selectedEdge });
@@ -235,230 +386,418 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
   /** Where a save goes: the library when signed in, otherwise this device (with a nudge to sign in when an account is possible). */
   const deviceToast = (what: string) => (configured ? `${what} on this device only. Sign in to keep it in your library.` : `${what} on this device`);
 
-  const save = async (asCopy: boolean) => {
-    if (hasErrors(issues)) return setToast("Fix the errors before saving");
-    // The session is looked up after the page loads; saving before that would silently make a device draft for a signed-in player.
-    if (sessionLoading) return setToast("Checking your sign-in, try again in a moment");
-    if (scenario) return saveScenario(asCopy, scenario);
-    if (session) {
-      const keepId = !asCopy && state.boardId && !isDraftId(state.boardId) ? state.boardId : undefined;
-      const r = await saveBoardRemote(state.def, keepId ? { boardId: keepId, isPublic } : { isPublic });
-      if (!r.ok) return setToast(errorText(r.code));
-      if (state.boardId && isDraftId(state.boardId)) deleteDraft(state.boardId);
-      dispatch({ type: "markSaved", boardId: r.boardId });
-      setToast("Saved to your library");
-      router.replace(`/boards/editor/${r.boardId}`);
-      return;
-    }
-    const draft: StoredBoard = saveDraft(state.def, asCopy ? undefined : (state.boardId ?? undefined));
-    dispatch({ type: "markSaved", boardId: draft.id });
-    setToast(deviceToast("Saved"));
-    router.replace(`/boards/editor/${draft.id}`);
+  /** After a save: remember where it went and move the URL there without reloading the editor. */
+  const settle = (id: string, kind: SavedMeta["kind"], message: string) => {
+    dispatch({ type: "markSaved", boardId: id });
+    setSavedKind(kind);
+    if (session) setOwnerId(session.user.id);
+    setToast(message);
+    writeRecovery(null);
+    onSaved?.(id);
+    // The editor lives in the /boards/editor layout, which survives this change of id (a page would remount
+    // and lose the undo history, the tool and the camera); the page tells the layout not to reload what it holds.
+    router.replace(`/boards/editor/${id}`);
   };
 
-  const saveScenario = async (asCopy: boolean, sc: Scenario) => {
-    if (session) {
-      const keepId = !asCopy && state.boardId && !isScenarioDraftId(state.boardId) && !isDraftId(state.boardId) ? state.boardId : undefined;
-      const r = await saveScenarioRemote(sc, keepId ? { scenarioId: keepId, isPublic } : { isPublic });
-      if (!r.ok) return setToast(errorText(r.code));
-      if (state.boardId && isScenarioDraftId(state.boardId)) deleteScenarioDraft(state.boardId);
-      dispatch({ type: "markSaved", boardId: r.scenarioId });
-      setToast("Scenario saved to your library");
-      router.replace(`/boards/editor/${r.scenarioId}`);
-      return;
+  const save = async (asCopy: boolean) => {
+    if (saving) return;
+    if (hasErrors(issues)) {
+      validationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return setToast(`Fix ${errors.length === 1 ? "the error" : `the ${errors.length} errors`} before saving`);
     }
-    const draft: StoredScenario = saveScenarioDraft(sc, asCopy ? undefined : (state.boardId ?? undefined));
-    dispatch({ type: "markSaved", boardId: draft.id });
-    setToast(deviceToast("Scenario saved"));
-    router.replace(`/boards/editor/${draft.id}`);
+    // The session is looked up after the page loads; saving before that would silently make a device draft for a signed-in player.
+    if (sessionLoading) return setToast("Checking your sign-in, try again in a moment");
+    // Someone else's public board can only be saved as your own copy.
+    const notMine = Boolean(session && ownerId && ownerId !== session.user.id && state.boardId && !isDraftId(state.boardId) && !isScenarioDraftId(state.boardId));
+    const copy = asCopy || notMine;
+    if (copy && state.boardId) dispatch({ type: "setName", name: `${state.def.name.replace(/ \(copy\)$/, "")} (copy)` });
+    const name = copy && state.boardId ? `${state.def.name.replace(/ \(copy\)$/, "")} (copy)` : state.def.name;
+    const def = { ...state.def, name };
+    setSaving(true);
+    try {
+      if (scenario) await saveScenario(copy, { ...scenario, name, board: { ...scenario.board, name } }, notMine);
+      else await saveBoard(copy, def, notMine);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveBoard = async (copy: boolean, def: BoardDefinition, notMine: boolean) => {
+    const id = state.boardId;
+    if (session) {
+      const keepId = !copy && id && savedKind === "board" && !isDraftId(id) ? id : undefined;
+      const r = await saveBoardRemote(def, keepId ? { boardId: keepId, isPublic } : { isPublic });
+      if (!r.ok) return setToast(r.code === "INVALID_BOARD" && r.message ? r.message : r.code === "NOT_OWNER" ? "This board belongs to someone else: use Save as to keep your own copy" : errorText(r.code === "NETWORK" ? "SAVE_OFFLINE" : r.code));
+      if (id && isDraftId(id)) deleteDraft(id);
+      if (id && isScenarioDraftId(id)) deleteScenarioDraft(id); // it was a scenario until now
+      return settle(r.boardId, "board", notMine ? "Saved your own copy to your library" : "Saved to your library");
+    }
+    const draft: StoredBoard = saveDraft(def, !copy && id && isDraftId(id) ? id : undefined);
+    if (id && isScenarioDraftId(id)) deleteScenarioDraft(id);
+    settle(draft.id, "board", deviceToast(copy ? "Copy saved" : "Saved"));
+  };
+
+  const saveScenario = async (copy: boolean, sc: Scenario, notMine: boolean) => {
+    const id = state.boardId;
+    if (session) {
+      const keepId = !copy && id && savedKind === "scenario" && !isScenarioDraftId(id) && !isDraftId(id) ? id : undefined;
+      const r = await saveScenarioRemote(sc, keepId ? { scenarioId: keepId, isPublic } : { isPublic });
+      if (!r.ok) return setToast(r.code === "INVALID_BOARD" && r.message ? r.message : r.code === "NOT_OWNER" ? "This scenario belongs to someone else: use Save as to keep your own copy" : errorText(r.code === "NETWORK" ? "SAVE_OFFLINE" : r.code));
+      if (id && isScenarioDraftId(id)) deleteScenarioDraft(id);
+      if (id && isDraftId(id)) deleteDraft(id); // it was a plain board until now
+      return settle(r.scenarioId, "scenario", notMine ? "Saved your own copy to your library" : "Scenario saved to your library");
+    }
+    const draft: StoredScenario = saveScenarioDraft(sc, !copy && id && isScenarioDraftId(id) ? id : undefined);
+    if (id && isDraftId(id)) deleteDraft(id);
+    settle(draft.id, "scenario", deviceToast(copy ? "Copy saved" : "Scenario saved"));
   };
 
   const testPlay = () => {
-    if (hasErrors(issues)) return setToast("Fix the errors before playing");
-    const seats = Math.min(4, state.def.seats.max);
-    const names = ["Ada", "Bo", "Cy", "Di"];
+    if (hasErrors(issues)) {
+      validationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return setToast("Fix the errors before playing");
+    }
+    // Every seat the board allows: you and bots.
+    const seats = Math.min(TEST_NAMES.length, state.def.seats.max);
+    writeRecovery(state.dirty ? { forId: state.boardId, def: state.def, scenario: state.scenario } : null);
     startHotseat({
-      players: names.slice(0, seats).map((name, i) => (i === 0 ? { id: `p${i + 1}-${name.toLowerCase()}`, name } : { id: `p${i + 1}-${name.toLowerCase()}`, name, bot: "medium" as const })),
+      players: TEST_NAMES.slice(0, seats).map((name, i) => (i === 0 ? { id: `p${i + 1}-${name.toLowerCase()}`, name } : { id: `p${i + 1}-${name.toLowerCase()}`, name, bot: "medium" as const })),
       board: state.def,
       ...(scenario ? { scenario } : {}),
       seed: `test-${Date.now().toString(36)}`,
+      returnTo: window.location.pathname,
     });
     router.push("/play");
+  };
+
+  const leave = () => {
+    if (state.dirty && !window.confirm("Leave the editor? Your unsaved changes will be lost.")) return;
+    router.push("/boards");
+  };
+
+  const loadTemplate = (id: (typeof BUILT_IN_BOARD_IDS)[number]) => {
+    if (state.def.hexes.length > 0 && !window.confirm(`Replace this board with the ${TEMPLATE_LABEL[id]} template? (Undo brings it back.)`)) return;
+    dispatch({ type: "loadTemplate", id });
   };
 
   const setScenario = (patch: Partial<ScenarioSettings> | null) => dispatch({ type: "setScenario", scenario: patch });
   const setVariant = (name: VariantName, on: boolean) => {
     const current = state.scenario?.variants ?? DEFAULT_SCENARIO.variants;
+    if (name === "raiders" && on && state.scenario?.crown) setToast("Raiders and Crown & Castle both use knights, so Crown & Castle is off");
     setScenario({ variants: { ...current, [name]: on } });
+  };
+  const setCrown = (on: boolean) => {
+    if (on && state.scenario?.variants.raiders) setToast("Crown & Castle and Raiders both use knights, so Raiders is off");
+    setScenario({ crown: on });
   };
 
   const modeButton = <T extends string>(current: T, value: T, label: string, onPick: () => void, testId: string) => (
-    <Button size="sm" variant={current === value ? "primary" : "secondary"} onClick={onPick} data-testid={testId}>
+    <Button size="sm" variant={current === value ? "primary" : "secondary"} aria-pressed={current === value} onClick={onPick} data-testid={testId}>
       {label}
+    </Button>
+  );
+
+  const land = state.def.hexes.filter((h) => h.kind === "land").length;
+  const faceDown = discoverCount(state.def);
+  const poolTiles = useMemo(() => poolHexes(state.def).length, [state.def]);
+  const pool = useMemo(() => discoveryPoolFor(state.def), [state.def]);
+  const poolCounts = useMemo(() => {
+    const m = new Map<Terrain, number>();
+    for (const t of pool.terrains) m.set(t, (m.get(t) ?? 0) + 1);
+    return m;
+  }, [pool]);
+  const setPoolCount = (t: Terrain, delta: 1 | -1) => {
+    const list = [...pool.terrains];
+    if (delta > 0) list.push(t);
+    else {
+      const k = list.lastIndexOf(t);
+      if (k >= 0) list.splice(k, 1);
+    }
+    dispatch({ type: "setDiscoveryPool", terrains: list });
+  };
+
+  const toolButton = (t: Tool, label: string, key?: string) => (
+    <Button key={t} size="sm" variant={state.tool === t ? "primary" : "secondary"} aria-pressed={state.tool === t} title={key ? `${label} (${key})` : label} onClick={() => dispatch({ type: "setTool", tool: t })} data-testid={`tool-${t}`}>
+      {label}
+      {key && <kbd className="ml-1 text-[10px] opacity-70">{key}</kbd>}
     </Button>
   );
 
   return (
     <div className="grid h-dvh grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-      {/* Top bar */}
+      {/* Top bar: what the board is called, history, view, and getting it out of the editor. */}
       <header className="parchment flex flex-wrap items-center gap-2 px-3 py-2" data-testid="editor-top">
-        <input className="w-44 rounded-md border border-line bg-white/60 px-2 py-1 font-display text-base" value={state.def.name} maxLength={40} aria-label="Board name" onChange={(e) => dispatch({ type: "setName", name: e.target.value })} data-testid="board-name" />
-        <label className="flex items-center gap-1 text-sm">
-          Seats up to
-          <select className="rounded-md border border-line bg-white/60 px-1 py-1" value={state.def.seats.max} onChange={(e) => dispatch({ type: "setSeats", max: Number(e.target.value) as 4 | 5 | 6 })} data-testid="seats-max">
-            {[4, 5, 6].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span className="flex items-center gap-1 text-sm">
-          Terrain {modeButton(state.def.generation.terrain, "fixed", "Fixed", () => dispatch({ type: "setGeneration", terrain: "fixed" }), "gen-terrain-fixed")}
-          {modeButton(state.def.generation.terrain, "shuffle", "Shuffle", () => dispatch({ type: "setGeneration", terrain: "shuffle" }), "gen-terrain-shuffle")}
-        </span>
-        <span className="flex items-center gap-1 text-sm">
-          Tokens {modeButton(state.def.generation.tokens, "fixed", "Fixed", () => dispatch({ type: "setGeneration", tokens: "fixed" }), "gen-tokens-fixed")}
-          {modeButton(state.def.generation.tokens, "shuffle", "Shuffle", () => dispatch({ type: "setGeneration", tokens: "shuffle" }), "gen-tokens-shuffle")}
-          {modeButton(state.def.generation.tokens, "balanced", "Balanced", () => dispatch({ type: "setGeneration", tokens: "balanced" }), "gen-tokens-balanced")}
-        </span>
-        <span className="flex items-center gap-1 text-sm">
-          Harbours {modeButton(state.def.generation.harbors, "fixed", "Fixed", () => dispatch({ type: "setGeneration", harbors: "fixed" }), "gen-harbors-fixed")}
-          {modeButton(state.def.generation.harbors, "shuffle", "Shuffle", () => dispatch({ type: "setGeneration", harbors: "shuffle" }), "gen-harbors-shuffle")}
-        </span>
-        <span className="ml-auto flex items-center gap-1">
+        <input className="w-52 rounded-md border border-line bg-white/60 px-2 py-1 font-display text-base" value={state.def.name} maxLength={40} aria-label="Board name" onChange={(e) => dispatch({ type: "setName", name: e.target.value })} data-testid="board-name" />
+        <span className="flex items-center gap-1">
           <Button size="sm" variant="quiet" disabled={history.past.length === 0} onClick={() => dispatch({ type: "undo" })} data-testid="undo" title="Undo (Ctrl+Z)">
             Undo
           </Button>
           <Button size="sm" variant="quiet" disabled={history.future.length === 0} onClick={() => dispatch({ type: "redo" })} data-testid="redo" title="Redo (Ctrl+Y)">
             Redo
           </Button>
-          <Button size="sm" variant="quiet" onClick={() => setTopDown((t) => !t)} data-testid="toggle-view">
-            {topDown ? "Diorama view" : "Top-down view"}
-          </Button>
+        </span>
+        <span className="flex items-center rounded-md border border-line" role="radiogroup" aria-label="Camera">
+          <button type="button" role="radio" aria-checked={topDown} className={`rounded-l-md px-2.5 py-1 text-sm ${topDown ? "bg-ink text-parchment" : "hover:bg-parchment-deep"}`} onClick={() => setTopDown(true)} data-testid="view-top">
+            Top-down
+          </button>
+          <button type="button" role="radio" aria-checked={!topDown} className={`rounded-r-md px-2.5 py-1 text-sm ${!topDown ? "bg-ink text-parchment" : "hover:bg-parchment-deep"}`} onClick={() => setTopDown(false)} data-testid="toggle-view">
+            Diorama
+          </button>
+        </span>
+        <span className="ml-auto flex items-center gap-1.5">
+          {errors.length > 0 ? (
+            <button type="button" className="rounded-md border border-clay/60 bg-clay/10 px-2 py-1 text-xs font-semibold text-clay" onClick={() => validationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })} data-testid="error-count">
+              {land === 0 ? "Paint some land to start" : `${errors.length} problem${errors.length === 1 ? "" : "s"} to fix`}
+            </button>
+          ) : (
+            <span className="text-xs text-ink-soft" data-testid="save-state">
+              {state.dirty ? "Unsaved changes" : state.boardId ? "All changes saved" : ""}
+            </span>
+          )}
           {session && (
-            <label className="flex items-center gap-1 text-xs">
+            <label className="flex items-center gap-1 text-xs" title="Public boards appear in everyone's picker">
               <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} data-testid="is-public" /> Public
             </label>
           )}
-          <Button size="sm" variant="primary" disabled={errors.length > 0} reason="Fix the errors first" onClick={() => void save(false)} data-testid="save">
-            Save{state.dirty ? "*" : ""}
+          <Button size="sm" variant="primary" disabled={errors.length > 0 || saving} reason={saving ? "Saving…" : "Fix the problems listed under Validation first"} onClick={() => void save(false)} data-testid="save">
+            {saving ? "Saving…" : `Save${state.dirty ? "*" : ""}`}
           </Button>
-          <Button size="sm" disabled={errors.length > 0} reason="Fix the errors first" onClick={() => void save(true)} data-testid="save-as">
-            Save as
+          <Button size="sm" disabled={errors.length > 0 || saving} reason="Fix the problems listed under Validation first" onClick={() => void save(true)} data-testid="save-as">
+            Save as copy
           </Button>
-          <Button size="sm" disabled={errors.length > 0} reason="Fix the errors first" onClick={testPlay} data-testid="test-play">
+          <Button size="sm" disabled={errors.length > 0} reason="Fix the problems listed under Validation first" onClick={testPlay} data-testid="test-play" title="Play it now with bots; you come back here when you leave the table">
             Test play
           </Button>
-          <Button size="sm" variant="quiet" onClick={() => router.push("/boards")}>
+          <Button size="sm" variant="quiet" onClick={leave} data-testid="editor-boards">
             Boards
           </Button>
         </span>
       </header>
 
-      <div className="grid min-h-0 grid-cols-[13rem_minmax(0,1fr)_17rem]">
+      <div className="grid min-h-0 grid-cols-[14.5rem_minmax(0,1fr)_17.5rem]">
         {/* Palette */}
-        <aside className="parchment flex min-h-0 flex-col gap-3 overflow-y-auto p-3 text-sm" aria-label="Tools">
-          <div>
-            <h2 className="font-display text-sm font-semibold text-ink-soft">Tool</h2>
-            <div className="mt-1 flex flex-wrap gap-1">
-              {(
-                [
-                  ["frame", "Frame (F)"],
-                  ["terrain", "Terrain"],
-                  ["token", "Token (T)"],
-                  ["harbor", "Harbour (H)"],
-                  ["river", "River (R)"],
-                  ["fishing", "Fishing ground (G)"],
-                  ["oasis", "Oasis (O)"],
-                  ...(state.scenario ? [["island", "Main island"]] : []),
-                ] as [Tool, string][]
-              ).map(([t, label]) => (
-                <Button key={t} size="sm" variant={state.tool === t ? "primary" : "secondary"} onClick={() => dispatch({ type: "setTool", tool: t })} data-testid={`tool-${t}`}>
-                  {label}
-                </Button>
-              ))}
+        <aside className="parchment flex min-h-0 flex-col gap-2 overflow-y-auto p-3 text-sm" aria-label="Tools">
+          <Section title="Tool" testId="section-tool">
+            <div className="flex flex-wrap gap-1">
+              {toolButton("frame", "Shape", "F")}
+              {toolButton("terrain", "Terrain", "1–8")}
+              {toolButton("token", "Number", "T")}
+              {toolButton("harbor", "Harbour", "H")}
+              {toolButton("discover", "Face-down", "D")}
+              {state.scenario && toolButton("island", "Main island")}
+            </div>
+            <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-soft">Wayfarers markers</p>
+            <div className="mt-0.5 flex flex-wrap gap-1">
+              {toolButton("river", "River", "R")}
+              {toolButton("fishing", "Fishing", "G")}
+              {toolButton("oasis", "Oasis", "O")}
             </div>
             {state.tool === "frame" && (
-              <div className="mt-1 flex gap-1" role="radiogroup" aria-label="Frame brush">
+              <div className="mt-1.5 flex gap-1" role="radiogroup" aria-label="Shape brush">
                 {(
                   [
-                    ["land", "Land (L)"],
-                    ["sea", "Sea (S)"],
-                    ["frame", "Frame"],
-                  ] as [HexKind, string][]
-                ).map(([k, label]) => (
+                    ["land", "Land", "L"],
+                    ["sea", "Sea", "S"],
+                    ["frame", "Border", ""],
+                  ] as [HexKind, string, string][]
+                ).map(([k, label, key]) => (
                   <Button key={k} size="sm" role="radio" aria-checked={state.frameKind === k} variant={state.frameKind === k ? "primary" : "secondary"} onClick={() => dispatch({ type: "setFrameKind", kind: k })} data-testid={`brush-${k}`}>
+                    {label}
+                    {key && <kbd className="ml-1 text-[10px] opacity-70">{key}</kbd>}
+                  </Button>
+                ))}
+              </div>
+            )}
+            {state.tool === "discover" && (
+              <div className="mt-1.5 flex gap-1" role="radiogroup" aria-label="Face-down brush">
+                {(
+                  [
+                    ["tile", "This tile"],
+                    ["pool", "From the pool"],
+                  ] as [DiscoverKind, string][]
+                ).map(([k, label]) => (
+                  <Button key={k} size="sm" role="radio" aria-checked={state.discoverKind === k} variant={state.discoverKind === k ? "primary" : "secondary"} onClick={() => dispatch({ type: "setDiscoverKind", kind: k })} data-testid={`discover-${k}`}>
                     {label}
                   </Button>
                 ))}
               </div>
             )}
-            <p className="mt-1 text-xs text-ink-soft">
-              {state.tool === "frame" && `Click or drag to paint ${state.frameKind === "land" ? "land" : state.frameKind === "sea" ? "sea" : "frame (the border)"}. Right-click or right-drag clears. Shift-drag: a rectangle.`}
-              {state.tool === "terrain" && "Click or drag to paint a terrain; empty and sea cells become land. Right-click clears the terrain."}
-              {state.tool === "token" && "Click a hex, then type its number in the inspector."}
-              {state.tool === "harbor" && "Click a coastal edge to cycle 3:1 → 2:1 …"}
+            <p className="mt-1.5 text-xs leading-snug text-ink-soft" data-testid="tool-hint">
+              {state.tool === "frame" && `Click or drag to paint ${state.frameKind === "land" ? "land" : state.frameKind === "sea" ? "sea" : "the border (the table's wooden edge)"}. Right-click or right-drag erases. Shift-drag paints a rectangle.`}
+              {state.tool === "terrain" && `Click or drag to paint ${TERRAIN_LABEL[state.terrain].toLowerCase()}; empty and sea cells become land. Right-click clears the terrain.`}
+              {state.tool === "token" && "Click a hex, then type its number in the inspector on the right."}
+              {state.tool === "harbor" && "Click a coastal edge to cycle 3:1 → 2:1 for each resource → none."}
               {state.tool === "island" && "Click a hex to make its island the starting island."}
               {state.tool === "river" && "Click an edge beside land to lay or lift a river segment (Rivers variant)."}
-              {state.tool === "fishing" && `Click a coastal edge to add a fishing ground (token ${DEFAULT_FISHING_TOKEN}); set its number in the inspector. Click again to remove it.`}
+              {state.tool === "fishing" && `Click a coastal edge to add a fishing ground (number ${DEFAULT_FISHING_TOKEN}); change its number in the inspector. Click again to remove it.`}
               {state.tool === "oasis" && "Click a land hex to mark or unmark an oasis (Caravans variant)."}
+              {state.tool === "discover" &&
+                (state.discoverKind === "tile"
+                  ? "Click a land hex to start it face down. Players see its terrain and number when a road, ship or settlement touches one of its corners; the builder takes one of its resource."
+                  : "Click a land hex to make it a face-down tile drawn from the discovery pool (below). It loses its own terrain and number.")}
             </p>
-          </div>
-          <div>
-            <h2 className="font-display text-sm font-semibold text-ink-soft">Terrain (1–{TERRAINS.length})</h2>
-            <div className="mt-1 grid grid-cols-2 gap-1">
+          </Section>
+
+          <Section title={`Terrain (1–${TERRAINS.length})`} testId="section-terrain">
+            <div className="grid grid-cols-2 gap-1">
               {TERRAINS.map((t, i) => (
-                <button key={t} type="button" className={`flex items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-xs ${state.tool === "terrain" && state.terrain === t ? "border-ink bg-white/60" : "border-line"}`} onClick={() => dispatch({ type: "setTerrain", terrain: t })} data-testid={`terrain-${t}`}>
-                  <span className="inline-block h-4 w-4 rounded-sm border border-ink/40" style={{ background: TERRAIN_FILL[t] }} />
+                <button
+                  key={t}
+                  type="button"
+                  aria-pressed={state.tool === "terrain" && state.terrain === t}
+                  className={`flex items-center gap-1.5 rounded-md border px-1.5 py-1 text-left text-xs ${state.tool === "terrain" && state.terrain === t ? "border-ink bg-white/60 ring-1 ring-ink" : "border-line hover:bg-white/40"}`}
+                  onClick={() => dispatch({ type: "setTerrain", terrain: t })}
+                  data-testid={`terrain-${t}`}
+                >
+                  <span className="inline-block h-4 w-4 shrink-0 rounded-sm border border-ink/40" style={{ background: TERRAIN_FILL[t] }} />
                   <kbd className="text-[10px] text-ink-soft">{i + 1}</kbd> {TERRAIN_LABEL[t]}
                 </button>
               ))}
             </div>
-          </div>
-          <div>
-            <h2 className="font-display text-sm font-semibold text-ink-soft">Symmetry</h2>
-            <div className="mt-1 flex gap-1">
-              {(["none", "mirror", "rotate"] as Symmetry[]).map((s) => (
-                <Button key={s} size="sm" variant={state.symmetry === s ? "primary" : "secondary"} onClick={() => dispatch({ type: "setSymmetry", symmetry: s })} data-testid={`symmetry-${s}`}>
-                  {s === "none" ? "Off" : s === "mirror" ? "Mirror" : "Rotate"}
+          </Section>
+
+          <Section title="Symmetry" testId="section-symmetry">
+            <div className="flex gap-1">
+              {(["none", "mirror", "rotate"] as Symmetry[]).map((sym) => (
+                <Button key={sym} size="sm" aria-pressed={state.symmetry === sym} variant={state.symmetry === sym ? "primary" : "secondary"} onClick={() => dispatch({ type: "setSymmetry", symmetry: sym })} data-testid={`symmetry-${sym}`}>
+                  {sym === "none" ? "Off" : sym === "mirror" ? "Mirror" : "Rotate"}
                 </Button>
               ))}
             </div>
-          </div>
-          <div>
-            <h2 className="font-display text-sm font-semibold text-ink-soft">Tokens</h2>
-            <div className="mt-1 flex flex-wrap gap-1" aria-label="Token tray">
+            {state.symmetry !== "none" && <p className="mt-1 text-[11px] text-ink-soft">{state.symmetry === "mirror" ? "Every edit is copied to the left–right mirror cell." : "Every edit is copied to the six rotations around the centre."}</p>}
+          </Section>
+
+          <Section title="Game setup" testId="section-setup">
+            <div className="space-y-2 text-xs">
+              <label className="flex items-center gap-1.5">
+                Seats up to
+                <select className="rounded-md border border-line bg-white/60 px-1 py-0.5" value={state.def.seats.max} onChange={(e) => dispatch({ type: "setSeats", max: Number(e.target.value) as 4 | 5 | 6 })} data-testid="seats-max">
+                  {[4, 5, 6].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div>
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="w-14 font-semibold">Terrain</span>
+                  {modeButton(state.def.generation.terrain, "fixed", "Fixed", () => dispatch({ type: "setGeneration", terrain: "fixed" }), "gen-terrain-fixed")}
+                  {modeButton(state.def.generation.terrain, "shuffle", "Shuffle", () => dispatch({ type: "setGeneration", terrain: "shuffle" }), "gen-terrain-shuffle")}
+                </div>
+                <p className="mt-0.5 text-[11px] text-ink-soft">{GENERATION_HELP.terrain[state.def.generation.terrain]}</p>
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="w-14 font-semibold">Numbers</span>
+                  {modeButton(state.def.generation.tokens, "fixed", "Fixed", () => dispatch({ type: "setGeneration", tokens: "fixed" }), "gen-tokens-fixed")}
+                  {modeButton(state.def.generation.tokens, "shuffle", "Shuffle", () => dispatch({ type: "setGeneration", tokens: "shuffle" }), "gen-tokens-shuffle")}
+                  {modeButton(state.def.generation.tokens, "balanced", "Balanced", () => dispatch({ type: "setGeneration", tokens: "balanced" }), "gen-tokens-balanced")}
+                </div>
+                <p className="mt-0.5 text-[11px] text-ink-soft">{GENERATION_HELP.tokens[state.def.generation.tokens]}</p>
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="w-14 font-semibold">Harbours</span>
+                  {modeButton(state.def.generation.harbors, "fixed", "Fixed", () => dispatch({ type: "setGeneration", harbors: "fixed" }), "gen-harbors-fixed")}
+                  {modeButton(state.def.generation.harbors, "shuffle", "Shuffle", () => dispatch({ type: "setGeneration", harbors: "shuffle" }), "gen-harbors-shuffle")}
+                </div>
+                <p className="mt-0.5 text-[11px] text-ink-soft">{GENERATION_HELP.harbors[state.def.generation.harbors]}</p>
+              </div>
+            </div>
+          </Section>
+
+          <Section title="Numbers and harbours" testId="section-fill">
+            <div className="flex flex-wrap gap-1" aria-label="Number tray">
               {tray.map((t) => (
-                <span key={t.token} className={`rounded border px-1 text-xs tabular-nums ${t.left > 0 ? "border-ink bg-white/60" : t.left < 0 ? "border-clay text-clay" : "border-line text-ink-soft"}`} title={`${t.left} left`}>
+                <span key={t.token} className={`rounded border px-1 text-xs tabular-nums ${t.left > 0 ? "border-ink bg-white/60" : t.left < 0 ? "border-clay text-clay" : "border-line text-ink-soft"}`} title={`${t.left} left to place`}>
                   {t.token}
                   <span className="text-[10px]">×{t.left}</span>
                 </span>
               ))}
             </div>
-            <div className="mt-1 flex flex-wrap gap-1">
-              <Button size="sm" onClick={() => dispatch({ type: "autoFillTokens", seed: `${seedRef.current}-${history.past.length}` })} data-testid="auto-tokens">
-                Auto-fill balanced
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              <Button size="sm" onClick={() => dispatch({ type: "autoFillTokens", seed: `${seedRef.current}-${history.past.length}` })} data-testid="auto-tokens" title="Deal a fair set of numbers and fix them in place">
+                Auto-fill numbers
               </Button>
-              <Button size="sm" variant="quiet" onClick={() => dispatch({ type: "clearLayer", layer: "tokens" })}>
+              <Button
+                size="sm"
+                variant="quiet"
+                onClick={() => {
+                  dispatch({ type: "clearLayer", layer: "tokens" });
+                  setToast("Numbers cleared (Undo brings them back)");
+                }}
+              >
                 Clear
               </Button>
             </div>
-          </div>
-          <div>
-            <h2 className="font-display text-sm font-semibold text-ink-soft">Harbours</h2>
-            <div className="mt-1 flex flex-wrap gap-1">
+            <div className="mt-1.5 flex flex-wrap gap-1">
               <Button size="sm" onClick={() => dispatch({ type: "autoPlaceHarbors", seed: `${seedRef.current}-${history.past.length}` })} data-testid="auto-harbors">
-                Auto-place
+                Auto-place harbours
               </Button>
-              <Button size="sm" variant="quiet" onClick={() => dispatch({ type: "clearLayer", layer: "harbors" })}>
+              <Button
+                size="sm"
+                variant="quiet"
+                onClick={() => {
+                  dispatch({ type: "clearLayer", layer: "harbors" });
+                  setToast("Harbours cleared (Undo brings them back)");
+                }}
+              >
                 Clear
               </Button>
             </div>
-          </div>
-          <div>
-            <h2 className="font-display text-sm font-semibold text-ink-soft">Markers</h2>
-            <p className="mt-1 text-xs text-ink-soft">Rivers, fishing grounds and oases only matter with their variant on.</p>
+          </Section>
+
+          <Section title="Face-down tiles" defaultOpen={faceDown > 0 || state.tool === "discover"} testId="section-discovery" aside={faceDown > 0 ? <span className="text-xs font-normal">{faceDown}</span> : undefined}>
+            <p className="text-[11px] leading-snug text-ink-soft">
+              Tiles that start face down and turn over when a road, ship or settlement touches a corner; the builder takes one of the tile&apos;s resource (gold: their choice).
+            </p>
+            {poolTiles > 0 && (
+              <div className="mt-1.5" data-testid="discovery-pool">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold">
+                    Pool: {pool.terrains.length} for {poolTiles} tile{poolTiles === 1 ? "" : "s"}
+                  </span>
+                  <button type="button" className={`text-[11px] underline ${state.def.discovery ? "" : "opacity-50"}`} disabled={!state.def.discovery} onClick={() => dispatch({ type: "setDiscoveryPool", terrains: null })} data-testid="discovery-pool-auto">
+                    {state.def.discovery ? "Back to automatic" : "Automatic"}
+                  </button>
+                </div>
+                <ul className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5">
+                  {TERRAINS.map((t) => (
+                    <li key={t} className="flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-1">
+                        <span className="inline-block h-3 w-3 rounded-sm border border-ink/40" style={{ background: TERRAIN_FILL[t] }} />
+                        {TERRAIN_LABEL[t]}
+                      </span>
+                      <span className="flex items-center">
+                        <button type="button" className="rounded px-1 hover:bg-parchment-deep" aria-label={`One fewer ${TERRAIN_LABEL[t]}`} onClick={() => setPoolCount(t, -1)} disabled={!poolCounts.get(t)}>
+                          −
+                        </button>
+                        <span className="w-4 text-center tabular-nums" data-testid={`pool-count-${t}`}>
+                          {poolCounts.get(t) ?? 0}
+                        </span>
+                        <button type="button" className="rounded px-1 hover:bg-parchment-deep" aria-label={`One more ${TERRAIN_LABEL[t]}`} onClick={() => setPoolCount(t, 1)}>
+                          +
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-0.5 text-[11px] text-ink-soft">Numbers for the pool are dealt automatically.</p>
+              </div>
+            )}
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              <Button size="sm" onClick={() => dispatch({ type: "setTool", tool: "discover" })}>
+                Mark tiles
+              </Button>
+              <Button size="sm" variant="quiet" disabled={faceDown === 0} onClick={() => dispatch({ type: "clearLayer", layer: "discovery" })} data-testid="clear-discovery">
+                Turn all face up
+              </Button>
+            </div>
+          </Section>
+
+          <Section title="Markers" defaultOpen={rivers.length + grounds.length + oases > 0} testId="section-markers">
+            <p className="text-xs text-ink-soft">Rivers, fishing grounds and oases only matter with their variant on (Scenario, on the right).</p>
             <div className="mt-1 flex flex-wrap gap-1">
               <Button size="sm" variant="quiet" disabled={rivers.length === 0 && grounds.length === 0} onClick={() => dispatch({ type: "clearLayer", layer: "edges" })} data-testid="clear-edges">
                 Clear rivers &amp; grounds
@@ -467,22 +806,38 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
                 Clear oases
               </Button>
             </div>
-          </div>
-          <div>
-            <h2 className="font-display text-sm font-semibold text-ink-soft">Templates</h2>
-            <div className="mt-1 flex flex-wrap gap-1">
+          </Section>
+
+          <Section title="Templates" defaultOpen={state.def.hexes.length === 0} testId="section-templates">
+            <div className="flex flex-wrap gap-1">
               {BUILT_IN_BOARD_IDS.map((id) => (
-                <Button key={id} size="sm" variant="quiet" onClick={() => dispatch({ type: "loadTemplate", id })} data-testid={`template-${id}`}>
+                <Button key={id} size="sm" variant="quiet" onClick={() => loadTemplate(id)} data-testid={`template-${id}`}>
                   {TEMPLATE_LABEL[id]}
                 </Button>
               ))}
             </div>
-          </div>
+            <p className="mt-1 text-[11px] text-ink-soft">Standard is the classic 19-hex island.</p>
+          </Section>
         </aside>
 
         {/* Canvas */}
         <main className="relative min-h-0" aria-label="Board canvas">
           <EditorCanvas def={state.def} tool={state.tool} symmetry={state.symmetry} selected={state.selected} topDown={topDown} quality={quality} gridRadius={state.gridRadius} onCellDown={onCellDown} onCellDrag={onCellDrag} onCellUp={onCellUp} onEdge={onEdge} onSelect={(id) => dispatch({ type: "select", id })} />
+          {state.def.hexes.length === 0 && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-4" data-testid="editor-empty">
+              <div className="parchment pointer-events-auto max-w-xl rounded-lg px-4 py-3 text-center text-sm shadow-lg">
+                <p className="font-display font-semibold">An empty table</p>
+                <p className="mt-0.5 text-xs text-ink-soft">Click or drag on the grid to paint land (Shape tool, L), then sea (S). Or start from a template:</p>
+                <div className="mt-2 flex flex-wrap justify-center gap-1">
+                  {BUILT_IN_BOARD_IDS.map((id) => (
+                    <Button key={id} size="sm" onClick={() => loadTemplate(id)} data-testid={`empty-template-${id}`}>
+                      {TEMPLATE_LABEL[id]}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </main>
 
         {/* Inspector and validation */}
@@ -512,7 +867,10 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
                           e.preventDefault();
                           const n = Number(tokenDraft);
                           if (Number.isInteger(n) && n >= 2 && n <= 12 && n !== 7) dispatch({ type: "setToken", at: selectedHex.at, token: n });
+                          else if (tokenDraft.trim() !== "") setToast("Numbers are 2–12, never 7");
                           setTokenDraft("");
+                          // Hand the keyboard back to the shortcuts.
+                          (document.activeElement as HTMLElement | null)?.blur();
                         }}
                       >
                         <label className="text-xs">
@@ -531,6 +889,19 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
                     )}
                     <label className="flex items-center gap-1 text-xs">
                       <input type="checkbox" checked={isOasis(selectedHex)} onChange={() => dispatch({ type: "toggleOasis", at: selectedHex.at })} data-testid="inspector-oasis" /> Oasis (Caravans)
+                    </label>
+                    <label className="flex items-center gap-1 text-xs">
+                      Starts
+                      <select
+                        className="rounded-md border border-line bg-white/60 px-1 py-0.5"
+                        value={discoverOf(selectedHex) ?? "up"}
+                        onChange={(e) => dispatch({ type: "setDiscover", at: selectedHex.at, kind: e.target.value === "up" ? null : (e.target.value as DiscoverKind) })}
+                        data-testid="inspector-discover"
+                      >
+                        <option value="up">face up</option>
+                        <option value="tile">face down (this tile)</option>
+                        <option value="pool">face down (from the pool)</option>
+                      </select>
                     </label>
                   </>
                 )}
@@ -580,6 +951,7 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
                       const n = Number(fishingDraft);
                       if (Number.isInteger(n) && n >= 2 && n <= 12 && n !== 7) dispatch({ type: "setFishingGround", edge: selectedEdge, token: n });
                       setFishingDraft("");
+                      (document.activeElement as HTMLElement | null)?.blur();
                     }}
                   >
                     <label className="text-xs">
@@ -602,8 +974,43 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
                 )}
               </div>
             ) : (
-              <p className="mt-1 text-xs text-ink-soft">Click a cell or, with the harbour, fishing or river tool, an edge.</p>
+              <p className="mt-1 text-xs text-ink-soft">Click a hex to edit it here. With the harbour, fishing or river tool, click an edge.</p>
             )}
+          </div>
+          <div>
+            <h2 className="font-display text-sm font-semibold text-ink-soft">Board</h2>
+            <p className="mt-1 text-xs text-ink-soft" data-testid="board-stats">
+              {state.def.hexes.filter((h) => h.kind === "land").length} land · {state.def.hexes.filter((h) => h.kind === "sea").length} sea · {state.def.harbors.length} harbours · {islands} island{islands === 1 ? "" : "s"}
+              {rivers.length > 0 && ` · ${rivers.length} river${rivers.length === 1 ? "" : "s"}`}
+              {grounds.length > 0 && ` · ${grounds.length} fishing ground${grounds.length === 1 ? "" : "s"}`}
+              {oases > 0 && ` · ${oases} oas${oases === 1 ? "is" : "es"}`}
+              {faceDown > 0 && ` · ${faceDown} face-down`}
+            </p>
+          </div>
+          <div ref={validationRef} className="scroll-mt-2">
+            <h2 className="font-display text-sm font-semibold text-ink-soft">Validation</h2>
+            <ul className="mt-1 space-y-1" data-testid="validation">
+              {issues.length === 0 && <li className="text-xs text-wood">No problems: ready to save and play.</li>}
+              {land === 0 && (
+                <li className="rounded border border-line bg-white/40 px-1.5 py-1 text-xs" data-severity="hint">
+                  An empty board. Paint at least 7 land hexes with the Shape tool, or start from a template.
+                </li>
+              )}
+              {(land === 0 ? [] : errors).map((i, k) => (
+                <li key={`e${k}`} className="rounded border border-clay/60 bg-clay/10 px-1.5 py-1 text-xs" data-severity="error">
+                  <button type="button" className="text-left" onClick={() => i.at && dispatch({ type: "select", id: i.at })}>
+                    <strong>Error:</strong> {i.message}
+                  </button>
+                </li>
+              ))}
+              {warnings.map((i, k) => (
+                <li key={`w${k}`} className="rounded border border-grain/70 bg-grain/10 px-1.5 py-1 text-xs" data-severity="warning">
+                  <button type="button" className="text-left" onClick={() => i.at && dispatch({ type: "select", id: i.at })}>
+                    <strong>Warning:</strong> {i.message}
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
           <div data-testid="scenario-tab">
             <h2 className="font-display text-sm font-semibold text-ink-soft">Scenario</h2>
@@ -629,11 +1036,11 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
                 </label>
                 <label className="flex items-center gap-1">
                   Island bonus
-                  <input type="number" min={0} max={5} className="w-12 rounded-md border border-line bg-white/60 px-1 py-0.5" value={state.scenario.islandBonus} disabled={!state.scenario.tides} onChange={(e) => setScenario({ islandBonus: Number(e.target.value) })} data-testid="scenario-island-bonus" /> points per new island
+                  <NumberField label="Island bonus" min={0} max={5} value={state.scenario.islandBonus} disabled={!state.scenario.tides} onCommit={(n) => setScenario({ islandBonus: n })} testId="scenario-island-bonus" /> points per new island
                 </label>
                 <label className="flex items-center gap-1">
                   Points to win
-                  <input type="number" min={3} max={30} className="w-12 rounded-md border border-line bg-white/60 px-1 py-0.5" value={state.scenario.victoryPoints} onChange={(e) => setScenario({ victoryPoints: Number(e.target.value) })} data-testid="scenario-vp" />
+                  <NumberField label="Points to win" min={3} max={30} value={state.scenario.victoryPoints} onCommit={(n) => setScenario({ victoryPoints: n })} testId="scenario-vp" />
                 </label>
                 <label className="flex items-center gap-1">
                   Setup
@@ -657,7 +1064,7 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
                 )}
                 <div>
                   <label className="inline-flex items-center gap-1">
-                    <input type="checkbox" checked={state.scenario.crown} onChange={(e) => setScenario({ crown: e.target.checked })} data-testid="scenario-crown" /> Crown &amp; Castle
+                    <input type="checkbox" checked={state.scenario.crown} onChange={(e) => setCrown(e.target.checked)} data-testid="scenario-crown" /> Crown &amp; Castle
                   </label>
                   <RuleBlurb id="crown" text={CROWN_SUMMARY} open={state.scenario.crown} />
                 </div>
@@ -682,38 +1089,6 @@ export function Editor({ initial, initialId, initialScenario = null }: { initial
               </div>
             )}
           </div>
-          <div>
-            <h2 className="font-display text-sm font-semibold text-ink-soft">Board</h2>
-            <p className="mt-1 text-xs text-ink-soft" data-testid="board-stats">
-              {state.def.hexes.filter((h) => h.kind === "land").length} land · {state.def.hexes.filter((h) => h.kind === "sea").length} sea · {state.def.harbors.length} harbours · {islands} island{islands === 1 ? "" : "s"}
-              {rivers.length > 0 && ` · ${rivers.length} river${rivers.length === 1 ? "" : "s"}`}
-              {grounds.length > 0 && ` · ${grounds.length} fishing ground${grounds.length === 1 ? "" : "s"}`}
-              {oases > 0 && ` · ${oases} oas${oases === 1 ? "is" : "es"}`}
-            </p>
-          </div>
-          <div>
-            <h2 className="font-display text-sm font-semibold text-ink-soft">Validation</h2>
-            <ul className="mt-1 space-y-1" data-testid="validation">
-              {issues.length === 0 && <li className="text-xs text-wood">No problems.</li>}
-              {errors.map((i, k) => (
-                <li key={`e${k}`} className="rounded border border-clay/60 bg-clay/10 px-1.5 py-1 text-xs" data-severity="error">
-                  <button type="button" className="text-left" onClick={() => i.at && dispatch({ type: "select", id: i.at })}>
-                    <strong>Error:</strong> {i.message}
-                  </button>
-                </li>
-              ))}
-              {warnings.map((i, k) => (
-                <li key={`w${k}`} className="rounded border border-grain/70 bg-grain/10 px-1.5 py-1 text-xs" data-severity="warning">
-                  <button type="button" className="text-left" onClick={() => i.at && dispatch({ type: "select", id: i.at })}>
-                    <strong>Warning:</strong> {i.message}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <p className="text-xs text-ink-soft">
-            Templates: {Object.values(TEMPLATE_LABEL).join(", ")}. {builtInBoard("random").hexes.length} hexes is the standard size.
-          </p>
         </aside>
       </div>
       {toast && (
