@@ -60,3 +60,17 @@ verify_jwt = false
 verify_jwt = false
 [functions.send-chat]
 verify_jwt = false
+[functions.touch-profile]
+verify_jwt = false
+[functions.save-profile]
+verify_jwt = false
+[functions.send-friend-request]
+verify_jwt = false
+[functions.respond-friend-request]
+verify_jwt = false
+[functions.remove-friend]
+verify_jwt = false
+[functions.send-invite]
+verify_jwt = false
+[functions.respond-invite]
+verify_jwt = false

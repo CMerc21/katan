@@ -24,7 +24,12 @@ export type TransportCode =
   | "BOT_CAP"
   | "BOARD_NOT_FOUND"
   | "SCENARIO_NOT_FOUND"
-  | "NOT_OWNER";
+  | "NOT_OWNER"
+  | "FRIEND_NOT_FOUND"
+  | "ALREADY_FRIENDS"
+  | "NOT_FRIENDS"
+  | "INVITE_NOT_FOUND"
+  | "INVITE_EXPIRED";
 
 export type ServiceCode = RuleErrorCode | TransportCode;
 

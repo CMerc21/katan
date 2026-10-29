@@ -4,6 +4,6 @@ import { handle, str } from "../_shared/handler.ts";
 import { joinGame } from "../_shared/katan.bundle.js";
 
 Deno.serve(handle(async ({ sql, userId, body }) => {
-  const r = await joinGame(sql, { code: str(body, "code"), userId, name: typeof body.name === "string" ? body.name : "" });
+  const r = await joinGame(sql, { code: str(body, "code"), userId, name: typeof body.name === "string" ? body.name : "", avatar: body.avatar, color: body.color });
   return { ...r };
 }));

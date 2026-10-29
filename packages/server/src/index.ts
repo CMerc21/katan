@@ -3,3 +3,4 @@ export * from "./game-service";
 export * from "./lobby-service";
 export * from "./board-service";
 export * from "./scenario-service";
+export * from "./social-service";

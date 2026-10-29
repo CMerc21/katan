@@ -111,7 +111,19 @@ export interface CreateLobbyInput {
    */
   board: BoardKind | string | { boardId: string } | { definition: BoardDefinition } | { scenarioId: string } | { scenario: Scenario };
   maxPlayers: 3 | 4 | 5 | 6;
+  /** The host's wardrobe (docs/phase13.md §2): their portrait and preferred colour for seat 0. */
+  avatar?: unknown;
+  color?: unknown;
   random?: () => number;
+}
+
+/** A wardrobe avatar if it is well formed, else the seat's seeded default. */
+function seatAvatar(wanted: unknown, gameId: string, seat: number): AvatarSpec {
+  return isAvatarSpec(wanted) ? wanted : defaultAvatar(gameId, seat);
+}
+
+function wantedColor(wanted: unknown): PlayerColor | undefined {
+  return typeof wanted === "string" && (PLAYER_COLORS as readonly string[]).includes(wanted) ? (wanted as PlayerColor) : undefined;
 }
 
 interface LobbyBoard {
@@ -177,7 +189,7 @@ export async function createLobby(sql: Db, input: CreateLobbyInput): Promise<{ g
         await tx`insert into lobbies (game_id, join_code, status, host_user_id, max_players, board, board_name, absent_after_ms)
                  values (${gameId}, ${joinCode}, 'lobby', ${input.hostUserId}, ${input.maxPlayers}, ${chosen.kind}, ${chosen.name}, ${absentMinutes * 60_000})`;
         await tx`insert into game_players (game_id, user_id, player_id, seat, name, color, kind, ready, last_seen_at, avatar)
-                 values (${gameId}, ${input.hostUserId}, ${playerIdForSeat(0)}, 0, ${cleanName(input.name, "Host")}, 'red', 'human', false, now(), ${tx.json(defaultAvatar(gameId, 0) as unknown as JSONValue)})`;
+                 values (${gameId}, ${input.hostUserId}, ${playerIdForSeat(0)}, 0, ${cleanName(input.name, "Host")}, ${wantedColor(input.color) ?? "red"}, 'human', false, now(), ${tx.json(seatAvatar(input.avatar, gameId, 0) as unknown as JSONValue)})`;
         return { gameId, joinCode };
       });
     } catch (err) {
@@ -192,7 +204,7 @@ function isUniqueViolation(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: string }).code === "23505";
 }
 
-export async function joinGame(sql: Db, input: { code: string; userId: string; name: string }): Promise<{ gameId: string; playerId: string }> {
+export async function joinGame(sql: Db, input: { code: string; userId: string; name: string; avatar?: unknown; color?: unknown }): Promise<{ gameId: string; playerId: string }> {
   const code = normalizeCode(input.code);
   if (code.length !== 6) throw new ServiceError("INVALID_CODE", "join codes are 6 characters", 404);
   return sql.begin(async (tx) => {
@@ -205,10 +217,12 @@ export async function joinGame(sql: Db, input: { code: string; userId: string; n
     requireLobby(game);
     if (seats.length >= game.max_players) throw new ServiceError("LOBBY_FULL", "that game is full", 409);
     const seat = freeSeat(seats, game.max_players);
-    const color = freeColor(seats);
+    // The wardrobe colour is a preference: taken already means the next free one.
+    const preferred = wantedColor(input.color);
+    const color = preferred && !seats.some((s) => s.color === preferred) ? preferred : freeColor(seats);
     const playerId = playerIdForSeat(seat);
     await tx`insert into game_players (game_id, user_id, player_id, seat, name, color, kind, ready, last_seen_at, avatar)
-             values (${game.id}, ${input.userId}, ${playerId}, ${seat}, ${cleanName(input.name, `Player ${seat + 1}`)}, ${color}, 'human', false, now(), ${tx.json(defaultAvatar(game.id, seat) as unknown as JSONValue)})`;
+             values (${game.id}, ${input.userId}, ${playerId}, ${seat}, ${cleanName(input.name, `Player ${seat + 1}`)}, ${color}, 'human', false, now(), ${tx.json(seatAvatar(input.avatar, game.id, seat) as unknown as JSONValue)})`;
     return { gameId: game.id, playerId };
   });
 }
