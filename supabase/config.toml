@@ -74,3 +74,7 @@ verify_jwt = false
 verify_jwt = false
 [functions.respond-invite]
 verify_jwt = false
+[functions.search-players]
+verify_jwt = false
+[functions.set-username]
+verify_jwt = false

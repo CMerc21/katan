@@ -21,6 +21,11 @@ export const ONLINE_WINDOW_MS = 120_000;
 export const INVITE_TTL_MS = 15 * 60_000;
 /** Open friend requests one player may have outstanding. */
 export const MAX_OUTGOING_REQUESTS = 50;
+/** Handles: lowercase letters, digits and underscore (docs/phase13.md §3.1). */
+export const USERNAME_PATTERN = /^[a-z0-9_]{3,20}$/;
+/** Search needs at least this many characters and returns at most SEARCH_LIMIT players. */
+export const SEARCH_MIN_LENGTH = 3;
+export const SEARCH_LIMIT = 8;
 
 export type Activity = "menu" | "lobby" | "game";
 const ACTIVITIES: readonly Activity[] = ["menu", "lobby", "game"];
@@ -28,6 +33,7 @@ const ACTIVITIES: readonly Activity[] = ["menu", "lobby", "game"];
 export interface ProfileRow {
   user_id: string;
   display_name: string;
+  username: string;
   friend_code: string;
   avatar: AvatarSpec | null;
   color: PlayerColor | null;
@@ -58,6 +64,34 @@ export function formatFriendCode(code: string): string {
   return code.length === FRIEND_CODE_LENGTH ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
 }
 
+/** `@Ana_Bold` → `ana_bold`: what a typed handle or search query is compared as. */
+export function normalizeUsername(input: string): string {
+  return input.trim().replace(/^@/, "").toLowerCase();
+}
+
+/**
+ * The handle a new profile starts from: the display name with accents
+ * dropped, squeezed to the handle alphabet and cut to 15 characters (room
+ * for a numeric suffix), or "settler" when fewer than 3 characters remain.
+ */
+export function usernameBase(displayName: string): string {
+  const squeezed = displayName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "")
+    .slice(0, 15);
+  return squeezed.length >= 3 ? squeezed : "settler";
+}
+
+/** The first try is the bare base; later tries add 2–4 random digits. */
+function usernameCandidate(base: string, attempt: number, random: () => number): string {
+  if (attempt === 0) return base;
+  const digits = attempt < 5 ? 2 : attempt < 12 ? 3 : 4;
+  const n = Math.floor(random() * 10 ** digits);
+  return `${base}${String(n).padStart(digits, "0")}`;
+}
+
 function cleanDisplayName(name: unknown): string | null {
   const n = typeof name === "string" ? name.trim().slice(0, 24) : "";
   return n.length > 0 ? n : null;
@@ -73,22 +107,82 @@ async function nameFromAuth(tx: Tx, userId: string): Promise<string> {
   return cleanDisplayName(row.meta?.display_name) ?? cleanDisplayName(row.email?.split("@")[0]) ?? "Player";
 }
 
-/** The caller's profile, created with a fresh friend code if this is their first visit. */
+/** The caller's profile, created with a fresh friend code and a handle from their name if this is their first visit. */
 export async function ensureProfile(tx: Tx, userId: string, random: () => number = Math.random): Promise<ProfileRow> {
   const [existing] = await tx<ProfileRow[]>`select * from profiles where user_id = ${userId}`;
   if (existing) return existing;
   const name = await nameFromAuth(tx, userId);
+  const base = usernameBase(name);
   for (let attempt = 0; attempt < 20; attempt++) {
     const rows = await tx<ProfileRow[]>`
-      insert into profiles (user_id, display_name, friend_code)
-      values (${userId}, ${name}, ${generateFriendCode(random)})
+      insert into profiles (user_id, display_name, username, friend_code)
+      values (${userId}, ${name}, ${usernameCandidate(base, attempt, random)}, ${generateFriendCode(random)})
       on conflict do nothing
       returning *`;
     if (rows[0]) return rows[0];
     const [raced] = await tx<ProfileRow[]>`select * from profiles where user_id = ${userId}`;
-    if (raced) return raced; // a parallel first visit won; the conflict was on user_id, not the code
+    if (raced) return raced; // a parallel first visit won; otherwise the handle or the code collided: try again
   }
-  throw new ServiceError("BAD_REQUEST", "could not allocate a friend code", 500);
+  throw new ServiceError("BAD_REQUEST", "could not allocate a handle and friend code", 500);
+}
+
+/** Change your handle. Lowercased; 3–20 of a–z, 0–9 and _; unique. */
+export async function setUsername(sql: Db, input: { userId: string; username: string }): Promise<ProfileRow> {
+  const username = normalizeUsername(input.username);
+  if (!USERNAME_PATTERN.test(username)) throw new ServiceError("USERNAME_INVALID", "3 to 20 letters, digits or _");
+  return sql.begin(async (tx) => {
+    const current = await ensureProfile(tx as Tx, input.userId);
+    if (current.username === username) return current;
+    const [taken] = await tx<{ user_id: string }[]>`select user_id from profiles where username = ${username}`;
+    if (taken) throw new ServiceError("USERNAME_TAKEN", "that username is taken", 409);
+    try {
+      const [row] = await tx<ProfileRow[]>`update profiles set username = ${username} where user_id = ${input.userId} returning *`;
+      return row!;
+    } catch (err) {
+      if ((err as { code?: string }).code === "23505") throw new ServiceError("USERNAME_TAKEN", "that username is taken", 409);
+      throw err;
+    }
+  });
+}
+
+export type Relation = "none" | "friends" | "outgoing" | "incoming";
+
+/** What search shows about a player: never their friend code, email or activity. */
+export interface PlayerHit {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatar: AvatarSpec | null;
+  color: PlayerColor | null;
+  relation: Relation;
+}
+
+/**
+ * Find players by handle prefix (docs/phase13.md §3.1). Runs with the
+ * service role, so it is the only way a stranger's row is ever read; it
+ * returns little (no code, no presence) and few (SEARCH_LIMIT), exact match
+ * first, then shorter handles, and needs SEARCH_MIN_LENGTH characters.
+ */
+export async function searchPlayers(sql: Db, input: { userId: string; query: string }): Promise<PlayerHit[]> {
+  const q = normalizeUsername(input.query);
+  if (q.length < SEARCH_MIN_LENGTH || q.length > 20 || !/^[a-z0-9_]+$/.test(q)) return [];
+  const pattern = `${q.replace(/_/g, "\\_")}%`;
+  const rows = await sql<{ user_id: string; username: string; display_name: string; avatar: unknown; color: string | null; requester: string | null; status: string | null }[]>`
+    select p.user_id, p.username, p.display_name, p.avatar, p.color, f.requester, f.status
+    from profiles p
+    left join friendships f
+      on (f.requester = ${input.userId} and f.addressee = p.user_id) or (f.addressee = ${input.userId} and f.requester = p.user_id)
+    where p.username like ${pattern} and p.user_id <> ${input.userId}
+    order by (p.username = ${q}) desc, length(p.username), p.username collate "C"
+    limit ${SEARCH_LIMIT}`;
+  return rows.map((r) => ({
+    userId: r.user_id,
+    username: r.username,
+    displayName: r.display_name,
+    avatar: isAvatarSpec(r.avatar) ? r.avatar : null,
+    color: cleanColor(r.color),
+    relation: r.status === "accepted" ? "friends" : r.status === "pending" ? (r.requester === input.userId ? "outgoing" : "incoming") : "none",
+  }));
 }
 
 /** Heartbeat: marks the caller online and says where they are (menu, lobby, game). */
@@ -135,17 +229,24 @@ async function pairOf(tx: Tx, a: string, b: string): Promise<FriendshipRow | und
 }
 
 /**
- * Ask someone to be friends by their code. If they already asked you, this
- * accepts their request instead of opening a second one.
+ * Ask someone to be friends by their friend code or their exact username. If
+ * they already asked you, this accepts their request instead of opening a
+ * second one.
  */
-export async function sendFriendRequest(sql: Db, input: { userId: string; code: string }): Promise<{ friendId: string; status: "pending" | "accepted" }> {
-  const code = normalizeCode(input.code);
-  if (code.length !== FRIEND_CODE_LENGTH) throw new ServiceError("FRIEND_NOT_FOUND", "friend codes are 8 characters", 404);
+export async function sendFriendRequest(
+  sql: Db,
+  input: { userId: string; code?: string; username?: string },
+): Promise<{ friendId: string; status: "pending" | "accepted" }> {
+  const code = input.code === undefined ? null : normalizeCode(input.code);
+  const username = input.username === undefined ? null : normalizeUsername(input.username);
+  if (code === null && username === null) throw new ServiceError("BAD_REQUEST", "a friend code or a username is required");
+  if (code !== null && code.length !== FRIEND_CODE_LENGTH) throw new ServiceError("FRIEND_NOT_FOUND", "friend codes are 8 characters", 404);
+  if (code === null && !USERNAME_PATTERN.test(username!)) throw new ServiceError("FRIEND_NOT_FOUND", "no player has that username", 404);
   return sql.begin(async (tx) => {
     await ensureProfile(tx as Tx, input.userId);
-    const [target] = await tx<{ user_id: string }[]>`select user_id from profiles where friend_code = ${code}`;
-    if (!target) throw new ServiceError("FRIEND_NOT_FOUND", "no player has that code", 404);
-    if (target.user_id === input.userId) throw new ServiceError("BAD_REQUEST", "that is your own code");
+    const [target] = code !== null ? await tx<{ user_id: string }[]>`select user_id from profiles where friend_code = ${code}` : await tx<{ user_id: string }[]>`select user_id from profiles where username = ${username}`;
+    if (!target) throw new ServiceError("FRIEND_NOT_FOUND", code !== null ? "no player has that code" : "no player has that username", 404);
+    if (target.user_id === input.userId) throw new ServiceError("BAD_REQUEST", "that is you");
     const existing = await pairOf(tx as Tx, input.userId, target.user_id);
     if (existing?.status === "accepted") throw new ServiceError("ALREADY_FRIENDS", "you are already friends", 409);
     if (existing && existing.requester === input.userId) return { friendId: target.user_id, status: "pending" as const }; // asked already: idempotent
@@ -153,8 +254,8 @@ export async function sendFriendRequest(sql: Db, input: { userId: string; code: 
       await tx`update friendships set status = 'accepted', responded_at = now() where requester = ${target.user_id} and addressee = ${input.userId}`;
       return { friendId: target.user_id, status: "accepted" as const };
     }
-    const [{ n }] = (await tx<{ n: number }[]>`select count(*)::int as n from friendships where requester = ${input.userId} and status = 'pending'`) as [{ n: number }];
-    if (n >= MAX_OUTGOING_REQUESTS) throw new ServiceError("BAD_REQUEST", "too many open requests");
+    const [open] = await tx<{ n: number }[]>`select count(*)::int as n from friendships where requester = ${input.userId} and status = 'pending'`;
+    if ((open?.n ?? 0) >= MAX_OUTGOING_REQUESTS) throw new ServiceError("BAD_REQUEST", "too many open requests");
     await tx`insert into friendships (requester, addressee) values (${input.userId}, ${target.user_id})`;
     return { friendId: target.user_id, status: "pending" as const };
   });

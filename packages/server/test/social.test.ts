@@ -10,10 +10,13 @@ import {
   saveProfile,
   sendFriendRequest,
   sendInvite,
+  searchPlayers,
+  setUsername,
   startGame,
   addBot,
   setReady,
   touchProfile,
+  usernameBase,
   type Db,
   type ProfileRow,
 } from "../src/index";
@@ -80,8 +83,8 @@ describe("docs/phase13.md §3 friends", () => {
     const code = profiles[ben]!.friend_code.toLowerCase();
     expect(await sendFriendRequest(sql, { userId: ana, code: `${code.slice(0, 4)}-${code.slice(4)}` })).toEqual({ friendId: ben, status: "pending" });
     expect(await sendFriendRequest(sql, { userId: ana, code })).toEqual({ friendId: ben, status: "pending" });
-    const [{ n }] = (await sql<{ n: number }[]>`select count(*)::int as n from friendships`) as [{ n: number }];
-    expect(n).toBe(1);
+    const [count] = await sql<{ n: number }[]>`select count(*)::int as n from friendships`;
+    expect(count!.n).toBe(1);
     expect(await sendFriendRequest(sql, { userId: ben, code: profiles[ana]!.friend_code })).toEqual({ friendId: ana, status: "accepted" });
     await expect(sendFriendRequest(sql, { userId: ana, code })).rejects.toMatchObject({ code: "ALREADY_FRIENDS" });
   });
@@ -168,5 +171,78 @@ describe("docs/phase13.md §4 invites", () => {
     await removeFriend(sql, { userId: cal, otherUserId: ana });
     const [row] = await sql<{ status: string }[]>`select status from game_invites where id = ${inviteId}`;
     expect(row!.status).toBe("cancelled");
+  });
+});
+
+describe("docs/phase13.md §3.1 usernames and friend search", () => {
+  it("first contact assigns a handle from the display name; collisions get digits; odd names still get a valid handle", async () => {
+    expect(profiles[ana]!.username).toBe("ana");
+    expect(profiles[ben]!.username).toBe("ben");
+    const ana2 = await createUser(sql, "ana.two@example.com", "Ana");
+    const second = await touchProfile(sql, { userId: ana2 });
+    expect(second.username).toMatch(/^ana\d{2,4}$/);
+    expect(usernameBase("Élodie O'Brien")).toBe("elodieobrien");
+    expect(usernameBase("Élodie O'Brien-Smith")).toBe("elodieobriensmi"); // cut to 15, room for digits
+    expect(usernameBase("李")).toBe("settler");
+    expect(usernameBase("  a  ")).toBe("settler");
+    expect(usernameBase("The Very Long Name Of Sir Reginald")).toBe("theverylongname");
+    const odd = await touchProfile(sql, { userId: await createUser(sql, "li@example.com", "李") });
+    expect(odd.username).toMatch(/^settler\d*$/);
+  });
+
+  it("set-username lowercases, refuses bad shapes and taken handles, and allows keeping your own", async () => {
+    const u = await createUser(sql, "renamer@example.com", "Renamer");
+    await touchProfile(sql, { userId: u });
+    expect((await setUsername(sql, { userId: u, username: "@Sir_Renamer" })).username).toBe("sir_renamer");
+    expect((await setUsername(sql, { userId: u, username: "sir_renamer" })).username).toBe("sir_renamer");
+    for (const bad of ["ab", "has space", "x".repeat(21), "dash-ed", ""]) {
+      await expect(setUsername(sql, { userId: u, username: bad })).rejects.toMatchObject({ code: "USERNAME_INVALID" });
+    }
+    await expect(setUsername(sql, { userId: u, username: "BEN" })).rejects.toMatchObject({ code: "USERNAME_TAKEN" });
+  });
+
+  it("search matches handle prefixes only, ranks exact first, escapes _, excludes you, caps the list and says how you are connected", async () => {
+    const seeker = await createUser(sql, "seeker@example.com", "Seeker");
+    await touchProfile(sql, { userId: seeker });
+    const ids: Record<string, string> = {};
+    for (const name of ["mira", "mirabel", "miro", "mira_x", "miraxx", "admira"]) {
+      ids[name] = await createUser(sql, `${name}@example.com`, name);
+      await touchProfile(sql, { userId: ids[name]! });
+      await setUsername(sql, { userId: ids[name]!, username: name });
+    }
+    for (let i = 0; i < 6; i++) {
+      const id = await createUser(sql, `mirror${i}@example.com`, `Mirror${i}`);
+      await touchProfile(sql, { userId: id });
+    }
+    await sendFriendRequest(sql, { userId: seeker, username: "mirabel" });
+    await sendFriendRequest(sql, { userId: ids.miro!, username: "seeker" });
+    await sendFriendRequest(sql, { userId: seeker, username: "mira" });
+    await respondFriendRequest(sql, { userId: ids.mira!, fromUserId: seeker, accept: true });
+
+    expect(await searchPlayers(sql, { userId: seeker, query: "mi" })).toEqual([]);
+    expect(await searchPlayers(sql, { userId: seeker, query: "not a handle!" })).toEqual([]);
+    const hits = await searchPlayers(sql, { userId: seeker, query: "@MIRA" });
+    expect(hits.map((h) => h.username)).toEqual(["mira", "mira_x", "miraxx", "mirabel"]);
+    expect(hits[0]).toMatchObject({ userId: ids.mira, displayName: "mira", relation: "friends" });
+    expect(hits.find((h) => h.username === "mirabel")!.relation).toBe("outgoing");
+    expect(hits.every((h) => !("friendCode" in h) && !("friend_code" in h))).toBe(true);
+    // `_` is literal, not a wildcard.
+    expect((await searchPlayers(sql, { userId: seeker, query: "mira_" })).map((h) => h.username)).toEqual(["mira_x"]);
+    expect((await searchPlayers(sql, { userId: seeker, query: "miro" }))[0]!.relation).toBe("incoming");
+    const many = await searchPlayers(sql, { userId: seeker, query: "mir" });
+    expect(many).toHaveLength(8);
+    expect(many.some((h) => h.username === "admira")).toBe(false);
+    expect((await searchPlayers(sql, { userId: seeker, query: "seeker" })).length).toBe(0);
+  });
+
+  it("friend requests go by username too; an unknown handle is refused", async () => {
+    const a = await createUser(sql, "handle-a@example.com", "Handle A");
+    const b = await createUser(sql, "handle-b@example.com", "Handle B");
+    await touchProfile(sql, { userId: a });
+    await touchProfile(sql, { userId: b });
+    await setUsername(sql, { userId: b, username: "handle_b" });
+    expect(await sendFriendRequest(sql, { userId: a, username: "@Handle_B" })).toEqual({ friendId: b, status: "pending" });
+    await expect(sendFriendRequest(sql, { userId: a, username: "nobody_here" })).rejects.toMatchObject({ code: "FRIEND_NOT_FOUND" });
+    await expect(sendFriendRequest(sql, { userId: a })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });

@@ -29,7 +29,9 @@ export type TransportCode =
   | "ALREADY_FRIENDS"
   | "NOT_FRIENDS"
   | "INVITE_NOT_FOUND"
-  | "INVITE_EXPIRED";
+  | "INVITE_EXPIRED"
+  | "USERNAME_INVALID"
+  | "USERNAME_TAKEN";
 
 export type ServiceCode = RuleErrorCode | TransportCode;
 
