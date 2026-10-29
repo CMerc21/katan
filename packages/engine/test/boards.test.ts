@@ -306,7 +306,7 @@ describe("docs/phase8.md §2 placed tokens stay where they are", () => {
   it("§13 under shuffle and balanced a hand-placed token keeps its hex; only the empty producing hexes are filled", () => {
     const frame = standardFrame();
     const terrains = beginnerDefinition().hexes;
-    const withTerrain = frame.hexes.map((h, i) => ({ ...h, terrain: terrains[i]!.terrain }));
+    const withTerrain: HexDef[] = frame.hexes.map((h, i) => ({ ...h, terrain: terrains[i]!.terrain! }));
     const target = withTerrain.find((h) => h.terrain === "forest")!;
     for (const tokens of ["shuffle", "balanced"] as const) {
       const def: BoardDefinition = {
