@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { Avatar } from "@/components/Avatar";
 import { InviteCard } from "@/social/InviteToasts";
+import { PlayerSearch, UsernameEditor } from "./PlayerSearch";
 import { formatFriendCode, invitableFriends, normalizeFriendCode, statusText, type FriendEntry, type InviteState } from "@/social/model";
 import { useSocial } from "@/social/SocialProvider";
 
@@ -97,7 +98,7 @@ export function FriendsPanel({ party, onInvite, onClose }: { party: PartyInfo | 
     const clean = normalizeFriendCode(code);
     if (clean.length !== 8) return setNote({ text: "Friend codes are 8 letters and digits", tone: "bad" });
     setBusy("add");
-    const r = await social.sendFriendRequest(clean);
+    const r = await social.sendFriendRequest({ code: clean });
     setBusy(null);
     if (!r.ok) return setNote({ text: r.message, tone: "bad" });
     setCode("");
@@ -126,41 +127,51 @@ export function FriendsPanel({ party, onInvite, onClose }: { party: PartyInfo | 
     <section className="lb-plaque lb-sheet lb-sheet-left w-[min(22rem,calc(100vw-1.5rem))] p-4" aria-label="Friends" data-testid="friends-panel">
       <Header onClose={onClose} />
 
-      <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-black/30 px-3 py-2">
-        <span>
-          <span className="block text-[10px] uppercase tracking-wider text-bone/60">Your friend code</span>
-          <span className="font-mono text-lg tracking-[0.15em] text-[#ffe9a8]" data-testid="my-friend-code">
-            {me ? formatFriendCode(me.friendCode) : "…"}
+      <div className="mt-3 space-y-2 rounded-lg bg-black/30 px-3 py-2">
+        <UsernameEditor />
+        <div className="flex items-center justify-between gap-2 border-t border-gilt/15 pt-2">
+          <span>
+            <span className="block text-[10px] uppercase tracking-wider text-bone/60">Your friend code</span>
+            <span className="font-mono text-base tracking-[0.15em] text-[#ffe9a8]" data-testid="my-friend-code">
+              {me ? formatFriendCode(me.friendCode) : "…"}
+            </span>
           </span>
-        </span>
-        <button type="button" className="lb-dark px-2.5 py-1 text-xs" onClick={() => void copy()} disabled={!me}>
-          {copied ? "Copied" : "Copy"}
-        </button>
+          <button type="button" className="lb-dark px-2.5 py-1 text-xs" onClick={() => void copy()} disabled={!me}>
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
       </div>
 
-      <form
-        className="mt-2 flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void add();
-        }}
-      >
-        <label className="sr-only" htmlFor="friend-code">
-          Friend code
-        </label>
-        <input
-          id="friend-code"
-          className="min-w-0 flex-1 rounded-md border border-gilt/40 bg-black/30 px-2.5 py-1.5 font-mono text-sm uppercase tracking-widest text-bone placeholder:text-bone/40"
-          placeholder="ABCD-EFGH"
-          value={code}
-          maxLength={9}
-          onChange={(e) => setCode(e.target.value)}
-          data-testid="friend-code-input"
-        />
-        <button type="submit" className="lb-gold px-3 py-1.5 text-sm" disabled={busy === "add"} data-testid="friend-add">
-          Add friend
-        </button>
-      </form>
+      <Section title="Find players" testId="friends-find">
+        <PlayerSearch />
+      </Section>
+
+      <details className="mt-2 px-1 text-xs text-bone/70" data-testid="friend-code-details">
+        <summary className="cursor-pointer select-none hover:text-bone">Have a friend code?</summary>
+        <form
+          className="mt-2 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void add();
+          }}
+        >
+          <label className="sr-only" htmlFor="friend-code">
+            Friend code
+          </label>
+          <input
+            id="friend-code"
+            className="min-w-0 flex-1 rounded-md border border-gilt/40 bg-black/30 px-2.5 py-1.5 font-mono text-sm uppercase tracking-widest text-bone placeholder:text-bone/40"
+            placeholder="ABCD-EFGH"
+            value={code}
+            maxLength={9}
+            onChange={(e) => setCode(e.target.value)}
+            data-testid="friend-code-input"
+          />
+          <button type="submit" className="lb-gold px-3 py-1.5 text-sm" disabled={busy === "add"} data-testid="friend-add">
+            Add friend
+          </button>
+        </form>
+      </details>
       {note && (
         <p className={`mt-1.5 text-xs ${note.tone === "ok" ? "text-[#a9e08f]" : "text-[#ffb4a3]"}`} role={note.tone === "bad" ? "alert" : "status"}>
           {note.text}

@@ -80,6 +80,13 @@ export const TRANSPORT_TEXT: Record<string, string> = {
   BOARD_NOT_FOUND: "That board no longer exists",
   SCENARIO_NOT_FOUND: "That scenario no longer exists",
   NOT_OWNER: "You do not own that",
+  FRIEND_NOT_FOUND: "No player has that code or username",
+  ALREADY_FRIENDS: "You are already friends",
+  NOT_FRIENDS: "You can only invite friends",
+  INVITE_NOT_FOUND: "That invite is no longer open",
+  INVITE_EXPIRED: "That invite has lapsed",
+  USERNAME_INVALID: "Usernames are 3 to 20 letters, digits or _",
+  USERNAME_TAKEN: "That username is taken",
   NETWORK: "Couldn't reach the game server. Retrying…",
 };
 

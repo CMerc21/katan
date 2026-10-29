@@ -21,14 +21,17 @@ import {
   HEARTBEAT_MS,
   friendshipFromRow,
   groupFriends,
+  hitFromRow,
   inviteFromRow,
   openInvites,
   profileFromRow,
+  searchable,
   toastReducer,
   type Activity,
   type FriendGroups,
   type Friendship,
   type Invite,
+  type PlayerHit,
   type Profile,
 } from "./model";
 
@@ -43,7 +46,11 @@ export interface Social {
   /** Invites waiting on me (the panel's list; toasts are the brief version). */
   readonly incomingInvites: readonly Invite[];
   readonly now: number;
-  sendFriendRequest(code: string): Promise<Result & { status?: "pending" | "accepted" }>;
+  /** Ask by friend code or by exact username (docs/phase13.md §3.1). */
+  sendFriendRequest(target: { code: string } | { username: string }): Promise<Result & { status?: "pending" | "accepted" }>;
+  /** Players whose handle starts with the query; an empty list for short or malformed queries. */
+  searchPlayers(query: string): Promise<{ ok: true; players: PlayerHit[] } | { ok: false; message: string }>;
+  setUsername(username: string): Promise<Result>;
   respondFriendRequest(fromUserId: string, accept: boolean): Promise<Result>;
   removeFriend(userId: string): Promise<Result>;
   invite(gameId: string, toUserId: string): Promise<Result>;
@@ -52,7 +59,7 @@ export interface Social {
 }
 
 const EMPTY_GROUPS: FriendGroups = { online: [], offline: [], incoming: [], outgoing: [] };
-const unavailable = async (): Promise<Result> => ({ ok: false, message: "Sign in to play with friends" });
+const unavailable = async () => ({ ok: false as const, message: "Sign in to play with friends" });
 
 const DEFAULTS: Social = {
   available: false,
@@ -62,6 +69,8 @@ const DEFAULTS: Social = {
   incomingInvites: [],
   now: 0,
   sendFriendRequest: unavailable,
+  searchPlayers: unavailable,
+  setUsername: unavailable,
   respondFriendRequest: unavailable,
   removeFriend: unavailable,
   invite: unavailable,
@@ -219,7 +228,18 @@ export function SocialProvider({ children }: { children: ReactNode }) {
             invites,
             incomingInvites,
             now,
-            sendFriendRequest: async (code) => after(await reply<{ status: "pending" | "accepted" }>("send-friend-request", { code })),
+            sendFriendRequest: async (target) => after(await reply<{ status: "pending" | "accepted" }>("send-friend-request", target)),
+            searchPlayers: async (query) => {
+              if (!searchable(query)) return { ok: true, players: [] };
+              const r = await callFunction<{ players: Record<string, unknown>[] }>("search-players", { query });
+              return r.ok ? { ok: true, players: (r.players ?? []).map(hitFromRow) } : { ok: false, message: errorText(r.code) };
+            },
+            setUsername: async (username) => {
+              const r = await callFunction<{ profile: Record<string, unknown> }>("set-username", { username });
+              if (!r.ok) return { ok: false, message: errorText(r.code) };
+              setMe(profileFromRow(r.profile));
+              return { ok: true };
+            },
             respondFriendRequest: async (fromUserId, accept) => after(await reply("respond-friend-request", { fromUserId, accept })),
             removeFriend: async (other) => after(await reply("remove-friend", { userId: other })),
             invite: async (gameId, toUserId) => after(await reply("send-invite", { gameId, toUserId })),

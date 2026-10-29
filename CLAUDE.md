@@ -90,7 +90,7 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 ### Phase 13 — Home lobby, wardrobe, friends and invites (built; Realtime delivery not yet verified against a Supabase stack)
 
-* `/` is a lobby scene (`apps/web/src/lobby/`): your full-body character (`renderFigure` in `packages/avatars`) on a painted SVG road, party slots either side, profile badge, rails, Solo / Online and Play (the hotseat and create/join forms moved into the Play sheet). A wardrobe that equips instantly and follows you into seats; `profiles`, `friendships`, `game_invites` with RLS and seven Edge Functions; a Friends sidebar (Online, Offline, Pending requests, Invite to your party); corner invite toasts with Accept / Decline mounted app-wide by `SocialProvider`. No engine change. Details in `docs/phase13.md`.
+* `/` is a lobby scene (`apps/web/src/lobby/`): your full-body character (`renderFigure` in `packages/avatars`) on a painted SVG road, party slots either side, profile badge, rails, Solo / Online and Play (the hotseat and create/join forms moved into the Play sheet). A wardrobe that equips instantly and follows you into seats; `profiles` (with a unique `username`), `friendships`, `game_invites` with RLS and nine Edge Functions; a Friends sidebar (find players by `@username`, Online, Offline, Pending requests, Invite to your party); corner invite toasts with Accept / Decline mounted app-wide by `SocialProvider`. No engine change. Details in `docs/phase13.md`.
 
 ## Conventions
 
@@ -130,7 +130,7 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 ## Web layout (apps/web)
 
 * `app/` — `/` (the home lobby, `src/lobby/HomeLobby`), `/hotseat`, `/play` (hotseat game), `/login`, `/join/[code]`, `/lobby/[code]`, `/play/[gameId]` (online game), `/boards` (board list), `/boards/editor/[[...id]]` (board editor). All client components.
-* `src/lobby/` — the home lobby (docs/phase13.md): `HomeLobby` (layout, panels), `LobbyScene` (seeded SVG backdrop), `Figure`, `WardrobePanel` + `wardrobe.ts` (pure, unit tested) + `useWardrobe` (localStorage and the profile), `FriendsPanel`, `PlaySheet` (hotseat / online forms), `useParty` (your open lobby and games), `icons`. Styles in `src/styles/lobby.css` (`lb-*`).
+* `src/lobby/` — the home lobby (docs/phase13.md): `HomeLobby` (layout, panels), `LobbyScene` (seeded SVG backdrop), `Figure`, `WardrobePanel` + `wardrobe.ts` (pure, unit tested) + `useWardrobe` (localStorage and the profile), `FriendsPanel` + `PlayerSearch` (username search and editor), `PlaySheet` (hotseat / online forms), `useParty` (your open lobby and games), `icons`. Styles in `src/styles/lobby.css` (`lb-*`).
 * `src/social/` — friends and invites: `model.ts` (pure: rows, online window, grouping, invitable states, the toast reducer; unit tested), `SocialProvider` (in the root layout: heartbeat, Realtime, actions, `useSocial()`), `InviteToasts`.
 * `src/driver/` — `GameDriver` interface (`types.ts`), `HotseatDriver` (in-memory, device handoff, optional bot seats) and `SupabaseDriver` (server views over Realtime, actions via Edge Functions, chat over `game_chat` + `send-chat`). Components never import `applyAction`; they only talk to a driver and its optional capabilities.
 * `src/lib/supabase.ts` — browser client, magic-link helpers, Edge Function envelope.

@@ -9,6 +9,11 @@ import {
   EMPTY_TOASTS,
   formatFriendCode,
   friendshipFromRow,
+  hitFromRow,
+  liveRelation,
+  normalizeUsername,
+  searchable,
+  usernameProblem,
   groupFriends,
   inviteFromRow,
   invitableFriends,
@@ -77,7 +82,7 @@ describe("docs/phase13.md §2 wardrobe", () => {
 });
 
 function profile(userId: string, name: string, seenAgo: number, activity: Profile["activity"] = "menu"): Profile {
-  return { userId, name, friendCode: "ABCDEFGH", avatar: null, color: null, activity, lastSeenAt: NOW - seenAgo };
+  return { userId, name, username: name.toLowerCase(), friendCode: "ABCDEFGH", avatar: null, color: null, activity, lastSeenAt: NOW - seenAgo };
 }
 
 function invite(id: string, over: Partial<Invite> = {}): Invite {
@@ -128,7 +133,7 @@ describe("docs/phase13.md §3 friend list", () => {
 
   it("maps rows defensively and formats codes", () => {
     const p = profileFromRow({ user_id: "u", display_name: "", friend_code: "ABCDEFGH", avatar: { skin: 1 }, color: "pink", activity: "dancing", last_seen_at: new Date(NOW).toISOString() });
-    expect(p).toEqual({ userId: "u", name: "Player", friendCode: "ABCDEFGH", avatar: null, color: null, activity: "menu", lastSeenAt: NOW });
+    expect(p).toEqual({ userId: "u", name: "Player", username: "", friendCode: "ABCDEFGH", avatar: null, color: null, activity: "menu", lastSeenAt: NOW });
     expect(friendshipFromRow({ requester: "a", addressee: "b", status: "weird", created_at: "bad" })).toEqual({ requester: "a", addressee: "b", status: "pending", createdAt: 0 });
     const i = inviteFromRow({ id: "i", game_id: "g", from_user: "a", to_user: "b", from_name: "Ana", join_code: "ABCDEF", status: "declined", created_at: new Date(NOW).toISOString() });
     expect(i).toMatchObject({ status: "declined", boardName: null, fromAvatar: null, createdAt: NOW });
@@ -163,5 +168,30 @@ describe("docs/phase13.md §4 invite toasts", () => {
     expect(toastReducer(s, { type: "sync", invites: [invite("y", { status: "accepted" })] }).toasts).toHaveLength(0);
     expect(toastReducer(s, { type: "sync", invites: [invite("y")] })).toBe(s);
     expect(openInvites([invite("o1", { createdAt: NOW - 5 }), invite("o2"), invite("o3", { status: "expired" }), invite("o4", { toUser: "ben" }), invite("o5", { createdAt: NOW - INVITE_TTL_MS - 1 })], "me", NOW).map((i) => i.id)).toEqual(["o2", "o1"]);
+  });
+});
+
+describe("docs/phase13.md §3.1 usernames and search", () => {
+  it("normalises handles, explains bad ones and only searches handle-shaped queries", () => {
+    expect(normalizeUsername("  @Ana_Bold ")).toBe("ana_bold");
+    expect(usernameProblem("@Ana_Bold")).toBeNull();
+    expect(usernameProblem("ab")).toBe("At least 3 characters");
+    expect(usernameProblem("x".repeat(21))).toBe("At most 20 characters");
+    expect(usernameProblem("dash-ed")).toBe("Only letters, digits and _");
+    expect(searchable("@ana")).toBe(true);
+    expect(searchable("@an")).toBe(false);
+    expect(searchable("an")).toBe(false);
+    expect(searchable("ana bold")).toBe(false);
+  });
+
+  it("maps hits defensively and lets the live friend list correct a stale relation", () => {
+    const hit = hitFromRow({ userId: "ben", username: "ben", displayName: "", avatar: { skin: 1 }, color: "pink", relation: "weird" });
+    expect(hit).toEqual({ userId: "ben", username: "ben", displayName: "Player", avatar: null, color: null, relation: "none" });
+    const entry = (userId: string) => ({ userId, profile: null, name: userId, online: false });
+    const empty = { online: [], offline: [], incoming: [], outgoing: [] };
+    expect(liveRelation(hit, { ...empty, outgoing: [entry("ben")] })).toBe("outgoing");
+    expect(liveRelation(hit, { ...empty, offline: [entry("ben")] })).toBe("friends");
+    expect(liveRelation(hit, { ...empty, incoming: [entry("ben")] })).toBe("incoming");
+    expect(liveRelation({ ...hit, relation: "friends" }, empty)).toBe("none");
   });
 });

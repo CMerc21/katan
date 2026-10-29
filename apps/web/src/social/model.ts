@@ -21,6 +21,8 @@ export type Activity = "menu" | "lobby" | "game";
 export interface Profile {
   readonly userId: string;
   readonly name: string;
+  /** The unique handle, shown as `@username` (docs/phase13.md §3.1). */
+  readonly username: string;
   readonly friendCode: string;
   readonly avatar: AvatarSpec | null;
   readonly color: PlayerColor | null;
@@ -68,6 +70,7 @@ export function profileFromRow(row: Record<string, unknown>): Profile {
   return {
     userId: str(row.user_id),
     name: str(row.display_name) || "Player",
+    username: str(row.username),
     friendCode: str(row.friend_code),
     avatar: isAvatarSpec(row.avatar) ? row.avatar : null,
     color,
@@ -94,6 +97,71 @@ export function inviteFromRow(row: Record<string, unknown>): Invite {
     status: statuses.includes(row.status as InviteStatus) ? (row.status as InviteStatus) : "pending",
     createdAt: time(row.created_at),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Usernames and search (docs/phase13.md §3.1). Same rules as packages/server/src/social-service.ts.
+
+export const USERNAME_PATTERN = /^[a-z0-9_]{3,20}$/;
+export const SEARCH_MIN_LENGTH = 3;
+/** Wait this long after the last keystroke before searching. */
+export const SEARCH_DEBOUNCE_MS = 300;
+
+export type Relation = "none" | "friends" | "outgoing" | "incoming";
+
+/** A search result: a name, a handle, a portrait and how you are connected; never a friend code or presence. */
+export interface PlayerHit {
+  readonly userId: string;
+  readonly username: string;
+  readonly displayName: string;
+  readonly avatar: AvatarSpec | null;
+  readonly color: PlayerColor | null;
+  readonly relation: Relation;
+}
+
+/** `@Ana_Bold` → `ana_bold`. */
+export function normalizeUsername(input: string): string {
+  return input.trim().replace(/^@/, "").toLowerCase();
+}
+
+/** Why a handle would be refused, or null when it is fine. */
+export function usernameProblem(input: string): string | null {
+  const u = normalizeUsername(input);
+  if (u.length < 3) return "At least 3 characters";
+  if (u.length > 20) return "At most 20 characters";
+  if (!USERNAME_PATTERN.test(u)) return "Only letters, digits and _";
+  return null;
+}
+
+/** Whether a query is worth sending: long enough and only handle characters. */
+export function searchable(query: string): boolean {
+  const q = normalizeUsername(query);
+  return q.length >= SEARCH_MIN_LENGTH && q.length <= 20 && /^[a-z0-9_]+$/.test(q);
+}
+
+export function hitFromRow(row: Record<string, unknown>): PlayerHit {
+  const relations: readonly Relation[] = ["none", "friends", "outgoing", "incoming"];
+  const color = typeof row.color === "string" && (PLAYER_COLORS as readonly string[]).includes(row.color) ? (row.color as PlayerColor) : null;
+  return {
+    userId: str(row.userId),
+    username: str(row.username),
+    displayName: str(row.displayName) || "Player",
+    avatar: isAvatarSpec(row.avatar) ? row.avatar : null,
+    color,
+    relation: relations.includes(row.relation as Relation) ? (row.relation as Relation) : "none",
+  };
+}
+
+/**
+ * A search hit's relation, corrected by what the friend list already knows:
+ * after you press Add, the list updates before the next search does.
+ */
+export function liveRelation(hit: PlayerHit, groups: FriendGroups): Relation {
+  const has = (list: readonly FriendEntry[]) => list.some((e) => e.userId === hit.userId);
+  if (has(groups.online) || has(groups.offline)) return "friends";
+  if (has(groups.outgoing)) return "outgoing";
+  if (has(groups.incoming)) return "incoming";
+  return "none"; // the list is live (Realtime); the hit was a snapshot at search time
 }
 
 /** `ABCD-EFGH` for display; the server accepts either form. */

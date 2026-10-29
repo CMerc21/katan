@@ -17,7 +17,7 @@ import { Avatar } from "@/components/Avatar";
 import { SettingsBody } from "@/hud/SettingsMenu";
 import { useSession } from "@/hooks/useSession";
 import { displayNameOf, signOut } from "@/lib/supabase";
-import { formatFriendCode, INVITE_TTL_MS } from "@/social/model";
+import { INVITE_TTL_MS } from "@/social/model";
 import { useSocial } from "@/social/SocialProvider";
 import { Figure } from "./Figure";
 import { FriendsPanel, type PartyInfo } from "./FriendsPanel";
@@ -220,7 +220,7 @@ export function HomeLobby() {
           </p>
           {session ? (
             <p className="text-[11px] text-bone/70">
-              {social.me ? <span className="font-mono tracking-wider">{formatFriendCode(social.me.friendCode)}</span> : "…"} ·{" "}
+              {social.me ? <span className="font-mono" data-testid="profile-username">@{social.me.username}</span> : "…"} ·{" "}
               <button type="button" className="underline hover:text-bone" onClick={() => void signOut()}>
                 sign out
               </button>
