@@ -6,6 +6,7 @@ import { Button } from "@/components/ui";
 import { errorText } from "@/game/labels";
 import { useRequireSession } from "@/hooks/useSession";
 import { callFunction, displayNameOf } from "@/lib/supabase";
+import { lookOf, readWardrobe } from "@/lobby/useWardrobe";
 
 /** Invite link: join by code then go to the lobby (docs/phase5.md §1). */
 export default function JoinPage() {
@@ -17,7 +18,7 @@ export default function JoinPage() {
   useEffect(() => {
     if (loading || !session) return;
     void (async () => {
-      const reply = await callFunction<{ gameId: string; playerId: string }>("join-game", { code, name: displayNameOf(session) });
+      const reply = await callFunction<{ gameId: string; playerId: string }>("join-game", { code, name: displayNameOf(session), ...lookOf(readWardrobe()) });
       if (!reply.ok) return setProblem(errorText(reply.code));
       router.replace(`/lobby/${code.toUpperCase()}`);
     })();

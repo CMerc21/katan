@@ -37,6 +37,7 @@ test("3-player hotseat: setup by clicking, roll, end turn twice", async ({ page 
 
   await page.goto("/");
   await page.waitForLoadState("networkidle");
+  await page.getByTestId("lobby-play").click(); // the hotseat form is behind Play (docs/phase13.md §1)
   await page.getByTestId("count-3").click();
   await page.getByTestId("name-0").fill("Ada");
   await page.getByTestId("board-beginner").click();

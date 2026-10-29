@@ -22,6 +22,7 @@ for (const id of BUILT_IN_SCENARIO_IDS) {
 
     await page.goto("/");
     await page.waitForLoadState("networkidle");
+    await page.getByTestId("lobby-play").click(); // the hotseat form is behind Play (docs/phase13.md §1)
     const card = page.getByTestId(`scenario-${id}`);
     await expect(card).toBeVisible();
     await expect(card).toBeEnabled();

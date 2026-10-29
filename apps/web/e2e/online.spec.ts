@@ -51,6 +51,8 @@ async function loginAs(browser: Browser, email: string, name: string): Promise<P
     { url: URL!, anon: ANON!, email, token: link.properties.email_otp },
   );
   await page.goto("/");
+  await page.getByTestId("mode-online").click();
+  await page.getByTestId("lobby-play").click(); // the online forms are behind Play (docs/phase13.md §1)
   await expect(page.getByTestId("create-lobby")).toBeVisible();
   return page;
 }

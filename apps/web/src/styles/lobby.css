@@ -1,0 +1,385 @@
+/*
+ * The home lobby (docs/phase13.md §1): dark slate plaques with a gilt edge
+ * over a painted sunset scene, a gold call-to-action, hex frames, and the
+ * motion that makes the scene feel alive. All motion stops under
+ * prefers-reduced-motion.
+ */
+
+.lb-root {
+  --lb-slate: #23201c;
+  --lb-slate-2: #36302a;
+  --lb-gilt: #d9b45a;
+  --lb-gilt-deep: #8a6a22;
+  --lb-gold-1: #ffe08a;
+  --lb-gold-2: #f0b931;
+  --lb-gold-3: #c98a12;
+  color: var(--color-bone);
+}
+
+.lb-plaque {
+  background: linear-gradient(180deg, rgba(58, 52, 46, 0.94), rgba(30, 27, 24, 0.94));
+  border: 1.5px solid rgba(217, 180, 90, 0.55);
+  border-radius: 10px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 200, 0.12),
+    inset 0 0 0 2px rgba(0, 0, 0, 0.35),
+    0 6px 18px rgba(0, 0, 0, 0.35);
+  color: var(--color-bone);
+}
+
+/* Square rail buttons: icon over a small-caps label. */
+.lb-rail-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  width: 7.25rem;
+  height: 4.25rem;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: transform 120ms ease, border-color 120ms ease, filter 120ms ease;
+}
+.lb-rail-btn:hover,
+.lb-rail-btn[aria-expanded="true"] {
+  transform: translateY(-1px);
+  border-color: var(--lb-gilt);
+  filter: brightness(1.12);
+}
+.lb-rail-btn svg {
+  width: 1.9rem;
+  height: 1.9rem;
+}
+@media (max-width: 640px) {
+  .lb-rail-btn {
+    width: 3.4rem;
+    height: 3.4rem;
+    font-size: 0;
+  }
+}
+
+.lb-badge {
+  position: absolute;
+  top: -0.4rem;
+  right: -0.4rem;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: #b83a2c;
+  border: 1.5px solid var(--color-bone);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.1rem;
+  text-align: center;
+}
+
+.lb-gold {
+  border-radius: 8px;
+  border: 2px solid #6b4a12;
+  background: linear-gradient(180deg, var(--lb-gold-1, #ffe08a) 0%, var(--lb-gold-2, #f0b931) 55%, var(--lb-gold-3, #c98a12) 100%);
+  color: #2a1c08;
+  font-weight: 700;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.18),
+    0 3px 0 #5a3d0c,
+    0 6px 14px rgba(0, 0, 0, 0.35);
+  transition: transform 100ms ease, filter 100ms ease, box-shadow 100ms ease;
+}
+.lb-gold:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+.lb-gold:active {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.4),
+    0 1px 0 #5a3d0c;
+}
+.lb-gold:disabled {
+  filter: grayscale(0.7) brightness(0.85);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.lb-dark {
+  border-radius: 8px;
+  border: 1.5px solid rgba(217, 180, 90, 0.45);
+  background: rgba(20, 18, 16, 0.7);
+  color: var(--color-bone);
+  font-weight: 600;
+}
+.lb-dark:hover {
+  border-color: var(--lb-gilt, #d9b45a);
+  background: rgba(40, 35, 30, 0.85);
+}
+.lb-dark[aria-pressed="true"],
+.lb-dark[aria-checked="true"] {
+  background: linear-gradient(180deg, #f6d27a, #d89f22);
+  color: #2a1c08;
+  border-color: #6b4a12;
+}
+
+.lb-play {
+  font-family: var(--font-display);
+  font-size: 2.1rem;
+  letter-spacing: 0.06em;
+  padding: 0.6rem 2.2rem 0.7rem;
+  border-width: 3px;
+  border-radius: 12px;
+}
+@media (max-width: 640px) {
+  .lb-play {
+    font-size: 1.5rem;
+    padding: 0.45rem 1.3rem 0.5rem;
+  }
+}
+
+/* Pointy-top hexagon frames (profile badge, party slots, library). */
+.lb-hex {
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+}
+.lb-hex-frame {
+  padding: 4px;
+  background: linear-gradient(160deg, #f6d27a, #a87a1c 60%, #f0c860);
+}
+.lb-hex-inner {
+  background: radial-gradient(circle at 50% 35%, #b84a30, #7a2216 70%);
+}
+
+/* Segmented Solo / Online toggle. */
+.lb-segment {
+  display: inline-flex;
+  overflow: hidden;
+  padding: 0;
+}
+.lb-segment button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.45rem 1.1rem 0.35rem;
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-bone);
+}
+.lb-segment button[aria-checked="true"] {
+  background: linear-gradient(180deg, #ffe08a, #f0b931 60%, #c98a12);
+  color: #2a1c08;
+}
+.lb-segment svg {
+  width: 1.6rem;
+  height: 1.6rem;
+}
+
+/* Side sheets: slide in over the scene, never a modal. */
+.lb-sheet {
+  max-height: calc(100dvh - 1.5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.lb-sheet-left {
+  animation: lb-in-left 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.lb-sheet-right {
+  animation: lb-in-right 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes lb-in-left {
+  from {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+}
+@keyframes lb-in-right {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+/* Parchment inside a sheet keeps the existing forms (hotseat, create) readable. */
+.lb-sheet .parchment-card {
+  color: var(--color-ink);
+}
+
+/* The showcase. */
+.lb-figure {
+  transform-origin: 50% 95%;
+  animation: lb-breathe 3.6s ease-in-out infinite;
+}
+.lb-figure-pop {
+  animation: lb-pop 420ms cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+@keyframes lb-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  50% {
+    transform: translateY(-3px) scaleY(1.012);
+  }
+}
+@keyframes lb-pop {
+  0% {
+    transform: scale(0.92) translateY(6px);
+  }
+  60% {
+    transform: scale(1.04) translateY(-4px);
+  }
+  100% {
+    transform: scale(1) translateY(0);
+  }
+}
+.lb-nameplate {
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  color: #ffe9a8;
+  text-shadow:
+    0 1px 0 #6b4a12,
+    0 2px 6px rgba(0, 0, 0, 0.55);
+}
+
+/* The banner the name and title hang on. */
+.lb-ribbon {
+  position: relative;
+  background: linear-gradient(180deg, rgba(58, 30, 18, 0.88), rgba(32, 18, 10, 0.88));
+  border-top: 1.5px solid rgba(217, 180, 90, 0.7);
+  border-bottom: 1.5px solid rgba(217, 180, 90, 0.7);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 50%, 100% 100%, 0 100%, 12px 50%);
+}
+
+/* Party slot: a hex with a dashed "+person" until someone sits there. */
+.lb-slot {
+  transition: transform 140ms ease, filter 140ms ease;
+}
+.lb-slot:hover {
+  transform: translateY(-2px) scale(1.04);
+  filter: brightness(1.12);
+}
+
+/* Scene motion. */
+.lb-cloud {
+  animation: lb-drift 90s linear infinite alternate;
+}
+.lb-cloud-slow {
+  animation: lb-drift 140s linear infinite alternate-reverse;
+}
+@keyframes lb-drift {
+  from {
+    transform: translateX(-60px);
+  }
+  to {
+    transform: translateX(60px);
+  }
+}
+.lb-sway {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: lb-sway 4.5s ease-in-out infinite;
+}
+@keyframes lb-sway {
+  0%,
+  100% {
+    transform: rotate(-2.5deg);
+  }
+  50% {
+    transform: rotate(2.5deg);
+  }
+}
+.lb-flag {
+  transform-box: fill-box;
+  transform-origin: 0% 50%;
+  animation: lb-flag 2.4s ease-in-out infinite;
+}
+@keyframes lb-flag {
+  0%,
+  100% {
+    transform: scaleX(1) skewY(0deg);
+  }
+  50% {
+    transform: scaleX(0.86) skewY(6deg);
+  }
+}
+.lb-sun {
+  animation: lb-glow 6s ease-in-out infinite;
+}
+@keyframes lb-glow {
+  0%,
+  100% {
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.lb-bird {
+  animation: lb-fly 38s linear infinite;
+}
+@keyframes lb-fly {
+  from {
+    transform: translate(-120px, 0);
+  }
+  to {
+    transform: translate(1700px, -60px);
+  }
+}
+.lb-play-hint {
+  animation: lb-nudge 1.6s ease-in-out infinite;
+}
+@keyframes lb-nudge {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(6px, 4px);
+  }
+}
+
+/* Toasts. */
+.lb-toast-in {
+  animation: lb-toast 260ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes lb-toast {
+  from {
+    transform: translateX(110%);
+    opacity: 0;
+  }
+}
+.lb-toast-timer {
+  width: 100%;
+  transform-origin: 0 50%;
+  animation-name: lb-timer;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@keyframes lb-timer {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lb-figure,
+  .lb-figure-pop,
+  .lb-cloud,
+  .lb-cloud-slow,
+  .lb-sway,
+  .lb-flag,
+  .lb-sun,
+  .lb-bird,
+  .lb-play-hint,
+  .lb-toast-in,
+  .lb-sheet-left,
+  .lb-sheet-right {
+    animation: none;
+  }
+}

@@ -17,6 +17,7 @@ test("Gold Coast hotseat: pirate on the sea, a setup ship on a coastal settlemen
 
   await page.goto("/");
   await page.waitForLoadState("networkidle");
+  await page.getByTestId("lobby-play").click(); // the hotseat form is behind Play (docs/phase13.md §1)
   const card = page.getByTestId("scenario-goldCoast");
   await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("data-scenario", "tides");

@@ -13,6 +13,9 @@ import type { SeatInfo } from "@/driver/types";
 import { errorText } from "@/game/labels";
 import { useRequireSession } from "@/hooks/useSession";
 import { callFunction, displayNameOf, supabase } from "@/lib/supabase";
+import { lookOf, readWardrobe } from "@/lobby/useWardrobe";
+import { invitableFriends } from "@/social/model";
+import { useSocial } from "@/social/SocialProvider";
 
 interface Lobby {
   id: string;
@@ -37,6 +40,8 @@ export default function LobbyPage() {
   const [botLevel, setBotLevel] = useState<BotLevel>("medium");
   const [nameDraft, setNameDraft] = useState<{ playerId: string; name: string } | null>(null);
   const upper = code.toUpperCase();
+  const social = useSocial();
+  const [inviting, setInviting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const client = supabase();
@@ -58,7 +63,7 @@ export default function LobbyPage() {
         let l = await load();
         if (!l) {
           // Not a member yet (arrived by code): join, then load.
-          const reply = await callFunction("join-game", { code: upper, name: displayNameOf(session) });
+          const reply = await callFunction("join-game", { code: upper, name: displayNameOf(session), ...lookOf(readWardrobe()) });
           if (!reply.ok) return setProblem(errorText(reply.code));
           l = await load();
           if (!l) return setProblem(errorText("INVALID_CODE"));
@@ -220,6 +225,49 @@ export default function LobbyPage() {
           {seats.length < lobby.max_players && <li className="px-3 py-2 text-sm text-ink-soft">Open seat</li>}
         </ul>
       </section>
+
+      {social.available && (
+        <section className="mt-6" aria-label="Invite friends" data-testid="lobby-invite">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-soft">Invite friends</h2>
+          {(() => {
+            const list = invitableFriends(
+              social.groups,
+              { gameId: lobby.id, seatedUserIds: seats.flatMap((s) => (s.userId ? [s.userId] : [])), openSeats: lobby.max_players - seats.length },
+              social.invites,
+              session.user.id,
+              social.now,
+            );
+            if (list.length === 0) return <p className="mt-1 text-sm text-ink-soft">No friends online. Add friends from the home screen with their friend code.</p>;
+            return (
+              <ul className="mt-2 divide-y divide-line rounded-md border border-line bg-white/40">
+                {list.map(({ entry, state }) => (
+                  <li key={entry.userId} className="flex items-center gap-3 px-3 py-1.5">
+                    <Avatar spec={entry.profile?.avatar} color={entry.profile?.color ?? "blue"} name={entry.name} size={32} />
+                    <span className="font-medium">{entry.name}</span>
+                    <span className="ml-auto">
+                      <Button
+                        size="sm"
+                        variant={state === "invite" ? "primary" : "quiet"}
+                        disabled={state !== "invite" || inviting === entry.userId}
+                        onClick={() => {
+                          setInviting(entry.userId);
+                          void social.invite(lobby.id, entry.userId).then((r) => {
+                            setInviting(null);
+                            if (!r.ok) setToast(r.message);
+                          });
+                        }}
+                        data-testid={`lobby-invite-${entry.userId}`}
+                      >
+                        {state === "invite" ? "Invite" : state === "invited" ? "Invited" : state === "seated" ? "Seated" : "Full"}
+                      </Button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            );
+          })()}
+        </section>
+      )}
 
       <div className="mt-6 flex flex-wrap items-center gap-2">
         {me && (

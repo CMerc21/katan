@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "../src/styles/hud.css";
+@import "../src/styles/lobby.css";
 
 /* Tokens (docs/art-direction.md §1) */
 @theme {
@@ -13,6 +14,7 @@
   --color-wax: #9b2226;
   --color-wax-deep: #6f1519;
   --color-gilt: #c9a227;
+  --color-bone: #f2ead6;
   --color-water: #4a7d8c;
   --color-wood: #3e6b46;
   --color-clay: #b25a3d;

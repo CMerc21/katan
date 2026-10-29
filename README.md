@@ -7,13 +7,13 @@ editor, the Tides module (ships, gold fields, islands, the pirate), the Wayfarer
 
 ## How to play with friends
 
-1. Open the site and sign in with your email (we send a link and a code; no password).
-2. **Create game**, pick a board or a scenario — Tides (Across the Strait, Archipelago, Gold Coast), Wayfarers (The Great Lake, River Country, Coastal Watch, Salt Road) or Crown & Castle — Standard — and the player count (3 to 6, as the board allows).
-3. Share the **invite link** (or the 6-letter code) from the lobby. Friends sign in the same way and land in your lobby.
+1. Open the site and sign in with your email (we send a link and a code; no password). Dress your character in the **Wardrobe**; the look comes with you into every game.
+2. Press **Play** with **Online** selected, then **Create game**, pick a board or a scenario — Tides (Across the Strait, Archipelago, Gold Coast), Wayfarers (The Great Lake, River Country, Coastal Watch, Salt Road) or Crown & Castle — Standard — and the player count (3 to 6, as the board allows).
+3. Share the **invite link** (or the 6-letter code) from the lobby. Friends sign in the same way and land in your lobby. Or add each other once with your 8-character **friend code** (Friends, on the left): after that, invite an online friend straight from the Friends list or an empty slot beside your character, and they get an Accept / Decline notice wherever they are on the site.
 4. Short a player? **Add bot** (easy, medium or hard). Everyone presses **I'm ready**; the host presses **Start game**.
 5. Play. The screen always says who the game is waiting for. If someone has to leave, they can press **Let a bot play for me** and take the seat back later; the host can hand an absent player's seat to a bot after 10 minutes.
 
-Prefer one screen? **Hotseat** plays on a single device, passing it around, with optional bot seats.
+Prefer one screen? Switch to **Solo** and press **Play**: hotseat plays on a single device, passing it around, with optional bot seats.
 
 Want your own map? **Boards** opens the editor: paint land and sea, auto-fill tokens and harbours, save a draft (no account needed) or share it publicly, and turn it into a scenario with ships, gold fields, islands, rivers, fishing grounds, oases, any mix of the Wayfarers variants or the Crown & Castle module, and a custom goal. Saved boards and scenarios appear in the picker when you create a game.
 

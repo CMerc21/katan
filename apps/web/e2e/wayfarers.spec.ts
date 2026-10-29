@@ -20,6 +20,7 @@ async function startScenario(page: Page, id: string): Promise<void> {
   });
   await page.goto("/");
   await page.waitForLoadState("networkidle");
+  await page.getByTestId("lobby-play").click(); // the hotseat form is behind Play (docs/phase13.md §1)
   const card = page.getByTestId(`scenario-${id}`);
   await expect(card).toBeVisible();
   await card.click();

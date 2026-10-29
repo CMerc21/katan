@@ -55,6 +55,7 @@ test("Crown & Castle — Standard hotseat: setup, a roll with the event die, the
 
   await page.goto("/");
   await page.waitForLoadState("networkidle");
+  await page.getByTestId("lobby-play").click(); // the hotseat form is behind Play (docs/phase13.md §1)
   const card = page.getByTestId("scenario-crownStandard");
   await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("data-scenario", "crown");

@@ -67,6 +67,7 @@ test("paint an island, auto-fill, save a draft, then play it hotseat", async ({ 
   await expect(page.getByText("Isle test").first()).toBeVisible();
   await page.goto("/");
   await page.waitForLoadState("networkidle");
+  await page.getByTestId("lobby-play").click(); // the hotseat form is behind Play (docs/phase13.md §1)
   const draftCard = page.locator('[data-testid^="board-draft-"]').first();
   await expect(draftCard).toBeVisible();
   await expect(draftCard.getByTestId("board-card-name")).toHaveText("Isle test");
@@ -174,6 +175,7 @@ test.describe("wayfarers-editor", () => {
     await expect(page.getByText("Marsh test").first()).toBeVisible();
     await page.goto("/");
     await page.waitForLoadState("networkidle");
+    await page.getByTestId("lobby-play").click(); // the hotseat form is behind Play (docs/phase13.md §1)
     const draftCard = page.locator('[data-testid^="scenario-draft-"]').first();
     await expect(draftCard).toBeVisible();
     await expect(draftCard.getByTestId("board-card-name")).toContainText("Marsh test");

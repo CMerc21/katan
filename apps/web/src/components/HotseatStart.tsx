@@ -22,8 +22,11 @@ function randomSeed(): string {
   return out;
 }
 
-/** Start a hotseat game on this device (docs/phase3.md §3.1); seats may be bots with medieval names and portraits (docs/phase7.md §4–§5). */
-export function HotseatStart() {
+/**
+ * Start a hotseat game on this device (docs/phase3.md §3.1); seats may be bots with medieval names and portraits (docs/phase7.md §4–§5).
+ * From the home lobby, seat 1 wears your wardrobe (docs/phase13.md §2).
+ */
+export function HotseatStart({ you }: { you?: { avatar: AvatarSpec } } = {}) {
   const router = useRouter();
   const { session } = useSession();
   const [count, setCount] = useState<number>(4);
@@ -35,7 +38,7 @@ export function HotseatStart() {
   const [names, setNames] = useState<string[]>(DEFAULT_NAMES);
   const [touched, setTouched] = useState<boolean[]>(() => DEFAULT_NAMES.map(() => false));
   const [kinds, setKinds] = useState<SeatKind[]>(() => DEFAULT_NAMES.map(() => "human" as const));
-  const [avatars, setAvatars] = useState<AvatarSpec[]>(() => DEFAULT_NAMES.map((n, i) => avatarFromSeed(`hotseat:${n}:${i}`)));
+  const [avatars, setAvatars] = useState<AvatarSpec[]>(() => DEFAULT_NAMES.map((n, i) => (i === 0 && you ? you.avatar : avatarFromSeed(`hotseat:${n}:${i}`))));
   const [board, setBoard] = useState<BoardChoice>({ kind: "builtin", id: "beginner" });
   const [problem, setProblem] = useState<string | null>(null);
   const seatCap = Math.min(MAX_SEATS, choiceDefinition(board).seats.max);

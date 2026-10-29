@@ -88,6 +88,10 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 * Presentation, plus three small rules that the HUD exposes: counter-offers (`COUNTER_TRADE` / `ACCEPT_COUNTER`, `docs/rules.md` §9.1), taking the last paid build back (`UNDO_BUILD`, §5.6) and razing a sacked city with no settlement piece left (§16.6). One full-bleed diorama with a single `HudLayer` over it (`apps/web/src/hud/`): player banners across the top, an icon-only resource tray, a left rail of square icon buttons with slide-in side panels (chat, emote, log, stats, rules, settings, leave), the parchment build-cost card, round Trade / End turn / Cards buttons, dark event toasts and help tips fed by `hudCopy.ts`. On-table props in `apps/web/src/board/props/` (bank decks, piece piles, the barbarian track). The old sidebar and bottom bar are gone (tag `hud-legacy`). Details in `docs/phase12.md`.
 
+### Phase 13 — Home lobby, wardrobe, friends and invites (built; Realtime delivery not yet verified against a Supabase stack)
+
+* `/` is a lobby scene (`apps/web/src/lobby/`): your full-body character (`renderFigure` in `packages/avatars`) on a painted SVG road, party slots either side, profile badge, rails, Solo / Online and Play (the hotseat and create/join forms moved into the Play sheet). A wardrobe that equips instantly and follows you into seats; `profiles`, `friendships`, `game_invites` with RLS and seven Edge Functions; a Friends sidebar (Online, Offline, Pending requests, Invite to your party); corner invite toasts with Accept / Decline mounted app-wide by `SocialProvider`. No engine change. Details in `docs/phase13.md`.
+
 ## Conventions
 
 * Commit per meaningful step with a message in the form `phaseN: <what>`.
@@ -100,7 +104,7 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 ## Packages
 
-* `packages/engine` — rules (pure). `packages/bots` — AI policies over redacted views (pure) and seeded bot names. `packages/avatars` — seeded SVG portraits (pure). `packages/server` — game and lobby transactions over a `postgres` client, shared by the Edge Functions and the Node tests. `apps/web` — Next.js client. `supabase/` — migrations, config, Edge Functions (thin Deno handlers importing `_shared/katan.bundle.js`).
+* `packages/engine` — rules (pure). `packages/bots` — AI policies over redacted views (pure) and seeded bot names. `packages/avatars` — seeded SVG portraits (pure). `packages/server` — game, lobby and social (profiles, friends, invites) transactions over a `postgres` client, shared by the Edge Functions and the Node tests. `apps/web` — Next.js client. `supabase/` — migrations, config, Edge Functions (thin Deno handlers importing `_shared/katan.bundle.js`).
 
 ## Engine layout (packages/engine/src)
 
@@ -125,7 +129,9 @@ Work one phase per session. Do not start the next phase's files early. Stop when
 
 ## Web layout (apps/web)
 
-* `app/` — `/` (online home + hotseat form), `/hotseat`, `/play` (hotseat game), `/login`, `/join/[code]`, `/lobby/[code]`, `/play/[gameId]` (online game), `/boards` (board list), `/boards/editor/[[...id]]` (board editor). All client components.
+* `app/` — `/` (the home lobby, `src/lobby/HomeLobby`), `/hotseat`, `/play` (hotseat game), `/login`, `/join/[code]`, `/lobby/[code]`, `/play/[gameId]` (online game), `/boards` (board list), `/boards/editor/[[...id]]` (board editor). All client components.
+* `src/lobby/` — the home lobby (docs/phase13.md): `HomeLobby` (layout, panels), `LobbyScene` (seeded SVG backdrop), `Figure`, `WardrobePanel` + `wardrobe.ts` (pure, unit tested) + `useWardrobe` (localStorage and the profile), `FriendsPanel`, `PlaySheet` (hotseat / online forms), `useParty` (your open lobby and games), `icons`. Styles in `src/styles/lobby.css` (`lb-*`).
+* `src/social/` — friends and invites: `model.ts` (pure: rows, online window, grouping, invitable states, the toast reducer; unit tested), `SocialProvider` (in the root layout: heartbeat, Realtime, actions, `useSocial()`), `InviteToasts`.
 * `src/driver/` — `GameDriver` interface (`types.ts`), `HotseatDriver` (in-memory, device handoff, optional bot seats) and `SupabaseDriver` (server views over Realtime, actions via Edge Functions, chat over `game_chat` + `send-chat`). Components never import `applyAction`; they only talk to a driver and its optional capabilities.
 * `src/lib/supabase.ts` — browser client, magic-link helpers, Edge Function envelope.
 * `src/game/store.ts` — in-memory holder for the live driver; a reload loses it and `/play` redirects to `/`.
